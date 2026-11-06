@@ -5,10 +5,15 @@
 ### Added
 
 - Share a server install with other people. An admin invites someone from Settings → Account & privacy → People and sends them a one-time link; they pick a name and password and work in the same workspace as themselves. Each person has a role (owner, admin, member, viewer), and a member's permissions (reply, read files, answer commands, save standing rules, manage agents) are chosen when they are invited and can be changed later. Removing someone signs them out and ends their open event streams at once. Members can change their own password, the owner can hand the workspace to another member, and every membership change is recorded. Turns and approvals show which person sent or answered them, agents are told whose message they are answering when several people share a workspace, and a member's chats are not learned as the owner's. Not available in the desktop app, which stays one person. See [docs/AUTH.md](docs/AUTH.md#members).
+- Add boxd as a Desktop cloud computer choice, **Cloud · boxd**, next to Muapi and Boat. Each agent computer is one boxd machine (a full Ubuntu VM): commands, files and the 1280x800 desktop's screen tools go through the boxd API, stopping hibernates the machine and starting wakes it in about a second, and removal deletes it. The boxd API key is stored like the Boat key, encrypted in the Desktop profile and used only by the local backend. The boxd SDK is an optional backend extra (`uv sync --extra boxd`) that the desktop package includes. See docs/COMPUTERS.md. Checked with unit tests (fake boxd client), a live provider check and a source-run desktop backend whose Claude turn used a real boxd computer; no packaged-app check.
 
 ### Changed
 
 - Changing notification settings now needs an admin when people share a workspace, because it is one setting for everyone. Paired phones keep their access.
+
+### Fixed
+
+- Serve `GET` and `DELETE /computers/boat-credentials` and `/computers/muapi-credentials` again in the full API. The computer routes were registered first, so `/computers/{computer_id}` answered them with a 422.
 
 ## 0.8.5 - 2026-11-09
 
@@ -24,7 +29,6 @@
 - Improve the visual workflow builder with note and shape toolbars and validation for step connections.
 - Muapi is now a cloud computer provider alongside Boat. In the computer panel choose **Cloud · Muapi** (listed first) or **Cloud · Boat**; each has its own encrypted, write-only API key on this device. Muapi computers are shell-only for now and are billed per second from your Muapi credits while running. Covered by new provider unit tests against a mocked Muapi API; not yet tried against the live Muapi service.
 - Open your paid hosted workspace from the desktop app. A new **Workspace** menu (Cmd/Ctrl+1 for this computer, +2 for hosted), a Settings → Account button and a sandboxed hosted view show your cloud workspace in the same window. You sign in to it separately with your hosted email and password, hosted sign-out clears only that view, and local data is never copied or changed. On by default; set `OPEN_DOTS_HOSTED_WORKSPACE=0` to turn it off. Checked with unit tests and a source-run Electron smoke; no packaged-build or staging-account check yet.
-
 ## 0.8.3 - 2026-11-06
 
 ### Added

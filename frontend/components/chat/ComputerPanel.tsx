@@ -46,6 +46,13 @@ const CLOUD_PROVIDERS = {
     save: (key: string) => api.saveBoatCredential(key),
     remove: () => api.deleteBoatCredential(),
   },
+  boxd: {
+    label: "boxd",
+    description: "boxd computers are full Linux virtual machines in your boxd account. They have internet access and may incur usage charges. Stopping one hibernates it (memory and disk are kept), and a later turn wakes it in about a second when auto-start is enabled. Screenshots can be returned to the selected engine.",
+    status: () => api.boxdCredentialStatus(),
+    save: (key: string) => api.saveBoxdCredential(key),
+    remove: () => api.deleteBoxdCredential(),
+  },
 } as const;
 
 const FIELD =
@@ -104,12 +111,12 @@ function DockerComputerView({
   const [kind, setKind] = useState<ComputerKind>("shell");
   const [advanced, setAdvanced] = useState(false);
   const [network, setNetwork] = useState<ComputerNetwork>("none");
-  const [provider, setProvider] = useState<"docker" | "muapi" | "boat">("docker");
-  const [configured, setConfigured] = useState<Record<"muapi" | "boat", boolean | null>>({ muapi: null, boat: null });
+  const [provider, setProvider] = useState<"docker" | "muapi" | "boat" | "boxd">("docker");
+  const [configured, setConfigured] = useState<Record<"muapi" | "boat" | "boxd", boolean | null>>({ muapi: null, boat: null, boxd: null });
   const [cloudKey, setCloudKey] = useState("");
   const [muapiSize, setMuapiSize] = useState<number>(8192);
   const isCloud = provider !== "docker";
-  const cloud = provider === "muapi" ? CLOUD_PROVIDERS.muapi : CLOUD_PROVIDERS.boat;
+  const cloud = CLOUD_PROVIDERS[provider === "docker" ? "boat" : provider];
   const cloudConfigured = isCloud ? configured[provider] : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +153,7 @@ function DockerComputerView({
   useEffect(() => {
     if (phase.kind !== "none" || phase.health?.hosted) return;
     let active = true;
-    (["muapi", "boat"] as const).forEach((key) => {
+    (["muapi", "boat", "boxd"] as const).forEach((key) => {
       void CLOUD_PROVIDERS[key].status().then((result) => {
         if (active) setConfigured((current) => ({ ...current, [key]: result.configured }));
       }).catch(() => {
@@ -214,9 +221,13 @@ function DockerComputerView({
             <input type="radio" name="computer-provider" checked={provider === "muapi"} onChange={() => { setProvider("muapi"); setKind("shell"); setCloudKey(""); }} />
             Cloud · Muapi
           </label>
-          <label className="inline-flex items-center gap-2">
+          <label className="mr-4 inline-flex items-center gap-2">
             <input type="radio" name="computer-provider" checked={provider === "boat"} onChange={() => { setProvider("boat"); setCloudKey(""); }} />
             Cloud · Boat
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="radio" name="computer-provider" checked={provider === "boxd"} onChange={() => { setProvider("boxd"); setCloudKey(""); }} />
+            Cloud · boxd
           </label>
         </fieldset>
         {provider === "docker" && docker && !docker.available && (
@@ -230,7 +241,7 @@ function DockerComputerView({
             {cloudConfigured ? (
               <p className="text-xs text-muted">{cloud.label} API key saved on this device. Enter a new key to replace it.</p>
             ) : (
-              <p className="text-xs text-muted">Add a {cloud.label} API key to enable {cloud.label} computers.{provider === "muapi" && <> Get one at <a className="text-accent underline underline-offset-2 hover:opacity-80" href="https://muapi.ai/access-keys" target="_blank" rel="noopener noreferrer">muapi.ai</a>.</>}</p>
+              <p className="text-xs text-muted">Add a {cloud.label} API key to enable {cloud.label} computers.{provider === "muapi" && <> Get one at <a className="text-accent underline underline-offset-2 hover:opacity-80" href="https://muapi.ai/access-keys" target="_blank" rel="noopener noreferrer">muapi.ai</a>.</>}{provider === "boxd" && <> Create one in the <a className="text-accent underline underline-offset-2 hover:opacity-80" href="https://boxd.sh/?ref=suparagent" target="_blank" rel="noopener noreferrer">boxd console</a> under API keys.</>}</p>
             )}
             <form className="flex flex-wrap gap-2" onSubmit={async (event) => {
               event.preventDefault();
@@ -280,6 +291,7 @@ function DockerComputerView({
             </label>
           ))}
           {kind === "desktop" && provider === "docker" && <p className="text-xs text-muted">Linux desktop with a browser. Build the image locally first; see desktop-image/README.md. The first build downloads several hundred MB.</p>}
+          {kind === "desktop" && provider === "boxd" && <p className="text-xs text-muted">Cloud Linux desktop at 1280x800. The agent starts apps on it with commands; you see it here as screenshots.</p>}
           {kind === "desktop" && provider === "boat" && <p className="text-xs text-muted">Cloud Linux desktop. The first start provisions a remote desktop and installs its screen-control tools. The live view uses a secret provider link that Suparagent clears when you hand control back; the provider does not expose a link revocation control.</p>}
         </fieldset>
         {provider === "docker" && <fieldset className="space-y-1">
@@ -331,7 +343,7 @@ function DockerComputerView({
   return (
     <div className="space-y-3 text-sm">
       {alert}
-      {computer.kind === "desktop" && <><DesktopPicture computer={computer} />{computer.provider === "boat" ? <BoatDesktop computerId={computer.id} /> : <LiveDesktop computerId={computer.id} />}</>}
+      {computer.kind === "desktop" && <><DesktopPicture computer={computer} />{computer.provider === "boat" ? <BoatDesktop computerId={computer.id} /> : computer.provider === "boxd" ? null : <LiveDesktop computerId={computer.id} />}</>}
       <div className="rounded-md border border-line p-3">
         <p className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{computerStateLabel(state)}</span>
@@ -343,7 +355,7 @@ function DockerComputerView({
           </span>}
         </p>
         <p className="mt-1 text-xs text-muted">
-          {computer.provider === "muapi" ? `Cloud · Muapi ${MUAPI_SIZES.find((s) => s.memory_mb === computer.memory_mb)?.label ?? "Default"} · Internet enabled · billed per second from Muapi credits · auto-stops after 15 minutes idle` : computer.provider === "boat" ? "Cloud · Internet enabled · auto-archives after 1 hour · resources managed by provider" : `${computer.provider} · ${NETWORK_MODES.find((m) => m.value === computer.network)?.label ?? computer.network} · ${limitsText(computer)}`}
+          {computer.provider === "muapi" ? `Cloud · Muapi ${MUAPI_SIZES.find((s) => s.memory_mb === computer.memory_mb)?.label ?? "Default"} · Internet enabled · billed per second from Muapi credits · auto-stops after 15 minutes idle` : computer.provider === "boat" ? "Cloud · Internet enabled · auto-archives after 1 hour · resources managed by provider" : computer.provider === "boxd" ? "Cloud · boxd · Internet enabled · hibernates when stopped · resources managed by boxd" : `${computer.provider} · ${NETWORK_MODES.find((m) => m.value === computer.network)?.label ?? computer.network} · ${limitsText(computer)}`}
           {computer.idle_minutes > 0 ? ` · stops after ${computer.idle_minutes} idle min` : " · never stops on its own"}
         </p>
         {computer.workspace_path && (
@@ -352,7 +364,7 @@ function DockerComputerView({
           </p>
         )}
         {computer.health && !computer.health.available && (
-          <p className="mt-2 text-xs text-warning">{computer.provider === "boat" || computer.provider === "muapi" ? "Cloud provider unavailable:" : "Docker is not available:"} {computer.health.error}</p>
+          <p className="mt-2 text-xs text-warning">{computer.provider === "boat" || computer.provider === "muapi" || computer.provider === "boxd" ? "Cloud provider unavailable:" : "Docker is not available:"} {computer.health.error}</p>
         )}
         {computer.problem && <p className="mt-2 text-xs text-warning">{computer.problem}</p>}
         {!computer.problem && computer.last_error && state !== "running" && (
@@ -460,7 +472,7 @@ function DockerComputerView({
       <div className="border-t border-line pt-3">
         {confirmRemove ? (
           <p className="flex flex-wrap items-center gap-2 text-xs">
-            {computer.provider === "muapi" ? "Permanently delete the Muapi computer and its files?" : computer.provider === "boat" ? "Permanently remove the cloud computer and its provider data? Boat deletion runs in the background while Suparagent waits for confirmation." : "Remove the computer? Everything inside it is lost; the workspace folder stays."} {agent.name} then works on this machine again.
+            {computer.provider === "muapi" ? "Permanently delete the Muapi computer and its files?" : computer.provider === "boat" ? "Permanently remove the cloud computer and its provider data? Boat deletion runs in the background while Suparagent waits for confirmation." : computer.provider === "boxd" ? "Permanently delete the boxd machine and its disk?" : "Remove the computer? Everything inside it is lost; the workspace folder stays."} {agent.name} then works on this machine again.
             <button disabled={busy} className={SMALL} onClick={() => act(() => api.deleteComputer(computer.id)).then(() => setConfirmRemove(false))}>
               Remove
             </button>

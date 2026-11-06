@@ -39,17 +39,17 @@ from sqlalchemy import delete, select
 
 from app.computers import docker_cli, grants, screen
 from app.computers.boat_provider import BoatProvider, BOAT_IMAGE
+from app.computers.boxd_provider import BoxdProvider, BOXD_IMAGE
 from app.computers.muapi_provider import MuapiProvider, MUAPI_IMAGE, SIZE_BY_MEMORY_MB
-from app.computers.provider import CLOUD_PROVIDERS
 from app.computers.control import ControlRegistry
 from app.computers.docker_cli import Spec
 from app.computers.mcp_server import LAST_COMMAND_FILE
 from app.computers.policy import COMPUTER_TOOL_PREFIX
-from app.computers.provider import ComputerError, DockerProvider, Health, McpLaunch, Status, load_instance_id
+from app.computers.provider import CLOUD_PROVIDERS, ComputerError, DockerProvider, Health, McpLaunch, Status, load_instance_id
 from app.core.logging import get_logger
 from app.db.models import Agent, Computer
 from app.db.transactions import begin_write
-from app.desktop import profile, boat_credentials, muapi_credentials
+from app.desktop import profile, boat_credentials, boxd_credentials, muapi_credentials
 from app.desktop import computer_capabilities
 from app.core import tenant_paths
 from app.core.config import settings
@@ -131,6 +131,15 @@ class TurnComputer:
                     "Take a fresh native desktop or window snapshot before every input. Prefer element tokens from window snapshots. "
                     "Input needs approval. Stop when the person takes control; after hand-back take a fresh snapshot. "
                     "This is a shared host desktop, so actions can affect apps outside your workspace. Never substitute Docker or shell tools.")
+        if self.provider == "boxd":
+            screen_tools = (" It has a 1280x800 screen (X display :99, already set as DISPLAY for exec). Use screenshot, click, double_click, move, drag, type, key, scroll and wait. Screen input needs permission for this turn. "
+                            "The desktop starts empty, with no window manager. Start GUI apps in the background with exec, for example `nohup xterm >/dev/null 2>&1 &`; "
+                            "for a browser, `. ~/.config/boxd/agent-browser.env; nohup \"$AGENT_BROWSER_EXECUTABLE_PATH\" --no-first-run https://example.com >/dev/null 2>&1 &`. Then take a screenshot." if self.kind == "desktop" else "")
+            return ("You are working in a boxd cloud computer (a full Ubuntu 24.04 virtual machine, user boxd with passwordless sudo) managed through the Desktop app. "
+                    "Its files live in boxd and are not synced with this machine's local workspace. "
+                    "The computer has internet access, and cloud use may incur charges. The saved boxd key stays in the Desktop backend and is never placed in this computer. "
+                    "Use the computer tools (exec, read_file, write_file, list_files) for all commands and files; the workspace is "
+                    f"{self.guest_workspace} (/home/boxd/workspace on the machine). File tools reach the workspace and /tmp. Every call follows this agent's approval mode and applicable saved rules." + screen_tools)
         if self.provider in CLOUD_PROVIDERS:
             screen_tools = (" It has a screen. Use screenshot, click, double_click, move, drag, type, key, scroll and wait. Screen input needs permission for this turn." if self.kind == "desktop" else "")
             return ("You are working in a cloud computer managed through the Desktop app. Its files live in the cloud provider and are not synced with this machine's local workspace. "
@@ -165,7 +174,7 @@ def _utcnow() -> datetime:
 
 @dataclass
 class ComputerService:
-    providers: dict = field(default_factory=lambda: {"docker": DockerProvider(), "boat": BoatProvider(), "muapi": MuapiProvider()})
+    providers: dict = field(default_factory=lambda: {"docker": DockerProvider(), "boat": BoatProvider(), "muapi": MuapiProvider(), "boxd": BoxdProvider()})
     owner_id: str = "local-owner"
     root: Path | None = None
     _session_factory: object | None = None
@@ -372,11 +381,11 @@ class ComputerService:
         if settings.HOST_EXECUTION_DISABLED or settings.HOSTED_SANDBOX:
             raise ComputerError(HOSTED_REASON, "hosted_no_local_computer")
         provider_key = config.pop("provider", "docker")
-        if provider_key not in ("docker", "boat", "muapi"):
-            raise ValueError("provider must be docker, boat or muapi")
+        if provider_key not in ("docker", *CLOUD_PROVIDERS):
+            raise ValueError("provider must be docker, boat, muapi or boxd")
         if provider_key in CLOUD_PROVIDERS:
             if not profile.active():
-                raise ComputerError("Cloud computers are available in the Desktop app.", "boat_desktop_only")
+                raise ComputerError("Cloud computers are available in the Desktop app.", "boxd_desktop_only" if provider_key == "boxd" else "boat_desktop_only")
         kind = config.pop("kind", "shell")
         if kind not in docker_cli.COMPUTER_KINDS:
             raise ValueError("kind must be shell or desktop")
@@ -396,7 +405,7 @@ class ComputerService:
                 raise ValueError("Cloud computer resources are managed by the provider")
             if image is not None:
                 raise ValueError("Cloud computers use the provider's default image")
-            image = MUAPI_IMAGE if provider_key == "muapi" else BOAT_IMAGE
+            image = {"boat": BOAT_IMAGE, "muapi": MUAPI_IMAGE, "boxd": BOXD_IMAGE}[provider_key]
             if config.get("network") not in (None, "default"):
                 raise ValueError("Cloud computers have internet access; network isolation is not available")
             config["network"] = "default"
@@ -411,14 +420,14 @@ class ComputerService:
         if values.get("browser_enabled") and kind != "desktop":
             raise ValueError("Browser tools require a desktop computer")
         if provider_key in CLOUD_PROVIDERS:
-            creds = muapi_credentials if provider_key == "muapi" else boat_credentials
-            label = "Muapi" if provider_key == "muapi" else "Boat"
+            creds, label = {"boat": (boat_credentials, "Boat"), "muapi": (muapi_credentials, "Muapi"), "boxd": (boxd_credentials, "boxd")}[provider_key]
             async with creds.configuration_lock:
                 try:
                     if not creds.get_store().configured():
                         raise ComputerError(f"Add a {label} API key in the computer settings first.", f"{provider_key}_key_missing")
                 except creds.CredentialError:
-                    raise ComputerError("The saved cloud key could not be read. Set it again in the computer settings.", "boat_key_unavailable") from None
+                    unavailable = "boxd_key_unavailable" if provider_key == "boxd" else "boat_key_unavailable"
+                    raise ComputerError("The saved cloud key could not be read. Set it again in the computer settings.", unavailable) from None
                 return await self._insert_computer_row(agent, provider_key, kind, image, workspace, values)
         return await self._insert_computer_row(agent, provider_key, kind, image, workspace, values)
 
