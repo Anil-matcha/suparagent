@@ -3,6 +3,8 @@ import { AppState } from 'react-native';
 
 import { describeApiError, type ThreadEvent } from './api';
 import { useAuth } from './auth-context';
+import { useRevoked } from './use-revoked';
+import { useWorkspace } from './workspace-context';
 import { applyRoomEvents, emptyFeed, loadRoomApprovals, roomBusy, type Room, type RoomApproval } from './rooms';
 import { followThread, type Connection } from './sse';
 import { useApi } from './use-api';
@@ -16,7 +18,9 @@ const READ_MS = 800;
 
 export function useRoom(roomId: number) {
   const api = useApi();
-  const { state, revoked } = useAuth();
+  const { state } = useAuth();
+  const revoked = useRevoked();
+  const { unavailable } = useWorkspace();
   const [room, setRoom] = useState<Room | null>(null);
   const [feed, dispatch] = useReducer(applyRoomEvents, undefined, emptyFeed);
   const [approvals, setApprovals] = useState<RoomApproval[]>([]);
@@ -83,12 +87,13 @@ export function useRoom(roomId: number) {
       },
       onConnection: setConnection,
       onRevoked: revoked,
+      onUnavailable: unavailable,
     });
     return () => {
       controller.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [server, token, threadId, restart, revoked, refresh]);
+  }, [server, token, threadId, restart, revoked, refresh, unavailable]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next) => {
