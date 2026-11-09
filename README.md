@@ -10,7 +10,7 @@ hosted service is a separate product.
 Bring your own engine and provider account. Suparagent does not include a model
 or model subscription.
 
-**[Desktop downloads](https://github.com/Anil-matcha/open-duet/releases) · [Self-hosting](docs/SELF-HOSTING.md) · [Hosted app](https://suparagent.ai) · [Watch the demo](https://youtu.be/vtFy94DfETE) · [Discord](https://discord.com/invite/zpnuBRXhKg)**
+**[Desktop downloads](https://github.com/Anil-matcha/suparagent/releases) · [Self-hosting](docs/SELF-HOSTING.md) · [Hosted app](https://suparagent.ai) · [Watch the demo](https://youtu.be/vtFy94DfETE) · [Discord](https://discord.com/invite/zpnuBRXhKg)**
 
 <p align="center"><img src="docs/suparagent-workflow.svg" alt="A request goes to a Claude or Codex team lead, who delegates work to specialists. Teammates can share a project folder, and you review actions when approval is required." width="100%"></p>
 
@@ -42,7 +42,7 @@ Duet. You can also configure an API-based engine in **Settings → Engines**.
 Docker is only needed for the optional isolated agent computers.
 
 ```bash
-git clone https://github.com/Anil-matcha/open-duet.git
+git clone https://github.com/Anil-matcha/suparagent.git
 cd suparagent/desktop
 npm run app
 ```
@@ -55,7 +55,7 @@ On first launch, choose an engine, workspace, and approval mode. Then:
    need it.
 4. Add teammates or create a routine when you want to split up or repeat work.
 
-See the [Releases page](https://github.com/Anil-matcha/open-duet/releases) for
+See the [Releases page](https://github.com/Anil-matcha/suparagent/releases) for
 current desktop installers and the [changelog](CHANGELOG.md) for changes.
 Installers are experimental and unsigned. The assisted update flow offers a
 SHA-256-verified installer for you to open; it does not install updates
@@ -232,7 +232,7 @@ details](backend/README.md#scheduling) and [environment settings](backend/.env.e
 
 - Join the [Suparagent Discord community](https://discord.com/invite/zpnuBRXhKg)
   for questions and discussion.
-- Report bugs and request features in [GitHub Issues](https://github.com/Anil-matcha/open-duet/issues).
+- Report bugs and request features in [GitHub Issues](https://github.com/Anil-matcha/suparagent/issues).
 - For hosted account or billing questions, use the contact link on
   [suparagent.ai](https://suparagent.ai/contact/).
 

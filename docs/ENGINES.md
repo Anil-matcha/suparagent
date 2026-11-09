@@ -334,7 +334,7 @@ differences:
   A free-tier key with no chosen model uses the first available free model.
   Other keys require a chosen model; the app does not select a paid model.
 - Requests to openrouter.ai also carry OpenRouter's optional app-attribution
-  headers, `HTTP-Referer: https://github.com/Anil-matcha/open-duet` and
+  headers, `HTTP-Referer: https://github.com/Anil-matcha/suparagent` and
   `X-Title: Suparagent`. They tell OpenRouter that this account's traffic comes
   from Suparagent (OpenRouter uses them for its public app rankings), and they
   are sent only to openrouter.ai.

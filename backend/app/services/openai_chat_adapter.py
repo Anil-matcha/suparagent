@@ -49,7 +49,7 @@ NOT_CONFIGURED = "Set the endpoint's address (and key, if it needs one) in Setti
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_HOST = "openrouter.ai"
 # OpenRouter's optional app attribution (its public app rankings).
-OPENROUTER_ATTRIBUTION = {"HTTP-Referer": "https://github.com/Anil-matcha/open-duet", "X-Title": "Suparagent"}
+OPENROUTER_ATTRIBUTION = {"HTTP-Referer": "https://github.com/Anil-matcha/suparagent", "X-Title": "Suparagent"}
 
 
 class InvalidConfig(ValueError):

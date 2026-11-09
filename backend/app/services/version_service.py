@@ -17,7 +17,7 @@ from typing import Mapping
 import httpx
 
 APP_VERSION = "0.8.3"
-RELEASES_URL = "https://api.github.com/repos/Anil-matcha/open-duet/releases?per_page=10"
+RELEASES_URL = "https://api.github.com/repos/Anil-matcha/suparagent/releases?per_page=10"
 CACHE_TTL_SECONDS = 3600  # 1 hour in-memory cache
 
 SEMVER_REGEX = re.compile(
@@ -256,13 +256,13 @@ async def get_version_info(
         latest_version = latest_tag
         notes_url = (
             release_url
-            or f"https://github.com/Anil-matcha/open-duet/releases/tag/v{latest_tag}"
+            or f"https://github.com/Anil-matcha/suparagent/releases/tag/v{latest_tag}"
         )
     else:
         # If GitHub is unreachable, fallback safely
         latest_version = None
         update_available = False
-        notes_url = "https://github.com/Anil-matcha/open-duet/releases"
+        notes_url = "https://github.com/Anil-matcha/suparagent/releases"
 
     info = VersionInfo(
         current_version=current_ver,

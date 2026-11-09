@@ -24,7 +24,7 @@ import httpcore
 import httpx
 from httpcore._backends.anyio import AnyIOBackend
 
-GITHUB_RAW = "https://raw.githubusercontent.com/Anil-matcha/open-duet/main/marketplace/"
+GITHUB_RAW = "https://raw.githubusercontent.com/Anil-matcha/suparagent/main/marketplace/"
 MAX_CATALOG_BYTES = 128_000
 MAX_MANIFEST_BYTES = 32_000
 MAX_SCHEMA_BYTES = 64_000

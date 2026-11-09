@@ -29,7 +29,7 @@ Needs Docker with the Compose plugin. The app listens only on the host's loopbac
 
    <!-- verify:docker -->
    ```sh
-   git clone https://github.com/Anil-matcha/open-duet
+   git clone https://github.com/Anil-matcha/suparagent
    cd suparagent
    touch suparagent.env && chmod 600 suparagent.env
    docker compose build
@@ -79,7 +79,7 @@ Data lives in the Docker volume `suparagent_data` (the container's `/data`). Upd
 
 The **Server image** workflow builds and tests a Linux **amd64** image when a
 version tag is pushed. It publishes the exact tested image to
-`ghcr.io/anil-matcha/open-duet` with version (`vX.Y.Z`) and full source
+`ghcr.io/anil-matcha/suparagent` with version (`vX.Y.Z`) and full source
 (`sha-<commit>`) tags. Manual branch runs only build and test by default;
 publishing manually requires selecting a version tag and checking **publish**.
 There is no moving `latest` tag. An existing desktop release does not imply a
@@ -96,7 +96,7 @@ the code checkout and private `suparagent.env` from Route 1; set a digest from
 the workflow summary (replace the placeholder), then generate the key:
 
 ```sh
-export SUPARAGENT_IMAGE='ghcr.io/anil-matcha/open-duet@sha256:<digest-from-run-summary>'
+export SUPARAGENT_IMAGE='ghcr.io/anil-matcha/suparagent@sha256:<digest-from-run-summary>'
 touch suparagent.env && chmod 600 suparagent.env
 docker compose -f compose.yaml -f deploy/compose.image.yaml pull suparagent
 KEY=$(docker compose -f compose.yaml -f deploy/compose.image.yaml run --rm --no-deps --entrypoint python suparagent -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
@@ -137,7 +137,7 @@ Install [Node.js 22](https://nodejs.org) and [uv](https://docs.astral.sh/uv/) fi
 
    <!-- verify:skip -->
    ```sh
-   sudo -u suparagent git clone https://github.com/Anil-matcha/open-duet /opt/suparagent
+   sudo -u suparagent git clone https://github.com/Anil-matcha/suparagent /opt/suparagent
    ```
 
 2. **Build the web pages and install the backend** (as `suparagent`: `sudo -iu suparagent`; repeat after each update)

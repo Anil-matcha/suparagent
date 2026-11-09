@@ -13,7 +13,7 @@ const DIGEST = `sha256:${crypto.createHash("sha256").update(BYTES).digest("hex")
 function release(tag, overrides = {}) {
   return {
     tag_name: tag,
-    html_url: `https://github.com/Anil-matcha/open-duet/releases/tag/${tag}`,
+    html_url: `https://github.com/Anil-matcha/suparagent/releases/tag/${tag}`,
     assets: [
       { name: `Suparagent-${tag.slice(1)}-arm64.dmg`, browser_download_url: `https://github.com/x/${tag}.dmg`, size: BYTES.length, digest: DIGEST },
       { name: `Suparagent-Setup-${tag.slice(1)}.exe`, browser_download_url: `https://github.com/x/${tag}.exe`, size: BYTES.length, digest: DIGEST },

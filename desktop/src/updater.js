@@ -9,7 +9,7 @@ const path = require("node:path");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 
-const RELEASES_URL = "https://api.github.com/repos/Anil-matcha/open-duet/releases?per_page=30";
+const RELEASES_URL = "https://api.github.com/repos/Anil-matcha/suparagent/releases?per_page=30";
 const ASSET_NAME = /^[A-Za-z0-9._-]{1,120}$/;
 
 function parseVersion(text) {

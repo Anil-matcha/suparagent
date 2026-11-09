@@ -169,7 +169,7 @@ test('getVersionInfo fetches /version with optional refresh query param', async 
       update_available: true,
       install_kind: 'git',
       update_command: 'git pull && uv sync && (cd frontend && npm run build)',
-      release_notes_url: 'https://github.com/Anil-matcha/open-duet/releases/tag/v0.8.2',
+      release_notes_url: 'https://github.com/Anil-matcha/suparagent/releases/tag/v0.8.2',
     }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
