@@ -60,7 +60,7 @@ class Rooms:
             dispatches = list((await db.execute(select(RoomDispatch).where(RoomDispatch.room_id == room.id).order_by(RoomDispatch.id.desc()).limit(100))).scalars())
             return {'id': room.id, 'name': room.name, 'bulletin': room.bulletin,
                     'default_responder_kind': room.default_responder_kind, 'default_responder_agent_id': room.default_responder_agent_id,
-                    'thread_id': room.thread_id, 'last_read_seq': room.last_read_seq,
+                    'thread_id': room.thread_id, 'last_read_seq': room.last_read_seq, 'webhook_enabled': room.webhook_secret_hash is not None,
                     'last_seq': thread.last_seq if thread else 0, 'unread': bool(thread and thread.last_seq > room.last_read_seq),
                     'members': output, 'dispatches': [dispatch_public(d) for d in reversed(dispatches)]}
 

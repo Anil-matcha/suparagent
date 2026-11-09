@@ -30,6 +30,8 @@ PUBLIC_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
 ) + (
     # Routine webhooks: each delivery carries the routine's own secret, checked by the route.
     (frozenset({"POST"}), re.compile(r"^/hooks/[^/]+$")),
+    # Room posts: each delivery carries the room's own secret, checked by the route.
+    (frozenset({"POST"}), re.compile(r"^/hooks/room/[0-9]+$")),
     # Hosted deployments: the account is named in the address (routers/hooks.py).
     (frozenset({"POST"}), re.compile(r"^/hooks/t/[0-9a-f]{32}/[0-9]+$")),
 )
