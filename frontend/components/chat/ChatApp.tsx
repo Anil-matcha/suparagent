@@ -816,6 +816,20 @@ export function ChatApp() {
     }
   };
 
+  // Edit a past message and resend it in a new conversation; the original stays.
+  const branchFromMessage = async (turnId: number, text: string): Promise<boolean> => {
+    if (threadId === null) return false;
+    try {
+      const branch = await api.branchThread(threadId, turnId, text);
+      setListTick((n) => n + 1);
+      router.push(`/chat?thread=${branch.id}`);
+      return true;
+    } catch (err) {
+      toast(`${t("branch.failed")}${err instanceof Error && err.message ? `: ${err.message}` : ""}`, "danger");
+      return false;
+    }
+  };
+
   const sendReactionReply = async (message: string): Promise<boolean> => {
     if (sendingReactionReplyDisabled || sending) return false;
     setSendError(null);
@@ -1336,6 +1350,17 @@ export function ChatApp() {
             />
           )}
           {(roomId === null || agents === null) && <>
+          {thread?.branched_from_thread_id != null && (
+            <p className="px-4 pt-2 text-xs text-muted">
+              <a
+                href={`/chat?thread=${thread.branched_from_thread_id}`}
+                onClick={(event) => { event.preventDefault(); router.push(`/chat?thread=${thread.branched_from_thread_id}`); }}
+                className="underline underline-offset-2 hover:text-ink"
+              >
+                {t("branch.from")}
+              </a>
+            </p>
+          )}
           <WaitingRoutineQuestions agentId={threadAgent?.id ?? startingAgent?.id ?? null} openThreadId={threadId} />
           {stream.connection === "failed" ? (
             <Notice title="Cannot open this conversation">{stream.error}</Notice>
@@ -1360,6 +1385,7 @@ export function ChatApp() {
               remembered={remembered}
               undoneRules={undoneRules}
               onUndo={undoRule}
+              onBranch={roomId === null && ready && transcript.runningTurnId === null && !sending ? branchFromMessage : undefined}
             />
           )}
 

@@ -780,6 +780,8 @@ export type Thread = {
   effort?: string | null;
   // The folder Claude works in; saved command rules can be tied to it.
   workspace_path?: string | null;
+  // The conversation this one was branched from (edit and resend), if any.
+  branched_from_thread_id?: number | null;
   // The computer this conversation's tools run in (its agent's), or null.
   computer?: ComputerSummary | null;
   // new | active | broken | none. "broken": the Claude session cannot be found
@@ -1109,6 +1111,12 @@ export type NotificationPreferences = {
 };
 
 export const api = {
+  listAgentRevisions: (agentId: number) => request<import("./agent-history").AgentRevision[]>(`/agents/${agentId}/revisions`),
+  restoreAgentRevision: (agentId: number, number: number, expectedRevision: number | null) =>
+    request<Agent>(`/agents/${agentId}/revisions/${number}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ expected_revision: expectedRevision }),
+    }),
   listWorkspaceSnapshots: (threadId: number) => request<import("./workspace-undo").WorkspaceSnapshot[]>(`/threads/${threadId}/snapshots`),
   restoreWorkspaceSnapshot: (threadId: number, snapshotId: string) =>
     request<import("./workspace-undo").RestoreResult>(`/threads/${threadId}/snapshots/${encodeURIComponent(snapshotId)}/restore`, { method: "POST" }),
@@ -1273,6 +1281,14 @@ export const api = {
     request<Thread[]>(`/threads${includeArchived ? "?include_archived=true" : ""}`),
 
   getThread: (threadId: number) => request<ThreadDetail>(`/threads/${threadId}`),
+
+  // Edit a past message and resend it in a new conversation that keeps the
+  // history before it. The original is not changed.
+  branchThread: (threadId: number, turnId: number, promptText: string) =>
+    request<Thread>(`/threads/${threadId}/branch`, {
+      method: "POST",
+      body: JSON.stringify({ turn_id: turnId, prompt_text: promptText }),
+    }),
 
   createThread: (agentId?: number | null, selection?: { provider?: string; model?: string | null; effort?: string | null }) =>
     request<Thread>("/threads", {
@@ -1637,6 +1653,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ schedule_kind: kind, schedule_spec: spec, timezone }),
     }),
+  enableRoomWebhook: (id: number) => request<{ secret: string; path: string }>(`/rooms/${id}/webhook`, { method: "POST" }),
+  disableRoomWebhook: (id: number) => request<void>(`/rooms/${id}/webhook`, { method: "DELETE" }),
   enableRoutineWebhook: (id: number) => request<WebhookSecret>(`/routines/${id}/webhook`, { method: "POST" }),
   disableRoutineWebhook: (id: number) => request<Routine>(`/routines/${id}/webhook`, { method: "DELETE" }),
   // --- Multi-step Workflows ---

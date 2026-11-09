@@ -1,13 +1,13 @@
 "use client";
 
 import { ArrowUp, Check, FileText, Image as ImageIcon, Loader2, Mic, Music, Plus, Sparkles, Square, Video as VideoIcon, X } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, useDeferredValue } from "react";
 import { cn } from "@/lib/cn";
 import { api } from "@/lib/api";
 import { isLongPaste, isSendKey, livePastes, removePaste } from "@/lib/composer";
 import { loadDraft, saveDraft } from "@/lib/drafts";
 import { useT } from "@/lib/use-i18n";
-import { MAX_SKILLS_PER_MESSAGE, skillCompletions, type SkillSummary } from "@/lib/skills";
+import { MAX_SKILLS_PER_MESSAGE, skillCompletions, suggestSkills, type SkillSummary } from "@/lib/skills";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { PendingAttachments } from "./Attachments";
@@ -138,6 +138,11 @@ export function Composer({
   const [menu, setMenu] = useState({ context: "", index: 0, dismissed: false });
   const enabledSkills = (skills ?? []).filter((s) => s.enabled);
   const completions = onToggleSkill ? skillCompletions(value, enabledSkills, chosenSkills) : [];
+  // Skills whose trigger phrase appears in the draft: offered as chips, never picked or run for the person.
+  const deferredValue = useDeferredValue(value);
+  const suggested = onToggleSkill && !sending && !running && deferredValue.trim().length >= 3 && !deferredValue.startsWith("/")
+    && enabledSkills.some((s) => (s.triggers?.length ?? 0) > 0)
+    ? suggestSkills(deferredValue, enabledSkills, chosenSkills) : [];
   // A changed query or available list starts at the first result, even after Escape.
   const menuContext = JSON.stringify([value, completions.map((s) => s.name)]);
   const activeIndex = menu.context === menuContext ? Math.min(menu.index, Math.max(0, completions.length - 1)) : 0;
@@ -362,6 +367,18 @@ export function Composer({
                   <span className="truncate font-mono">{name}</span>
                   <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => onToggleSkill(name)} aria-label={t("composer.removeSkill", { name })} className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted hover:bg-hover hover:text-ink">
                     <X size={12} aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {suggested.length > 0 && chosenSkills.length < MAX_SKILLS_PER_MESSAGE && onToggleSkill && (
+            <ul aria-label={t("composer.skills")} className="flex flex-wrap gap-1.5 px-2 pt-1 pb-1">
+              {suggested.map((sk) => (
+                <li key={sk.name} className="max-w-full">
+                  <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => onToggleSkill(sk.name)} title={sk.description} className="inline-flex max-w-full cursor-pointer items-center gap-1 rounded-full border border-line bg-raised py-0.5 pl-2 pr-2.5 text-xs text-muted hover:bg-hover hover:text-ink">
+                    <Sparkles size={12} aria-hidden="true" className="shrink-0 text-accent" />
+                    <span className="truncate">{t("composer.useSkill", { name: sk.name })}</span>
                   </button>
                 </li>
               ))}

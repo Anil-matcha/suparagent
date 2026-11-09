@@ -43,6 +43,7 @@ import { useSession } from "@/components/AuthGate";
 import { collaboration, type TeamState } from "@/lib/collaboration";
 import { AgentSetupEntry } from "./AgentSetupEntry";
 import { SkillsPanel } from "./SkillsPanel";
+import { AgentHistory } from "./AgentHistory";
 import { useT } from "@/lib/use-i18n";
 import { AgentEditorFooter } from "./agents/AgentEditorFooter";
 import { ConnectedAppsSection } from "./agents/ConnectedAppsSection";
@@ -236,6 +237,7 @@ export function AgentsPanel({
   const [migrationFilePreview, setMigrationFilePreview] = useState<AgentMigrationFilePreview | null>(null);
   const [computerOf, setComputerOf] = useState<Agent | null>(null);
   const [skillsOf, setSkillsOf] = useState<Agent | null>(null);
+  const [historyOf, setHistoryOf] = useState<Agent | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Agent | null>(initialDeleteAgent);
   const [discardConfirm, setDiscardConfirm] = useState(false);
   const [closeAfterDiscard, setCloseAfterDiscard] = useState(false);
@@ -648,7 +650,9 @@ export function AgentsPanel({
             ? `Computer · ${computerOf.name}`
             : skillsOf
               ? `Skills · ${skillsOf.name}`
-              : t("sidebar.agents");
+              : historyOf
+                ? `History · ${historyOf.name}`
+                : t("sidebar.agents");
   const openDraft = (nextDraft: Draft) => {
     setDraft(nextDraft);
     setOriginalDraft(nextDraft);
@@ -675,6 +679,7 @@ export function AgentsPanel({
     setOpenBotDatabase(null);
     setComputerOf(null);
     setSkillsOf(null);
+    setHistoryOf(null);
     setDeleteConfirm(null);
     setDiscardConfirm(false);
     setCloseAfterDiscard(false);
@@ -945,6 +950,13 @@ export function AgentsPanel({
                 engineSupportsComputers={engines.find((engine) => engine.id === computerOf.provider)?.capabilities.computers}
                 engineLabel={engines.find((engine) => engine.id === computerOf.provider)?.label ?? computerOf.provider}
               />
+              <button onClick={back} className={BUTTON}>
+                Back
+              </button>
+            </div>
+          ) : historyOf ? (
+            <div className="space-y-3">
+              <AgentHistory key={historyOf.id} agent={historyOf} onRestored={onChanged} />
               <button onClick={back} className={BUTTON}>
                 Back
               </button>
@@ -1325,6 +1337,7 @@ export function AgentsPanel({
                             <Button size="sm" variant="secondary" onClick={() => openDraft(toDraft(agent))} disabled={busy}>Edit</Button>
                             <Button size="sm" variant="ghost" onClick={() => openNotes(agent)} disabled={busy}>Notes</Button>
                             <Button size="sm" variant="ghost" onClick={() => setSkillsOf(agent)} disabled={busy}>Skills</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setHistoryOf(agent)} disabled={busy}>History</Button>
                             {!archived && <Button size="sm" variant="ghost" onClick={() => setComputerOf(agent)} disabled={busy}>Computer</Button>}
                             <Menu
                               align="start"
