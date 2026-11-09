@@ -1127,6 +1127,9 @@ class ThreadRuntime:
         except Exception:  # noqa: BLE001
             logger.exception("could not write the daily log line", turn_id=run.turn_id)
 
+    def is_running(self, thread_id: int) -> bool:
+        return any(r.thread_id == thread_id for r in self._runs.values())
+
     async def stop_turn(self, thread_id: int) -> int:
         """Stop the thread's running turn: the provider process is killed, the
         text written so far is kept (marked incomplete), any open approval is
@@ -1205,6 +1208,17 @@ class ThreadRuntime:
 
     # -- one turn ------------------------------------------------------------------
 
+    async def _snapshot_before_turn(self, run: ActiveRun) -> None:
+        """An undo point for the workspace (BL-102). Best effort: never blocks or fails a turn."""
+        try:
+            from app.services import workspace_snapshots as snaps
+            workspace = str(run.ctx.workspace)
+            await asyncio.to_thread(
+                snaps.snapshot, workspace, snaps.store_dir_for(workspace), f"turn-{run.turn_id}", f"Before task {run.turn_id}"
+            )
+        except Exception:  # too large, unreadable or no disk: the task still runs
+            logger.info("workspace snapshot skipped for turn %s", run.turn_id, exc_info=True)
+
     async def _run(self, run: ActiveRun, adapter: ProviderAdapter, computers: bool = True) -> None:
         heartbeat = asyncio.create_task(self._heartbeat(run))
         watchdog = None
@@ -1223,6 +1237,8 @@ class ThreadRuntime:
                     from app.computers import native
                     if await native.selected(run.agent_id) or await self.computers.for_agent(run.agent_id):
                         raise _EngineWithoutComputers()
+                if not getattr(run.ctx, "draft_only", False) and run.ctx.workspace is not None:
+                    await self._snapshot_before_turn(run)
                 binding = None if getattr(run.ctx, "draft_only", False) else await self.computers.attach_for_turn(
                     run.agent_id, run.turn_id, str(run.ctx.workspace) if run.ctx.workspace else None
                 )
