@@ -180,3 +180,25 @@ class NotificationResponse(BaseModel):
 
 class UnreadCountResponse(BaseModel):
     unread: int
+
+
+class WaitingApproval(BaseModel):
+    id: str
+    tool: str
+    summary: str | None = None
+    kind: str | None = None
+    input: dict = Field(default_factory=dict)
+    created_at: datetime
+
+
+class WaitingRoutineRun(BaseModel):
+    """A routine run paused on a question, for the agent's own chat. Answers go
+    through the existing thread approval route, using `thread_id`."""
+
+    run_id: int
+    routine_id: int
+    routine_name: str
+    thread_id: int
+    waiting_since: datetime | None
+    approval_timeout_minutes: int
+    approvals: list[WaitingApproval]

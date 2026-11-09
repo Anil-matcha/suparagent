@@ -127,6 +127,16 @@ async def test_create_list_edit_pause_resume_delete(api, agent):
     assert (await api.get(f"/api/v1/routines/{created['id']}")).status_code == 404
 
 
+async def test_waiting_route_is_scoped_to_an_agent_and_needs_local_access(api, agent, scheduler):
+    created = await make(api, agent)
+    empty = await api.get(f"/api/v1/routines/waiting?agent_id={agent.id}")
+    assert empty.status_code == 200 and empty.json() == []
+    assert (await api.get("/api/v1/routines/waiting")).status_code == 422
+    assert created["id"]
+    async with client_for(app_for(scheduler), client=("203.0.113.9", 4000)) as remote:
+        assert (await remote.get(f"/api/v1/routines/waiting?agent_id={agent.id}")).status_code == 403
+
+
 async def test_bad_definitions_answer_422_with_a_code(api, agent):
     response = await api.post("/api/v1/routines", json={
         "agent_id": agent.id, "name": "x", "prompt": "y", "schedule_kind": "cron",
