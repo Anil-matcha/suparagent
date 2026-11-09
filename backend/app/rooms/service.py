@@ -12,6 +12,7 @@ from app.db.models import Agent, Room, RoomMember, RoomDispatch, Thread, Turn, E
 from app.db.transactions import begin_write
 from app.services import thread_store
 from app.team import fence, policy, service as teams
+from app.rooms import auto_router
 from app.rooms.mentions import parse
 
 LIVE = ('queued', 'running')
@@ -79,8 +80,8 @@ class Rooms:
             raise teams.TeamError('invalid_bulletin', 'Shared instructions must be at most 12000 characters.')
         kind = data.get('default_responder_kind', 'member')
         default = data.get('default_responder_agent_id', member_ids[0])
-        if kind not in ('member', 'everyone', 'mentions') or (kind == 'member' and default not in member_ids):
-            raise teams.TeamError('invalid_responder', 'Choose a member, everyone or mentions only.')
+        if kind not in ('member', 'everyone', 'mentions', 'auto') or (kind in ('member', 'auto') and default is not None and default not in member_ids) or (kind == 'member' and default is None):
+            raise teams.TeamError('invalid_responder', 'Choose a member, automatic, everyone or mentions only.')
         async with self.rt.session() as db:
             await begin_write(db)
             for identifier in member_ids:
@@ -102,7 +103,7 @@ class Rooms:
             db.add(thread)
             await db.flush()
             room = Room(owner_id=self.rt.owner_id, name=name, bulletin=bulletin, default_responder_kind=kind,
-                        default_responder_agent_id=default if kind == 'member' else None, thread_id=thread.id, created_by=creator)
+                        default_responder_agent_id=default if kind in ('member', 'auto') else None, thread_id=thread.id, created_by=creator)
             db.add(room)
             await db.flush()
             thread.room_id = room.id
@@ -135,7 +136,7 @@ class Rooms:
                 selected = set(identifiers)
             kind = data.get('default_responder_kind', room.default_responder_kind)
             default = data.get('default_responder_agent_id', room.default_responder_agent_id)
-            if kind not in ('member', 'everyone', 'mentions') or (kind == 'member' and default not in selected):
+            if kind not in ('member', 'everyone', 'mentions', 'auto') or (kind in ('member', 'auto') and default is not None and default not in selected) or (kind == 'member' and default is None):
                 raise teams.TeamError('invalid_responder', 'Choose a default responder from the new roster.')
             removed, added = current - selected, selected - current
             if removed or added:
@@ -176,7 +177,7 @@ class Rooms:
                     'text': 'Room roster updated. Added: ' + (', '.join(str(i) for i in sorted(added)) or 'none')
                             + '. Removed: ' + (', '.join(str(i) for i in sorted(removed)) or 'none') + '.',
                 }, None)
-            room.default_responder_kind, room.default_responder_agent_id = kind, default if kind == 'member' else None
+            room.default_responder_kind, room.default_responder_agent_id = kind, default if kind in ('member', 'auto') else None
             room.updated_at = teams.now()
             await db.commit()
         self.rt.hub.notify(room.thread_id)
@@ -228,6 +229,7 @@ class Rooms:
                     valid.append(agent.id)
         tags = parse(text, names)
         selected = []
+        auto_reason = None
         if dispatch:
             if tags:
                 for identifier in tags:
@@ -239,13 +241,40 @@ class Rooms:
                     selected = valid
                 elif room.default_responder_kind == 'member' and valid:
                     selected = [room.default_responder_agent_id if room.default_responder_agent_id in valid else valid[0]]
+                elif room.default_responder_kind == 'auto' and valid:
+                    selected, auto_reason = await self._auto_route(db, room, text, valid, author)
         if chain and chain_depth > settings.ROOM_CHAIN_DEPTH:
             selected = []
         event = await thread_store._add_event(db, room.thread_id, 'room.message', {'author': author, 'text': text, 'mentions': [i for i in tags if i is not None], 'source': source}, None)
         for identifier in selected:
-            db.add(RoomDispatch(room_id=room.id, message_seq=event.seq, agent_id=identifier, reason='chain' if chain else ('mention' if tags else 'default'), chain_depth=chain_depth))
+            db.add(RoomDispatch(room_id=room.id, message_seq=event.seq, agent_id=identifier, reason='chain' if chain else ('mention' if tags else (auto_reason or 'default')), chain_depth=chain_depth))
         room.updated_at = teams.now()
         return event
+
+    async def _auto_route(self, db, room, text, valid, author):
+        """Pick the answering member for an untagged message in an automatic room.
+
+        Returns (selected, reason). Never raises: any failure or unsure match
+        falls back to the room's default member when it is a live, unheld
+        member, and otherwise to nobody (the same as tagged-only rooms). The
+        reason is stored on the dispatch row as the decision record.
+        """
+        fallback = [room.default_responder_agent_id] if room.default_responder_agent_id in valid else []
+        try:
+            candidates = []
+            for identifier in valid:
+                if identifier == author.get('agent_id'):
+                    continue
+                agent = await db.get(Agent, identifier)
+                if agent:
+                    candidates.append({'id': agent.id, 'name': agent.name, 'title': agent.title, 'description': agent.description})
+            last = await db.scalar(select(RoomDispatch.agent_id).where(RoomDispatch.room_id == room.id, RoomDispatch.reason.in_(('auto', 'auto_fallback', 'default', 'mention'))).order_by(RoomDispatch.id.desc()).limit(1))
+            chosen = auto_router.route(text, candidates, last)
+        except Exception:
+            return fallback, 'auto_fallback'
+        if chosen in valid:
+            return [chosen], 'auto'
+        return fallback, 'auto_fallback'
 
     async def messages(self, room_id):
         async with self.rt.session() as db:
