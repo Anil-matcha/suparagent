@@ -475,6 +475,8 @@ export type ComputerSettings = {
 
 // A named agent: instructions, model, workspace and how much it asks first.
 // Conversations started with it keep using it.
+export type ClaudeAccount = { id: string; label: string; created_at: string | null };
+
 export type Agent = {
   id: number;
   name: string;
@@ -504,6 +506,8 @@ export type Agent = {
   // refuses it for a limit before starting on it (docs/ENGINES.md).
   fallback_provider?: string | null;
   fallback_model?: string | null;
+  // A named Claude account id; null or missing is the default account.
+  claude_account?: string | null;
   archived_at: string | null;
   created_at?: string;
   updated_at?: string;
@@ -561,6 +565,8 @@ export type AgentInput = {
   use_helper?: boolean;
   fallback_provider?: string | null;
   fallback_model?: string | null;
+  // A named Claude account id; null or missing is the default account.
+  claude_account?: string | null;
   // Update only: connected apps this agent may read, {app: "read"}; null or {} for none.
   connector_scopes?: Record<string, string> | null;
   // Update only: exact connected account IDs this agent may use, keyed by app.
@@ -719,6 +725,8 @@ export type MemoryUpkeepStatus = {
 // Installation-wide: the same for every agent.
 export type MemorySettings = {
   learn_from_rooms: boolean;
+  // Keep recent Claude and Codex chats cached with a tiny message every few minutes (off by default).
+  keep_cache_warm?: boolean;
   tidy_hour: number;
   helper_models: Record<string, string>;
   // The saved helper, and the one in force (the environment can set or switch it off).
@@ -1111,6 +1119,14 @@ export type NotificationPreferences = {
 };
 
 export const api = {
+  listImageProviders: () => request<import("./image-gen").ImageProvider[]>("/images/providers"),
+  generateImage: (body: { prompt: string; provider?: string; size?: string }) =>
+    request<import("./image-gen").GeneratedImage>("/images/generate", { method: "POST", body: JSON.stringify(body) }),
+  generatedImageUrl: (imageId: string) => requestBlobUrl(`/images/${encodeURIComponent(imageId)}`),
+  setAgentAvatar: (agentId: number, imageId: string) =>
+    request<void>(`/agents/${agentId}/avatar`, { method: "PUT", body: JSON.stringify({ image_id: imageId }) }),
+  clearAgentAvatar: (agentId: number) => request<void>(`/agents/${agentId}/avatar`, { method: "DELETE" }),
+  agentAvatarUrl: (agentId: number) => requestBlobUrl(`/agents/${agentId}/avatar`),
   listAgentRevisions: (agentId: number) => request<import("./agent-history").AgentRevision[]>(`/agents/${agentId}/revisions`),
   restoreAgentRevision: (agentId: number, number: number, expectedRevision: number | null) =>
     request<Agent>(`/agents/${agentId}/revisions/${number}/restore`, {
@@ -1653,6 +1669,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ schedule_kind: kind, schedule_spec: spec, timezone }),
     }),
+  listClaudeAccounts: () => request<ClaudeAccount[]>("/engines/claude/accounts"),
+  createClaudeAccount: (label: string) => request<ClaudeAccount>("/engines/claude/accounts", { method: "POST", body: JSON.stringify({ label }) }),
+  renameClaudeAccount: (id: string, label: string) => request<ClaudeAccount>(`/engines/claude/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ label }) }),
+  deleteClaudeAccount: (id: string) => request<void>(`/engines/claude/accounts/${id}`, { method: "DELETE" }),
+  startClaudeAccountLogin: (id: string) => request<{ id: string; phase: string; authorization_url?: string }>(`/engines/claude/accounts/${id}/login`, { method: "POST" }),
   enableRoomWebhook: (id: number) => request<{ secret: string; path: string }>(`/rooms/${id}/webhook`, { method: "POST" }),
   disableRoomWebhook: (id: number) => request<void>(`/rooms/${id}/webhook`, { method: "DELETE" }),
   enableRoutineWebhook: (id: number) => request<WebhookSecret>(`/routines/${id}/webhook`, { method: "POST" }),

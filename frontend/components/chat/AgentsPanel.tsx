@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { Ellipsis } from "lucide-react";
-import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
@@ -12,7 +11,7 @@ import { Select } from "@/components/ui/Select";
 import { Tab, TabList, TabPanel, Tabs } from "@/components/ui/Tabs";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/Toast";
-import { api, ApiError, isLocalApiEndpoint, type Agent, type AgentInput, type AgentMemory, type ApprovalMode, type Engine, type OpenBotDatabasePreview, type OpenBotDatabaseProfilePreview } from "@/lib/api";
+import { api, ApiError, isLocalApiEndpoint, type Agent, type AgentInput, type AgentMemory, type ApprovalMode, type ClaudeAccount, type Engine, type OpenBotDatabasePreview, type OpenBotDatabaseProfilePreview } from "@/lib/api";
 import { type AgentMigrationFilePreview, type AgentMigrationFileProfilePreview } from "@/lib/api";
 import {
   approvalModesForProvider,
@@ -44,6 +43,8 @@ import { collaboration, type TeamState } from "@/lib/collaboration";
 import { AgentSetupEntry } from "./AgentSetupEntry";
 import { SkillsPanel } from "./SkillsPanel";
 import { AgentHistory } from "./AgentHistory";
+import { AgentImage } from "./AgentImage";
+import { AgentImageGenerator } from "./AgentImageGenerator";
 import { useT } from "@/lib/use-i18n";
 import { AgentEditorFooter } from "./agents/AgentEditorFooter";
 import { ConnectedAppsSection } from "./agents/ConnectedAppsSection";
@@ -64,6 +65,8 @@ type Draft = {
   memory_enabled: boolean;
   fallback_provider: string | null;
   fallback_model: string | null;
+  // A named Claude account id; null is the default account (owner only).
+  claude_account: string | null;
   // Connected apps this agent may read; changed only on an existing agent.
   connector_scopes: Scopes;
   // Exact connected account IDs this agent may use.
@@ -86,6 +89,7 @@ const EMPTY: Draft = {
   memory_enabled: true,
   fallback_provider: null,
   fallback_model: null,
+  claude_account: null,
   connector_scopes: {},
   connector_account_scopes: {},
   starter_notes: "",
@@ -106,13 +110,14 @@ function toDraft(agent: Agent): Draft {
     memory_enabled: agent.memory_enabled ?? true,
     fallback_provider: agent.fallback_provider ?? null,
     fallback_model: agent.fallback_model ?? null,
+    claude_account: agent.claude_account ?? null,
     connector_scopes: agent.connector_scopes ?? {},
     connector_account_scopes: agent.connector_account_scopes ?? {},
     starter_notes: "",
   };
 }
 
-function toInput(draft: Draft): AgentInput {
+function toInput(draft: Draft, admin = false): AgentInput {
   const input: AgentInput = {
     name: draft.name.trim(),
     title: draft.title.trim() || null,
@@ -128,6 +133,8 @@ function toInput(draft: Draft): AgentInput {
     fallback_provider: draft.fallback_provider && draft.fallback_provider !== draft.provider ? draft.fallback_provider : null,
     fallback_model: draft.fallback_provider && draft.fallback_provider !== draft.provider ? draft.fallback_model?.trim() || null : null,
   };
+  // Only the owner may choose the account; other devices never send the field.
+  if (admin) input.claude_account = draft.provider === "claude" ? draft.claude_account : null;
   if (draft.id === null && draft.starter_notes.trim()) input.starter_notes = draft.starter_notes;
   if (draft.id !== null) {
     input.connector_scopes = scopesToSend(draft.connector_scopes, draft.provider);
@@ -238,6 +245,8 @@ export function AgentsPanel({
   const [computerOf, setComputerOf] = useState<Agent | null>(null);
   const [skillsOf, setSkillsOf] = useState<Agent | null>(null);
   const [historyOf, setHistoryOf] = useState<Agent | null>(null);
+  const [pictureOf, setPictureOf] = useState<Agent | null>(null);
+  const [pictureTick, setPictureTick] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState<Agent | null>(initialDeleteAgent);
   const [discardConfirm, setDiscardConfirm] = useState(false);
   const [closeAfterDiscard, setCloseAfterDiscard] = useState(false);
@@ -246,6 +255,7 @@ export function AgentsPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [engines, setEngines] = useState<Engine[]>([]);
+  const [claudeAccounts, setClaudeAccounts] = useState<ClaudeAccount[]>([]);
   // The accounts connected on the Apps page: every app with one can be allowed for an agent. Empty when none, or when this
   // device may not see them (only the owner can).
   const [appAccounts, setAppAccounts] = useState<ComposioAccount[] | null>(null);
@@ -280,6 +290,13 @@ export function AgentsPanel({
   }, []);
 
   useEffect(() => {
+    if (!admin) return;
+    let cancelled = false;
+    api.listClaudeAccounts().then((items) => { if (!cancelled) setClaudeAccounts(items); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [admin]);
+
+  useEffect(() => {
     if (discardConfirm) keepEditingRef.current?.focus();
   }, [discardConfirm]);
 
@@ -309,7 +326,7 @@ export function AgentsPanel({
 
   const save = () => {
     if (!draft || draft.name.trim() === "") return;
-    const input = toInput(draft);
+    const input = toInput(draft, admin);
     if (draft.id === null && fromTemplate) return createFromTemplate(input, fromTemplate);
     run(
       async () => {
@@ -652,7 +669,9 @@ export function AgentsPanel({
               ? `Skills · ${skillsOf.name}`
               : historyOf
                 ? `History · ${historyOf.name}`
-                : t("sidebar.agents");
+                : pictureOf
+                  ? `Picture · ${pictureOf.name}`
+                  : t("sidebar.agents");
   const openDraft = (nextDraft: Draft) => {
     setDraft(nextDraft);
     setOriginalDraft(nextDraft);
@@ -680,6 +699,7 @@ export function AgentsPanel({
     setComputerOf(null);
     setSkillsOf(null);
     setHistoryOf(null);
+    setPictureOf(null);
     setDeleteConfirm(null);
     setDiscardConfirm(false);
     setCloseAfterDiscard(false);
@@ -839,6 +859,22 @@ export function AgentsPanel({
                       {isLead && <div className="space-y-2"><p className="text-xs font-medium">{t("agentTeam.leadCoordinates")}</p>{agents.filter(agent => !agent.archived_at && agent.id !== draft.id).map(agent => <label key={agent.id} className="flex items-center gap-2 text-xs"><input type="checkbox" disabled={busy} checked={memberChoices[agent.id] ?? team?.agents.some(member => member.id === agent.id) ?? false} onChange={event => setMemberChoices({ ...memberChoices, [agent.id]: event.target.checked })} />{agent.name}</label>)}<p className="text-xs text-muted">{t("agentTeam.memberSelectionSaved")}</p></div>}
                     </fieldset>}
 
+                    {admin && draft.provider === "claude" && claudeAccounts.length > 0 && (
+                      <label className="block text-xs text-muted">
+                        Claude account
+                        <Select
+                          aria-label="Claude account"
+                          value={draft.claude_account && claudeAccounts.some((a) => a.id === draft.claude_account) ? draft.claude_account : ""}
+                          disabled={busy}
+                          onChange={(e) => setDraft({ ...draft, claude_account: e.target.value || null })}
+                          className={`${FIELD} mt-1`}
+                        >
+                          <option value="">Default account</option>
+                          {claudeAccounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                        </Select>
+                        <span className="mt-1 block">New conversations use this account. Accounts are added and signed in through the API for now.</span>
+                      </label>
+                    )}
                     <label className="block text-xs text-muted">
                       Fallback engine when limited
                       <Select
@@ -957,6 +993,13 @@ export function AgentsPanel({
           ) : historyOf ? (
             <div className="space-y-3">
               <AgentHistory key={historyOf.id} agent={historyOf} onRestored={onChanged} />
+              <button onClick={back} className={BUTTON}>
+                Back
+              </button>
+            </div>
+          ) : pictureOf ? (
+            <div className="space-y-3">
+              <AgentImageGenerator key={pictureOf.id} agent={pictureOf} onChanged={() => setPictureTick((n) => n + 1)} />
               <button onClick={back} className={BUTTON}>
                 Back
               </button>
@@ -1316,7 +1359,7 @@ export function AgentsPanel({
                       <li key={agent.id} className="rounded-card border border-line bg-raised px-2.5 py-1.5">
                         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                           <div className="flex min-w-0 flex-1 items-start gap-3">
-                            <Avatar agentId={agent.id} name={agent.name} size="md" />
+                            <AgentImage agentId={agent.id} name={agent.name} size="md" tick={pictureTick} />
                             <div className="min-w-0 flex-1 space-y-0">
                               <div className="flex min-w-0 flex-wrap items-center gap-1.5 leading-4">
                                 <p className="min-w-0 truncate text-sm font-semibold text-ink">{agent.name}</p>
@@ -1338,6 +1381,7 @@ export function AgentsPanel({
                             <Button size="sm" variant="ghost" onClick={() => openNotes(agent)} disabled={busy}>Notes</Button>
                             <Button size="sm" variant="ghost" onClick={() => setSkillsOf(agent)} disabled={busy}>Skills</Button>
                             <Button size="sm" variant="ghost" onClick={() => setHistoryOf(agent)} disabled={busy}>History</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setPictureOf(agent)} disabled={busy}>Picture</Button>
                             {!archived && <Button size="sm" variant="ghost" onClick={() => setComputerOf(agent)} disabled={busy}>Computer</Button>}
                             <Menu
                               align="start"
