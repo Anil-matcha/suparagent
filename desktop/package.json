@@ -1,6 +1,6 @@
 {
   "name": "suparagent-desktop",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "private": true,
   "description": "Suparagent desktop app: an Electron window around the local backend. Runs from a source checkout or installed.",
   "main": "main.js",

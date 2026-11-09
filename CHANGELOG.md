@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.5 - 2026-11-09
+
+### Changed
+
+- Renamed the app to Suparagent, including environment variables (`SUPARAGENT_*`), installer file names, the Docker computer label and the GitHub repository (`Anil-matcha/suparagent`). Existing `OPEN_DOTS_*` and `OPEN_DUET_*` settings are no longer read.
+
 ## 0.8.4 - 2026-11-07
 
 ### Added
