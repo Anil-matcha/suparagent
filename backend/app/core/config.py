@@ -165,6 +165,8 @@ class Settings(BaseSettings):
     # One limit for every agent tool call made through the app (connected apps,
     # marketplace tools). A call still running after this is stopped.
     TOOL_CALL_TIMEOUT_SECONDS: int = 120
+    # A connected-app result longer than this many characters is saved and the agent gets a preview.
+    LARGE_TOOL_RESULT_CHARS: int = 20000
     AUTH_LIMITS_DIR: str = ""
     # Whether a request from this machine needs no sign-in:
     #   off       every request signs in (default; safest)
@@ -277,6 +279,13 @@ class Settings(BaseSettings):
     def _tool_timeout_bounds(cls, value: int) -> int:
         if not 5 <= value <= 1800:
             raise ValueError("TOOL_CALL_TIMEOUT_SECONDS must be between 5 and 1800")
+        return value
+
+    @field_validator("LARGE_TOOL_RESULT_CHARS")
+    @classmethod
+    def _large_result_bounds(cls, value: int) -> int:
+        if not 2000 <= value <= 200000:
+            raise ValueError("LARGE_TOOL_RESULT_CHARS must be between 2000 and 200000")
         return value
 
     @field_validator("LOOPBACK_TRUST")

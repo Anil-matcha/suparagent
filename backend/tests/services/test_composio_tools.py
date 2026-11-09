@@ -368,7 +368,7 @@ def test_the_shim_lists_only_allowed_apps_and_carries_a_call_through_the_mailbox
     ], backend)
     assert replies[0]["result"]["serverInfo"]["name"] == "composio"
     assert {t["name"] for t in replies[1]["result"]["tools"]} == {
-        "list_accounts", *(t.name for t in tools.TOOLS if t.app == "github" and t.kind == "read")
+        "list_accounts", "read_saved_result", *(t.name for t in tools.TOOLS if t.app == "github" and t.kind == "read")
     }
     assert seen == [{"name": "github_list_issues", "arguments": {"owner": "o", "repo": "r"}}]
     assert json.loads(replies[2]["result"]["content"][0]["text"])["count"] == 0

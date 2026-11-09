@@ -25,7 +25,7 @@ from types import SimpleNamespace
 
 from app import composio_generic, composio_tools
 from app.core.logging import get_logger
-from app.services import composio_actions, composio_service
+from app.services import composio_actions, composio_service, large_tool_results
 from app.services.composio_client import ComposioClient
 
 logger = get_logger(__name__)
@@ -331,7 +331,10 @@ class ComposioBridge:
         return result
 
     async def execute(self, name: str, args: dict) -> dict:
+        if name == large_tool_results.READ_TOOL:
+            return large_tool_results.read(self.runtime.owner_id, self.run.thread_id, args)
         result = await self._execute_checked(name, args)
+        result = large_tool_results.shrink(self.runtime.owner_id, self.run.thread_id, result)
         # Provider results already have reservation receipts. Keep pre-dispatch
         # refusals too, without retaining untrusted input arguments.
         if ((getattr(self.run, "routine_grants", None) is not None
