@@ -68,6 +68,8 @@ class ThreadResponse(BaseModel):
     kind: str = "chat"
     room_id: int | None = None
     job_id: int | None = None
+    # The conversation this one was branched from, if any.
+    branched_from_thread_id: int | None = None
     computer: ComputerSummary | None = None
     # new | active | broken | none. `broken` means a resume failed and the
     # session must be reset before the thread can take another message.
@@ -112,6 +114,21 @@ class TurnCreateRequest(BaseModel):
     # Names of the agent's saved skills the person chose for this message
     # (docs/SKILLS.md), at most 3. Never applied unless named here.
     skills: list[str] = Field(default_factory=list, max_length=3)
+
+    @field_validator("prompt_text")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("prompt_text must not be blank")
+        return value
+
+
+class ThreadBranchRequest(BaseModel):
+    """Branch from one past message: `turn_id` is the turn whose message is
+    being edited, `prompt_text` the edited message to send in the new branch."""
+
+    turn_id: int
+    prompt_text: str = Field(min_length=1, max_length=100_000)
 
     @field_validator("prompt_text")
     @classmethod
