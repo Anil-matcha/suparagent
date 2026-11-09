@@ -905,6 +905,18 @@ export type RoutineRun = {
   created_at: string;
 };
 
+// A routine run paused on questions, for the agent's own chat. Answer through
+// answerThreadApproval with thread_id.
+export type WaitingRoutineRun = {
+  run_id: number;
+  routine_id: number;
+  routine_name: string;
+  thread_id: number;
+  waiting_since: string | null;
+  approval_timeout_minutes: number;
+  approvals: { id: string; tool: string; summary: string | null; kind: string | null; input: Record<string, unknown>; created_at: string }[];
+};
+
 // Routine connector grants are exact read tools, each bound to one connected account.
 export type ConnectedAppGrant = { tool: string; account_id: string };
 export type RoutineAppAction = {
@@ -1097,6 +1109,9 @@ export type NotificationPreferences = {
 };
 
 export const api = {
+  listWorkspaceSnapshots: (threadId: number) => request<import("./workspace-undo").WorkspaceSnapshot[]>(`/threads/${threadId}/snapshots`),
+  restoreWorkspaceSnapshot: (threadId: number, snapshotId: string) =>
+    request<import("./workspace-undo").RestoreResult>(`/threads/${threadId}/snapshots/${encodeURIComponent(snapshotId)}/restore`, { method: "POST" }),
   getVersionInfo: (refresh = false) => request<VersionInfo>(`/version${refresh ? "?refresh=true" : ""}`),
   roomExportUrl: (id: number, format: "md" | "json") => requestBlobUrl(`/rooms/${id}/export?format=${format}`),
   getNeedsYou: () => request<import("./needs-you").NeedsYouSnapshot>("/needs-you?refresh=true"),
@@ -1434,6 +1449,9 @@ export const api = {
     request<SkillDoc>(`/agents/${agentId}/skills/${encodeURIComponent(name)}`),
   saveSkill: (agentId: number, name: string, body: SkillSave) =>
     request<SkillDoc>(`/agents/${agentId}/skills/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(body) }),
+  // Enabled skills whose trigger phrase appears in the text. Suggests only; nothing is picked or run.
+  suggestSkills: (agentId: number, text: string) =>
+    request<SkillSummary[]>(`/agents/${agentId}/skills/suggest`, { method: "POST", body: JSON.stringify({ text }) }),
   deleteSkill: (agentId: number, name: string) =>
     request<void>(`/agents/${agentId}/skills/${encodeURIComponent(name)}`, { method: "DELETE" }),
   learnSkill: (agentId: number, source: SkillLearnSource) =>
@@ -1609,6 +1627,7 @@ export const api = {
   deleteRoutine: (id: number) => request<void>(`/routines/${id}`, { method: "DELETE" }),
   pauseRoutine: (id: number) => request<Routine>(`/routines/${id}/pause`, { method: "POST" }),
   resumeRoutine: (id: number) => request<Routine>(`/routines/${id}/resume`, { method: "POST" }),
+  listWaitingRoutineRuns: (agentId: number) => request<WaitingRoutineRun[]>(`/routines/waiting?agent_id=${agentId}`),
   runRoutineNow: (id: number) => request<RoutineRun>(`/routines/${id}/run`, { method: "POST" }),
   listRoutineRuns: (id: number, limit = 50) => request<RoutineRun[]>(`/routines/${id}/runs?limit=${limit}`),
   listRoutineRunAppActions: (routineId: number, runId: number) =>

@@ -147,3 +147,15 @@ test('routine calls use the routine routes', async () => {
   ]);
   assert.deepEqual(JSON.parse(calls[1].options.body), { schedule_kind: 'cron', schedule_spec: { expression: '* * * * *' }, timezone: 'UTC' });
 });
+
+import { waitingQuestionsFor } from './routines.ts';
+
+test('waiting routine questions skip the open thread and empty runs, oldest first', () => {
+  const a = { thread_id: 1, waiting_since: '2026-11-09T10:00:00Z', approvals: [{}] };
+  const b = { thread_id: 2, waiting_since: '2026-11-09T09:00:00Z', approvals: [{}] };
+  const c = { thread_id: 3, waiting_since: '2026-11-09T08:00:00Z', approvals: [] };
+  const d = { thread_id: 4, waiting_since: null, approvals: [{}] };
+  assert.deepEqual(waitingQuestionsFor([a, b, c, d], 1), [d, b]);
+  assert.deepEqual(waitingQuestionsFor([a, b], null), [b, a]);
+  assert.deepEqual(waitingQuestionsFor([], 5), []);
+});

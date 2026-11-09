@@ -16,6 +16,7 @@ const en = {
   "knowledgeRoutines.copySecretOnce": "Copy this secret now: it is shown once.",
   "knowledgeRoutines.url": "URL:",
   "knowledgeRoutines.secret": "Secret:",
+  "knowledgeRoutines.waitingInChat": "Routine “{name}” is waiting for your answer",
 };
 type Keys = keyof typeof en;
 const de: Record<Keys, string> = {
@@ -36,6 +37,7 @@ const de: Record<Keys, string> = {
   "knowledgeRoutines.copySecretOnce": "Kopiere dieses Geheimnis jetzt: Es wird nur einmal angezeigt.",
   "knowledgeRoutines.url": "URL:",
   "knowledgeRoutines.secret": "Geheimnis:",
+  "knowledgeRoutines.waitingInChat": "Die Routine „{name}“ wartet auf deine Antwort",
 };
 const es: Record<Keys, string> = {
   "knowledgeRoutines.appActionsUndoWarning": "Las acciones externas de apps no se pueden deshacer con Deshacer archivos. Si no sabes con certeza el resultado de una acción, comprueba la cuenta conectada antes de ejecutarla de nuevo.",
@@ -55,6 +57,7 @@ const es: Record<Keys, string> = {
   "knowledgeRoutines.copySecretOnce": "Copia este secreto ahora: solo se muestra una vez.",
   "knowledgeRoutines.url": "URL:",
   "knowledgeRoutines.secret": "Secreto:",
+  "knowledgeRoutines.waitingInChat": "La rutina «{name}» espera tu respuesta",
 };
 const fr: Record<Keys, string> = {
   "knowledgeRoutines.appActionsUndoWarning": "Les actions externes des apps ne peuvent pas être annulées avec l’annulation de fichiers. Si le résultat d’une action est incertain, vérifiez le compte connecté avant de la relancer.",
@@ -74,6 +77,7 @@ const fr: Record<Keys, string> = {
   "knowledgeRoutines.copySecretOnce": "Copiez ce secret maintenant : il ne sera affiché qu’une fois.",
   "knowledgeRoutines.url": "URL :",
   "knowledgeRoutines.secret": "Secret :",
+  "knowledgeRoutines.waitingInChat": "La routine « {name} » attend votre réponse",
 };
 const it: Record<Keys, string> = {
   "knowledgeRoutines.appActionsUndoWarning": "Le azioni esterne nelle app non possono essere annullate con l’annullamento dei file. Se l’esito di un’azione è incerto, controlla l’account collegato prima di eseguirla di nuovo.",
@@ -93,6 +97,7 @@ const it: Record<Keys, string> = {
   "knowledgeRoutines.copySecretOnce": "Copia subito questo segreto: viene mostrato una sola volta.",
   "knowledgeRoutines.url": "URL:",
   "knowledgeRoutines.secret": "Segreto:",
+  "knowledgeRoutines.waitingInChat": "La routine «{name}» attende la tua risposta",
 };
 const ja: Record<Keys, string> = {
   "knowledgeRoutines.appActionsUndoWarning": "外部アプリでの操作は、ファイルの「元に戻す」では取り消せません。操作結果が不明な場合は、再実行する前に接続済みアカウントを確認してください。",
@@ -112,6 +117,7 @@ const ja: Record<Keys, string> = {
   "knowledgeRoutines.copySecretOnce": "このシークレットを今すぐコピーしてください。一度しか表示されません。",
   "knowledgeRoutines.url": "URL：",
   "knowledgeRoutines.secret": "シークレット：",
+  "knowledgeRoutines.waitingInChat": "ルーティン「{name}」があなたの返答を待っています",
 };
 const ko: Record<Keys, string> = {
   "knowledgeRoutines.appActionsUndoWarning": "외부 앱 작업은 파일 되돌리기로 취소할 수 없습니다. 작업 결과가 확실하지 않다면 다시 실행하기 전에 연결된 계정을 확인하세요.",
@@ -131,6 +137,7 @@ const ko: Record<Keys, string> = {
   "knowledgeRoutines.copySecretOnce": "이 시크릿을 지금 복사하세요. 한 번만 표시됩니다.",
   "knowledgeRoutines.url": "URL:",
   "knowledgeRoutines.secret": "시크릿:",
+  "knowledgeRoutines.waitingInChat": "루틴 “{name}”이(가) 답변을 기다리고 있습니다",
 };
 const nl: Record<Keys, string> = {
   "knowledgeRoutines.appActionsUndoWarning": "Externe appacties kunnen niet ongedaan worden gemaakt met Bestand ongedaan maken. Is de uitkomst van een actie onzeker, controleer dan het gekoppelde account voordat je de actie opnieuw uitvoert.",
@@ -150,6 +157,7 @@ const nl: Record<Keys, string> = {
   "knowledgeRoutines.copySecretOnce": "Kopieer dit geheim nu: het wordt maar één keer getoond.",
   "knowledgeRoutines.url": "URL:",
   "knowledgeRoutines.secret": "Geheim:",
+  "knowledgeRoutines.waitingInChat": "Routine “{name}” wacht op je antwoord",
 };
 const pl: Record<Keys, string> = {
   "knowledgeRoutines.appActionsUndoWarning": "Zewnętrznych działań w aplikacjach nie można cofnąć za pomocą cofania plików. Jeśli wynik działania jest niepewny, przed ponownym uruchomieniem sprawdź połączone konto.",
@@ -169,6 +177,7 @@ const pl: Record<Keys, string> = {
   "knowledgeRoutines.copySecretOnce": "Skopiuj ten sekret teraz: zostanie pokazany tylko raz.",
   "knowledgeRoutines.url": "URL:",
   "knowledgeRoutines.secret": "Sekret:",
+  "knowledgeRoutines.waitingInChat": "Rutyna „{name}” czeka na Twoją odpowiedź",
 };
 const pt: Record<Keys, string> = {
   "knowledgeRoutines.appActionsUndoWarning": "Ações externas em apps não podem ser desfeitas com o Desfazer de arquivos. Se não tiver certeza do resultado de uma ação, confira a conta conectada antes de executá-la novamente.",
@@ -188,6 +197,7 @@ const pt: Record<Keys, string> = {
   "knowledgeRoutines.copySecretOnce": "Copie este segredo agora: ele será exibido uma única vez.",
   "knowledgeRoutines.url": "URL:",
   "knowledgeRoutines.secret": "Segredo:",
+  "knowledgeRoutines.waitingInChat": "A rotina “{name}” aguarda sua resposta",
 };
 const ru: Record<Keys, string> = {
   "knowledgeRoutines.appActionsUndoWarning": "Внешние действия в приложениях нельзя отменить с помощью отмены файлов. Если результат действия неясен, проверьте подключённый аккаунт, прежде чем запускать его снова.",
@@ -207,6 +217,7 @@ const ru: Record<Keys, string> = {
   "knowledgeRoutines.copySecretOnce": "Скопируйте этот секрет сейчас: он будет показан только один раз.",
   "knowledgeRoutines.url": "URL:",
   "knowledgeRoutines.secret": "Секрет:",
+  "knowledgeRoutines.waitingInChat": "Рутина «{name}» ждёт вашего ответа",
 };
 const tr: Record<Keys, string> = {
   "knowledgeRoutines.appActionsUndoWarning": "Harici uygulama işlemleri dosya geri alma ile geri alınamaz. Bir işlemin sonucu belirsizse yeniden çalıştırmadan önce bağlı hesabı kontrol edin.",
@@ -226,6 +237,7 @@ const tr: Record<Keys, string> = {
   "knowledgeRoutines.copySecretOnce": "Bu gizli anahtarı şimdi kopyalayın: yalnızca bir kez gösterilir.",
   "knowledgeRoutines.url": "URL:",
   "knowledgeRoutines.secret": "Gizli anahtar:",
+  "knowledgeRoutines.waitingInChat": "“{name}” rutini yanıtınızı bekliyor",
 };
 const zh: Record<Keys, string> = {
   "knowledgeRoutines.appActionsUndoWarning": "外部应用操作无法通过文件撤销来恢复。如果操作结果不确定，请先检查已连接的账户，再重新运行。",
@@ -245,6 +257,7 @@ const zh: Record<Keys, string> = {
   "knowledgeRoutines.copySecretOnce": "请立即复制此密钥：它只会显示一次。",
   "knowledgeRoutines.url": "URL：",
   "knowledgeRoutines.secret": "密钥：",
+  "knowledgeRoutines.waitingInChat": "例程“{name}”正在等待你的回答",
 };
 
 export const knowledgeRoutinesMessages = { en, de, es, fr, it, ja, ko, nl, pl, pt, ru, tr, zh };

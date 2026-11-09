@@ -8,6 +8,7 @@ import { api, type Agent } from "@/lib/api";
 import { useT } from "@/lib/use-i18n";
 import {
   isSkillName,
+  parseTriggers,
   skillErrorText,
   skillSkeleton,
   slugSkillName,
@@ -60,6 +61,7 @@ export function SkillsPanel({
   const [receipt, setReceipt] = useState<{ name: string; revision: string } | null>(null);
   const [importing, setImporting] = useState<Import | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [triggersText, setTriggersText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,6 +113,7 @@ export function SkillsPanel({
 
   const startNew = () => {
     setImporting(null);
+    setTriggersText("");
     setDraft({ existing: null, ...skillSkeleton(), enabled: false, source: "user", warnings: [], redacted: 0 });
   };
 
@@ -119,6 +122,7 @@ export function SkillsPanel({
     setError(null);
     try {
       const doc = await api.getSkill(agentId, name);
+      setTriggersText((doc.triggers ?? []).join(", "));
       setDraft({ existing: name, ...doc });
     } catch (err) {
       setError(skillErrorText(err));
@@ -153,9 +157,11 @@ export function SkillsPanel({
         ? await api.saveLearnedSkill(agentId, name, { ...learned, description: draft.description.trim(), body: draft.body, reviewed })
         : await api.saveSkill(agentId, name, {
           description: draft.description.trim(), body: draft.body, enabled: draft.enabled, source: draft.source,
+          triggers: parseTriggers(triggersText),
         });
       if (learned) setReceipt({ name, revision: doc.revision });
       // What was saved can differ (secrets are removed); show it so the person sees the result.
+      setTriggersText((doc.triggers ?? []).join(", "));
       setDraft({ existing: name, ...doc });
       await load();
       onChanged?.();
@@ -277,6 +283,15 @@ export function SkillsPanel({
             className={FIELD}
             value={draft.description}
             onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+          />
+          <label className="block text-xs text-muted" htmlFor="skill-triggers">Trigger phrases (optional, comma separated; suggests this skill when a message contains one)</label>
+          <input
+            id="skill-triggers"
+            className={FIELD}
+            value={triggersText}
+            disabled={!!draft.learnedFrom && draft.existing === null}
+            onChange={(e) => setTriggersText(e.target.value)}
+            placeholder="weekly report, status update"
           />
           <label className="block text-xs text-muted" htmlFor="skill-body">Instructions (Markdown)</label>
           <textarea

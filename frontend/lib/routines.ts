@@ -235,3 +235,15 @@ export function badgeText(unread: number): string | null {
   if (unread <= 0) return null;
   return unread > 99 ? "99+" : String(unread);
 }
+
+// Waiting routine questions to show in a chat: only those that belong to
+// another conversation than the one open (the run's own thread already shows
+// its approvals inline), oldest first, with at least one pending approval.
+export function waitingQuestionsFor<T extends { thread_id: number; waiting_since: string | null; approvals: unknown[] }>(
+  waiting: readonly T[],
+  openThreadId: number | null,
+): T[] {
+  return waiting
+    .filter((run) => run.thread_id !== openThreadId && run.approvals.length > 0)
+    .sort((a, b) => (a.waiting_since ?? "").localeCompare(b.waiting_since ?? ""));
+}

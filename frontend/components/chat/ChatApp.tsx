@@ -29,6 +29,7 @@ import { ApprovalsPanel } from "@/components/approvals/ApprovalsPanel";
 import type { Remembered } from "./items";
 import { Composer } from "./Composer";
 import { Conversation } from "./Conversation";
+import { WaitingRoutineQuestions } from "./WaitingRoutineQuestions";
 import { NeedsYouCard } from "./NeedsYouCard";
 import { ChatHeader } from "./ChatHeader";
 import { CommandPalette } from "@/components/shell/CommandPalette";
@@ -50,6 +51,9 @@ import { TeamPanel } from "./TeamPanel";
 import { parseRoom, roomHref } from "@/lib/rooms";
 import { chatAppLink, chatWebLink, type ChatTarget } from "@/lib/chat-link";
 import { copyToClipboard } from "@/lib/clipboard";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useToast } from "@/components/ui/Toast";
+import { canUndo, latestTaskSnapshot, undoImpact } from "@/lib/workspace-undo";
 import { BASE_PATH } from "@/lib/paths";
 import { useThreadStream } from "./useThreadStream";
 import type { NeedsYouSnapshot } from "@/lib/needs-you";
@@ -183,6 +187,9 @@ export function ChatApp() {
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  const toast = useToast();
+  const [undoOpen, setUndoOpen] = useState(false);
+  const [undoBusy, setUndoBusy] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [manageError, setManageError] = useState<string | null>(null);
   // The turn Stop was pressed for; cleared by the turn ending, which is what
@@ -1003,6 +1010,27 @@ export function ChatApp() {
       window.setTimeout(() => setLinkCopied(false), 2000);
     }
   } : undefined;
+  // Rewinds the workspace to just before the latest task. The server refuses while a turn runs and
+  // takes a snapshot first, so an undo can itself be undone.
+  const undoOffered = roomId === null && ready && canUndo({ threadId, turnRunning: transcript.runningTurnId !== null, busy: undoBusy });
+  const runUndo = async () => {
+    if (threadId === null) return;
+    setUndoBusy(true);
+    try {
+      const point = latestTaskSnapshot(await api.listWorkspaceSnapshots(threadId));
+      if (!point) {
+        toast(t("undo.none"), "info");
+      } else {
+        const result = await api.restoreWorkspaceSnapshot(threadId, point.id);
+        toast(t("undo.done").replace("{n}", String(undoImpact(result))));
+      }
+      setUndoOpen(false);
+    } catch (err) {
+      toast(`${t("undo.failed")}${err instanceof Error && err.message ? `: ${err.message}` : ""}`, "danger");
+    } finally {
+      setUndoBusy(false);
+    }
+  };
   const buildHeader = (withSidebar: boolean) => (
     <ChatHeader
       title={roomId !== null
@@ -1062,6 +1090,7 @@ export function ChatApp() {
       onUsage={ready ? () => setPanel("usage") : undefined}
       onToday={ready ? () => void refreshToday() : undefined}
       onCopyLink={copyLink}
+      onUndo={undoOffered ? () => setUndoOpen(true) : undefined}
       usageHint={conversationTotal}
       trailing={
         <>
@@ -1247,6 +1276,17 @@ export function ChatApp() {
           </form>
         </Dialog>
       )}
+      <ConfirmDialog
+        open={undoOpen}
+        onOpenChange={(open) => { if (!undoBusy) setUndoOpen(open); }}
+        title={t("undo.title")}
+        description={t("undo.body")}
+        confirmLabel={t("undo.confirm")}
+        cancelLabel={t("common.cancel")}
+        danger
+        loading={undoBusy}
+        onConfirm={() => void runUndo()}
+      />
       {filesOpen && threadId !== null && (
         <FilesPanel threadId={threadId} workspace={thread?.workspace_path ?? null} onClose={() => setFilesOpen(false)} />
       )}
@@ -1296,6 +1336,7 @@ export function ChatApp() {
             />
           )}
           {(roomId === null || agents === null) && <>
+          <WaitingRoutineQuestions agentId={threadAgent?.id ?? startingAgent?.id ?? null} openThreadId={threadId} />
           {stream.connection === "failed" ? (
             <Notice title="Cannot open this conversation">{stream.error}</Notice>
           ) : (

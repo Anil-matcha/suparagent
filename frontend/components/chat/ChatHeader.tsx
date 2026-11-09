@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, CalendarDays, Folder, Link2, Menu as MenuIcon, MoreHorizontal, ShieldCheck } from "lucide-react";
+import { BarChart3, CalendarDays, Folder, Link2, Menu as MenuIcon, MoreHorizontal, ShieldCheck, Undo2 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Agent } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -29,6 +29,7 @@ export function ChatHeader({
   onUsage,
   onToday,
   onCopyLink,
+  onUndo,
   usageHint,
   trailing,
   status,
@@ -49,6 +50,8 @@ export function ChatHeader({
   onToday?: () => void;
   // Copies a link that opens this chat or room again.
   onCopyLink?: () => void;
+  // Opens the "undo this task's file changes" confirmation; absent while a task runs.
+  onUndo?: () => void;
   usageHint?: string;
   // The notification bell and anything else that sits at the far right.
   trailing?: ReactNode;
@@ -64,6 +67,7 @@ export function ChatHeader({
   if (onToday) secondary.push({ key: "today", label: t("header.today"), icon: <CalendarDays size={18} />, run: onToday, hint: t("header.todayHint") });
 
   if (onCopyLink) secondary.push({ key: "copyLink", label: t("header.copyLink"), icon: <Link2 size={18} />, run: onCopyLink });
+  if (onUndo) secondary.push({ key: "undo", label: t("header.undo"), icon: <Undo2 size={18} />, run: onUndo });
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-app px-3 pt-[env(safe-area-inset-top)] sm:px-4">
