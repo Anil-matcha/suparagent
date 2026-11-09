@@ -296,9 +296,14 @@ served separately.
 - One owner. No multiple accounts, no per-user data separation; every
   principal acts as the owner (within its scope). The `user_id` that older
   routes take as a parameter is not cross-checked against the session.
-- Lockout and rate-limit counters are in memory, per process: a restart
-  forgets them, and several worker processes each count separately. Run one
-  backend process, or put a rate limit in the proxy too.
+- Sign-in and pairing lockouts are saved to small files next to the database
+  (desktop profile folder, SQLite folder, or `AUTH_LIMITS_DIR`), so a restart
+  keeps them; with PostgreSQL and no `AUTH_LIMITS_DIR` they stay in memory. The
+  per-minute request limit is always in memory, and several worker processes
+  each count separately. Run one backend process, or put a rate limit in the
+  proxy too.
+- Session length: `AUTH_SESSION_DAYS` (default 30, 1 to 90) sets how long a
+  session lasts without use; each use renews it, up to a 180-day cap.
 - No email sign-in, no passkeys, no second factor.
 - A paired `admin` device is as powerful as the owner. Pair phones with `chat`
   unless they need settings, and revoke a lost device at once.

@@ -535,3 +535,84 @@ def test_the_restore_command_reports_a_key_problem_with_its_own_exit_code(tmp_pa
     point_at(monkeypatch, tmp_path / "fresh")
     assert server_main(["restore", str(archive)]) == EXIT_KEY_MISMATCH
     assert "TOKEN_ENCRYPTION_KEYS" in capsys.readouterr().err
+
+
+# -- password protection and the file list -----------------------------------------------------------
+
+def test_a_password_protected_backup_round_trips_and_hides_its_content(source, tmp_path, monkeypatch):
+    before = read_tree(source)
+    report = backup.create_backup(tmp_path / "out", passphrase="correct horse")
+    assert report.archive.name.endswith(".tar.gz.enc") and backup.is_encrypted(report.archive)
+    raw = report.archive.read_bytes()
+    assert b"remember the pelican" not in raw and b"SQLite format" not in raw
+    assert not list((tmp_path / "out").glob("*.part")) and not list((tmp_path / "out").glob("open-dots-backup-*.tar.gz"))
+    target = point_at(monkeypatch, tmp_path / "fresh")
+    result = backup.restore_backup(report.archive, passphrase="correct horse")
+    assert read_tree(target) == before and result.parts["workspace"].files == 2
+    assert not [p for p in target["database"].parent.iterdir() if p.name.startswith(".restore-")]
+
+
+def test_a_wrong_or_missing_password_restores_nothing(source, tmp_path, monkeypatch):
+    archive = backup.create_backup(tmp_path / "out", passphrase="right").archive
+    target = point_at(monkeypatch, tmp_path / "fresh")
+    with pytest.raises(backup.BackupError, match="password is wrong"):
+        backup.restore_backup(archive, passphrase="wrong")
+    with pytest.raises(backup.BackupError, match="password-protected"):
+        backup.restore_backup(archive)
+    assert not target["database"].exists()
+    assert not [p for p in target["database"].parent.iterdir() if p.name.startswith(".restore-")] if target["database"].parent.exists() else True
+
+
+def test_a_tampered_or_truncated_protected_backup_is_refused(source, tmp_path, monkeypatch):
+    archive = backup.create_backup(tmp_path / "out", passphrase="pw").archive
+    data = archive.read_bytes()
+    point_at(monkeypatch, tmp_path / "fresh")
+    flipped = tmp_path / "flipped.enc"
+    flipped.write_bytes(data[:100] + bytes([data[100] ^ 1]) + data[101:])
+    with pytest.raises(backup.BackupError, match="password is wrong|damaged"):
+        backup.restore_backup(flipped, passphrase="pw")
+    cut = tmp_path / "cut.enc"
+    cut.write_bytes(data[:-20])
+    with pytest.raises(backup.BackupError):
+        backup.restore_backup(cut, passphrase="pw")
+
+
+def test_chunks_cannot_be_dropped_from_a_large_protected_file(tmp_path):
+    plain = tmp_path / "plain"
+    plain.write_bytes(os.urandom(backup.ENC_CHUNK * 2 + 5))
+    sealed = tmp_path / "plain.enc"
+    backup.encrypt_file(plain, sealed, "pw")
+    back = tmp_path / "back"
+    backup.decrypt_file(sealed, back, "pw")
+    assert back.read_bytes() == plain.read_bytes()
+    header = len(backup.ENC_MAGIC) + 20
+    size = backup.ENC_CHUNK + 16
+    data = sealed.read_bytes()
+    dropped = tmp_path / "dropped.enc"
+    dropped.write_bytes(data[:header + size] + data[header + 2 * size:])  # drop the middle chunk
+    with pytest.raises(backup.BackupError):
+        backup.decrypt_file(dropped, tmp_path / "x", "pw")
+
+
+def test_the_list_names_exactly_what_a_backup_copies(source):
+    plan = backup.plan_backup()
+    assert [item["part"] for item in plan] == list(backup.PARTS)
+    assert {item["part"]: item["path"] for item in plan} == {k: str(v) for k, v in source.items()}
+    assert all(item["exists"] for item in plan)
+    assert "workspace" not in [item["part"] for item in backup.plan_backup(skip_workspaces=True)]
+
+
+def test_the_commands_take_a_password_file_and_can_list(source, tmp_path, monkeypatch, capsys):
+    assert server_main(["backup", "--list"]) == 0
+    out = capsys.readouterr().out
+    assert str(source["database"]) in out and "TOKEN_ENCRYPTION_KEYS" in out
+    assert not (source["database"].parent / "backups").exists()  # listing wrote nothing
+    secret = tmp_path / "pw.txt"
+    secret.write_text("s3cret\n")
+    assert server_main(["backup", "--out", str(tmp_path / "out"), "--password-file", str(secret)]) == 0
+    assert "password-protected" in capsys.readouterr().out
+    archive = next((tmp_path / "out").glob("*.enc"))
+    point_at(monkeypatch, tmp_path / "fresh")
+    assert server_main(["restore", str(archive)]) == EXIT_DATA
+    assert "password-protected" in capsys.readouterr().err
+    assert server_main(["restore", str(archive), "--password-file", str(secret)]) == 0

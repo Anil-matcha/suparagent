@@ -1,6 +1,8 @@
 """The command line of `python -m app.server backup` and `restore` (app/server/backup.py)."""
 
 import argparse
+import getpass
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -23,6 +25,27 @@ def _size(n: int) -> str:
     return f"{n} B"
 
 
+PASSWORD_ENV = "OPEN_DUET_BACKUP_PASSWORD"
+
+
+def _password(args, *, confirm: bool) -> str | None:
+    """From --password-file, the environment, or a prompt; never from the command line itself."""
+    if getattr(args, "password_file", None):
+        try:
+            text = args.password_file.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise SystemExit(f"Open Duet server: cannot read the password file ({exc.strerror}).") from None
+        return text.rstrip("\r\n") or None
+    if os.environ.get(PASSWORD_ENV):
+        return os.environ[PASSWORD_ENV]
+    if getattr(args, "password", False):
+        first = getpass.getpass("Backup password: ")
+        if confirm and getpass.getpass("Repeat it: ") != first:
+            raise SystemExit("Open Duet server: the passwords do not match.")
+        return first or None
+    return None
+
+
 def main(argv: Sequence[str]) -> int:
     from app.server import backup
 
@@ -31,17 +54,28 @@ def main(argv: Sequence[str]) -> int:
     make = commands.add_parser("backup", help="write one archive of the database, attachments, decision log and workspace")
     make.add_argument("--out", type=Path, help="the folder to write it in (default: backups/ beside the database)")
     make.add_argument("--skip-workspaces", action="store_true", help="leave out the workspace folder (it can be large)")
+    make.add_argument("--list", action="store_true", help="only list what a backup copies (and where it lives); write nothing")
+    make.add_argument("--password", action="store_true", help="protect the archive with a password asked for here")
+    make.add_argument("--password-file", type=Path, help="protect the archive with the password in this file")
     back = commands.add_parser("restore", help="fill an empty data folder from an archive")
     back.add_argument("archive", type=Path)
+    back.add_argument("--password", action="store_true", help="ask for the archive's password")
+    back.add_argument("--password-file", type=Path, help="read the archive's password from this file")
     try:
         args = parser.parse_args(list(argv))
     except SystemExit as exc:
         return 2 if exc.code else 0
 
     try:
+        if args.command == "backup" and args.list:
+            for item in backup.plan_backup(skip_workspaces=args.skip_workspaces):
+                print(f"{item['part']:<13} {item['kind']:<6} {item['path']}" + ("" if item["exists"] else "  (not there yet)"))
+            print("Also keep a copy of TOKEN_ENCRYPTION_KEYS; it is never in an archive. " + NOT_INCLUDED.split(": ", 1)[1])
+            return 0
         if args.command == "backup":
-            report = backup.create_backup(args.out, skip_workspaces=args.skip_workspaces)
-            print(f"Backup written to {report.archive}")
+            password = _password(args, confirm=True)
+            report = backup.create_backup(args.out, skip_workspaces=args.skip_workspaces, passphrase=password)
+            print(f"Backup written to {report.archive}" + (" (password-protected; there is no way to recover it without the password)" if password else ""))
             for name, part in report.parts.items():
                 if part.files or name == "database":
                     print(f"  {name}: {part.files} file(s), {_size(part.bytes)}")
@@ -56,7 +90,7 @@ def main(argv: Sequence[str]) -> int:
                       "Stop the server for a fully quiet backup.")
             print(NOT_INCLUDED)
             return 0
-        report = backup.restore_backup(args.archive)
+        report = backup.restore_backup(args.archive, passphrase=_password(args, confirm=False))
         total = sum(part.files for part in report.parts.values())
         print(f"Restored {total} file(s) from {args.archive}.")
         if report.older_than_code:

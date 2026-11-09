@@ -21,6 +21,7 @@ from sqlalchemy import select
 
 from app.db.models import Agent, Thread
 from app.services import attachments
+from app.services.agent_memory import redact_json
 from app.services import thread_store as store
 
 FORMAT_VERSION = 1
@@ -57,7 +58,7 @@ def _plain(value):
 
 
 def _row(obj, fields: tuple[str, ...]) -> dict:
-    return {name: _plain(getattr(obj, name, None)) for name in fields}
+    return redact_json({name: _plain(getattr(obj, name, None)) for name in fields})
 
 
 class _Writer:
@@ -113,7 +114,7 @@ async def _build(rt, handle: IO[bytes]) -> dict:
                 for event in await store.list_all_events(db, thread.id):
                     lines.append(json.dumps({
                         "seq": event.seq, "turn_id": event.turn_id, "type": event.type,
-                        "data": event.data, "created_at": _plain(event.created_at),
+                        "data": redact_json(event.data), "created_at": _plain(event.created_at),
                     }, separators=(",", ":")))
                 event_count += len(lines)
                 out.add(f"threads/{int(thread.id)}/events.ndjson", "\n".join(lines) + ("\n" if lines else ""))

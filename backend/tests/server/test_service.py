@@ -142,3 +142,80 @@ def test_the_printed_commands_never_empty_an_existing_settings_file(tmp_path):
     env_file.write_text("TOKEN_ENCRYPTION_KEYS=keep-me\n")
     run()  # running the steps again, as after an upgrade
     assert env_file.read_text() == "TOKEN_ENCRYPTION_KEYS=keep-me\n"
+
+
+# --- install / uninstall (BL-65): fake systemctl and a temp unit path ---
+
+def _fake(tmp_path):
+    calls: list[list[str]] = []
+    msgs: list[str] = []
+
+    def run(cmd):
+        calls.append(cmd)
+        return 0
+
+    return calls, msgs, run, (lambda m, file=None: msgs.append(m))
+
+
+def _kw(tmp_path, run, out, **extra):
+    return dict(name="open-dots", run=run, out=out, platform="linux", which=lambda _: "/bin/systemctl",
+                euid=0, target=tmp_path / "open-dots.service", **extra)
+
+
+def test_install_writes_unit_and_enables(tmp_path):
+    from app.server import service
+    calls, msgs, run, out = _fake(tmp_path)
+    assert service.install(user="duet", env_file="/etc/open-dots/open-dots.env", **_kw(tmp_path, run, out)) == 0
+    assert "User=duet" in (tmp_path / "open-dots.service").read_text()
+    assert calls == [["systemctl", "daemon-reload"], ["systemctl", "enable", "--now", "open-dots"]]
+
+
+def test_install_user_scope_has_no_user_line_and_uses_user_manager(tmp_path):
+    from app.server import service
+    calls, msgs, run, out = _fake(tmp_path)
+    kw = _kw(tmp_path, run, out, scope="user")
+    kw["euid"] = 1000
+    assert service.install(user="duet", env_file="/home/duet/o.env", **kw) == 0
+    text = (tmp_path / "open-dots.service").read_text()
+    assert "User=" not in text and "WantedBy=default.target" in text
+    assert calls[0] == ["systemctl", "--user", "daemon-reload"]
+
+
+def test_install_dry_run_changes_nothing(tmp_path):
+    from app.server import service
+    calls, msgs, run, out = _fake(tmp_path)
+    assert service.install(user="duet", env_file="/e.env", dry_run=True, **_kw(tmp_path, run, out)) == 0
+    assert not (tmp_path / "open-dots.service").exists() and calls == []
+
+
+def test_install_refuses_existing_unit_non_linux_no_systemd_and_non_root(tmp_path):
+    from app.server import service
+    calls, msgs, run, out = _fake(tmp_path)
+    (tmp_path / "open-dots.service").write_text("x")
+    assert service.install(user="duet", env_file="/e.env", **_kw(tmp_path, run, out)) == 4
+    assert (tmp_path / "open-dots.service").read_text() == "x"
+    kw = _kw(tmp_path, run, out)
+    assert service.install(user="duet", env_file="/e.env", **{**kw, "platform": "darwin"}) == 2
+    assert service.install(user="duet", env_file="/e.env", **{**kw, "which": lambda _: None}) == 2
+    assert service.install(user="duet", env_file="/e.env", **{**kw, "euid": 1000}) == 2
+    assert calls == []
+
+
+def test_uninstall_stops_disables_removes(tmp_path):
+    from app.server import service
+    calls, msgs, run, out = _fake(tmp_path)
+    unit = tmp_path / "open-dots.service"
+    unit.write_text("x")
+    assert service.uninstall(**_kw(tmp_path, run, out)) == 0
+    assert not unit.exists()
+    assert calls == [["systemctl", "disable", "--now", "open-dots"], ["systemctl", "daemon-reload"]]
+    assert service.uninstall(**_kw(tmp_path, run, out)) == 4
+
+
+def test_uninstall_keeps_unit_when_stop_fails(tmp_path):
+    from app.server import service
+    unit = tmp_path / "open-dots.service"
+    unit.write_text("x")
+    calls, msgs, _, out = _fake(tmp_path)
+    assert service.uninstall(**_kw(tmp_path, lambda c: 1, out)) == 5
+    assert unit.exists()

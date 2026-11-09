@@ -157,6 +157,12 @@ class Settings(BaseSettings):
     # Hosted deployments: the folder holding one subfolder per account for its files (workspace,
     # memory, attachments, decision log). Empty means ~/.open-dots/tenants.
     TENANT_DATA_DIR: str = ""
+    # Owner sign-in: how long a signed-in browser or device stays signed in without use, in days
+    # (1 to 90; each use renews it, up to the 180-day cap), and where failed-attempt lockouts are
+    # kept so a restart does not forget them. Empty state folder means next to the database
+    # (SQLite or desktop profile); with PostgreSQL and no path, lockouts stay in memory.
+    AUTH_SESSION_DAYS: int = 30
+    AUTH_LIMITS_DIR: str = ""
     # Whether a request from this machine needs no sign-in:
     #   off       every request signs in (default; safest)
     #   programs  loopback programs (curl, scripts) act as the owner; browsers
@@ -255,6 +261,13 @@ class Settings(BaseSettings):
     @classmethod
     def _check_public_url(cls, value: str) -> str:
         return public_url.normalize(value)
+
+    @field_validator("AUTH_SESSION_DAYS")
+    @classmethod
+    def _session_days_bounds(cls, value: int) -> int:
+        if not 1 <= value <= 90:
+            raise ValueError("AUTH_SESSION_DAYS must be between 1 and 90")
+        return value
 
     @field_validator("LOOPBACK_TRUST")
     @classmethod

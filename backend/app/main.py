@@ -57,6 +57,23 @@ async def lifespan(app: FastAPI):
             lease.release()
 
 
+def _configure_auth_limits() -> None:
+    """Keep sign-in lockouts across restarts, next to the data they protect."""
+    from pathlib import Path
+
+    from app.auth import limiter
+
+    if settings.AUTH_LIMITS_DIR.strip():
+        folder = Path(settings.AUTH_LIMITS_DIR).expanduser()
+    elif profile.active():
+        folder = profile.current().data_dir
+    elif settings.DATABASE_KIND == "sqlite":
+        folder = settings.SQLITE_FILE.parent
+    else:
+        return
+    limiter.configure_persistence(folder)
+
+
 @asynccontextmanager
 async def _serving(app: FastAPI):
     # Event streams end as soon as a stop signal arrives, so the server's wait
@@ -64,6 +81,7 @@ async def _serving(app: FastAPI):
     shutdown.reset()
     shutdown.install_signal_hooks()
     thread_runtime.reopen()
+    _configure_auth_limits()
     if profile.active():
         from app.db.session import AsyncSessionLocal
         try:
