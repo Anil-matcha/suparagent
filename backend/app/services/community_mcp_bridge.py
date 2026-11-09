@@ -23,6 +23,7 @@ from urllib.parse import quote
 from sqlalchemy import delete, select
 
 from app import community_mcp
+from app.core import tool_timeout
 from app.core.logging import get_logger
 from app.db.models import Agent, Approval, CommunityMcpConnection, CommunityMcpToolGrant, Thread, Turn
 from app.services import user_credential_service
@@ -471,7 +472,11 @@ class CommunityMcpBridge:
             if self.run.ctx.aborted:
                 return None
             try:
-                result = await session.call_tool(item["remote_name"], arguments)
+                try:
+                    async with asyncio.timeout(tool_timeout.seconds()):
+                        result = await session.call_tool(item["remote_name"], arguments)
+                except TimeoutError:
+                    raise community_mcp.McpError("timeout", "The tool timed out.", 504) from None
             except community_mcp.McpError:
                 logger.info("marketplace tool result was not confirmed", slug=item["manifest"]["slug"],
                             schema=item["schema_digest"][:12])

@@ -162,6 +162,9 @@ class Settings(BaseSettings):
     # kept so a restart does not forget them. Empty state folder means next to the database
     # (SQLite or desktop profile); with PostgreSQL and no path, lockouts stay in memory.
     AUTH_SESSION_DAYS: int = 30
+    # One limit for every agent tool call made through the app (connected apps,
+    # marketplace tools). A call still running after this is stopped.
+    TOOL_CALL_TIMEOUT_SECONDS: int = 120
     AUTH_LIMITS_DIR: str = ""
     # Whether a request from this machine needs no sign-in:
     #   off       every request signs in (default; safest)
@@ -267,6 +270,13 @@ class Settings(BaseSettings):
     def _session_days_bounds(cls, value: int) -> int:
         if not 1 <= value <= 90:
             raise ValueError("AUTH_SESSION_DAYS must be between 1 and 90")
+        return value
+
+    @field_validator("TOOL_CALL_TIMEOUT_SECONDS")
+    @classmethod
+    def _tool_timeout_bounds(cls, value: int) -> int:
+        if not 5 <= value <= 1800:
+            raise ValueError("TOOL_CALL_TIMEOUT_SECONDS must be between 5 and 1800")
         return value
 
     @field_validator("LOOPBACK_TRUST")

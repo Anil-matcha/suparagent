@@ -23,6 +23,7 @@ from app import composio_catalog, composio_generic, composio_tools
 from app.db.models.user_credential import UserCredential
 from app.db.transactions import begin_write
 from app.services import user_credential_service
+from app.core import tool_timeout
 from app.services.composio_client import Account, ComposioClient, ComposioError, Link
 
 PROVIDER = "integration:composio"
@@ -277,6 +278,16 @@ DONE_UNREADABLE = {
 }
 
 
+async def _execute(client, session_id, slug, arguments, account_id):
+    """client.execute under the single tool timeout; a timeout reads as 'unavailable',
+    so a change is reported as unknown and never retried."""
+    try:
+        async with asyncio.timeout(tool_timeout.seconds()):
+            return await client.execute(session_id, slug, arguments, account_id)
+    except TimeoutError:
+        raise ComposioError("unavailable", "The app did not answer in time.") from None
+
+
 async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments: dict, alias: str | None, *,
                    account_id: str | None = None, allowed_account_ids: list[str] | None = None,
                    before_execute=None) -> dict:
@@ -318,7 +329,7 @@ async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments
     except ComposioError as exc:  # nothing was sent for the tool yet
         return _agent_error(exc)
     try:
-        done = await client.execute(session_id, tool.slug, arguments, account.id)
+        done = await _execute(client, session_id, tool.slug, arguments, account.id)
     except ComposioError as exc:
         if write and exc.kind in ("unavailable", "bad_response"):
             return dict(OUTCOME_UNKNOWN)
@@ -329,7 +340,7 @@ async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments
             session_id, record = await _session(db, owner_id, client, record, replace=session_id)
             if write:
                 return dict(SESSION_EXPIRED)
-            done = await client.execute(session_id, tool.slug, arguments, account.id)
+            done = await _execute(client, session_id, tool.slug, arguments, account.id)
         except ComposioError as again:
             return _agent_error(again)
     if done.result_type == "completed":
