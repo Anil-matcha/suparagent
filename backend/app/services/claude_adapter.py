@@ -453,6 +453,8 @@ class ClaudeAdapter:
             # tools only on this app's supported path.
             approval_mode = "ask"
         try:
+            from app.services import claude_accounts
+
             attempt.output = await local_claude_runner.run_prompt(
                 ctx.prompt,
                 ctx.provider_session_id,
@@ -462,6 +464,8 @@ class ClaudeAdapter:
                 tools=tools,
                 workspace=ctx.workspace,
                 approval_mode=approval_mode,
+                # A removed account raises here; a turn never falls back to another login.
+                config_dir=claude_accounts.config_dir(ctx.claude_account),
                 **extra,
             )
         except Exception as exc:  # noqa: BLE001

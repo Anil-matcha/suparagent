@@ -887,6 +887,7 @@ class ThreadRuntime:
             if approval_mode is not None
             else (agent.approval_mode if agent is not None else None),
             engine_config=config,
+            claude_account=agent.claude_account if agent is not None else None,
         )
         ctx.draft_only = draft_only
         ctx.media_review_only = any(a.kind == "audio" for a, _ in attached)

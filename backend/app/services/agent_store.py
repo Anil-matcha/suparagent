@@ -39,6 +39,7 @@ _EDITABLE = (
     "use_helper",
     "fallback_provider",
     "fallback_model",
+    "claude_account",
     "connector_scopes",
     "connector_account_scopes",
 )
@@ -98,6 +99,7 @@ async def create_agent(
     make_lead: bool = False,
     fallback_provider: str | None = None,
     fallback_model: str | None = None,
+    claude_account: str | None = None,
 ) -> Agent:
     """Raises ValueError (blank name, unknown approval mode) or AgentNameTaken."""
     name = name.strip()
@@ -125,6 +127,7 @@ async def create_agent(
         use_helper=use_helper,
         fallback_provider=fallback_provider,
         fallback_model=fallback_model,
+        claude_account=claude_account,
         created_at=now,
         updated_at=now,
     )
@@ -250,6 +253,7 @@ async def duplicate_agent(db: AsyncSession, agent_id: int, *, safe: bool = False
         use_helper=source.use_helper,
         fallback_provider=source.fallback_provider,
         fallback_model=source.fallback_model,
+        claude_account=source.claude_account,
     )
 
 

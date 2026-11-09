@@ -309,6 +309,21 @@ def _child_env(*, extra_names=(), extra_env=None) -> dict[str, str]:
     return engine_processes.mark(env)
 
 
+# Credentials a named Claude account must not inherit from the server's environment: they would
+# make every account the same login.
+_ACCOUNT_CREDENTIAL_NAMES = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
+
+
+def account_env(env: dict[str, str], config_dir: Path) -> dict[str, str]:
+    """`env` for one named Claude account: its own absolute config folder, and no shared login variables."""
+    folder = Path(config_dir)
+    if not folder.is_absolute():
+        raise ValueError("A Claude account folder must be absolute.")
+    out = {k: v for k, v in env.items() if k not in _ACCOUNT_CREDENTIAL_NAMES}
+    out["CLAUDE_CONFIG_DIR"] = str(folder)
+    return out
+
+
 def child_env(*, extra_names=(), extra_env=None) -> dict[str, str]:
     """The environment for any engine process this app starts: the names
     an engine needs (app/core/engine_env.py), not this process's whole
@@ -347,6 +362,7 @@ def run_blocking(
     sandbox: bool = False,
     sandbox_writable=(),
     sandbox_readonly=(),
+    config_dir: Path | None = None,
 ) -> RunOutput:
     """Run a process to completion with a time limit and an output cap,
     killing its whole process tree if either is exceeded.
@@ -370,6 +386,8 @@ def run_blocking(
 
     host_exec.ensure_allowed("an engine process")
     env = _child_env()
+    if config_dir is not None:
+        env = account_env(env, config_dir)
     if sandbox:
         from app.core import turn_sandbox
         turn_sandbox.self_check()
@@ -643,6 +661,7 @@ def _run_blocking(
     mcp_servers: dict | None = None,
     images: list[dict] | None = None,
     mcp_only: bool = False,
+    config_dir: Path | None = None,
 ) -> RunOutput:
     if workspace is not None:
         from app.services.workspaces import require_workspace
@@ -689,6 +708,7 @@ def _run_blocking(
         on_stdout_line=on_stdout_line,
         control=control,
         keep_stdin_open=tools if control is not None else None,
+        config_dir=config_dir,
     )
 
 
@@ -708,6 +728,7 @@ async def run_prompt(
     mcp_servers: dict | None = None,
     images: list[dict] | None = None,
     mcp_only: bool = False,
+    config_dir: Path | None = None,
 ) -> RunOutput:
     """Chat-only by default. Passing a `RunControl` runs with tools on: the CLI
     then asks over stdin/stdout before each tool call, and the caller answers
@@ -732,4 +753,5 @@ async def run_prompt(
         mcp_servers,
         images,
         mcp_only,
+        config_dir,
     )

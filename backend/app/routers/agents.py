@@ -101,6 +101,8 @@ def _guard_create(request: Request, payload: AgentCreateRequest) -> None:
         return
     if payload.workspace_path is not None:
         raise _admin_only("workspace_path")
+    if payload.claude_account is not None:
+        raise _admin_only("claude_account")
     if payload.make_lead:
         raise _admin_only("make_lead")
     if payload.approval_mode == "accept_edits":
@@ -111,13 +113,23 @@ def _guard_update(request: Request, payload: AgentUpdateRequest, agent) -> None:
     """The same for an edit. Leaving "accept_edits" alone, or moving to "ask" or "plan", is fine."""
     if not _restricted(request):
         return
-    for field in ("workspace_path", "connector_scopes", "connector_account_scopes"):
+    for field in ("workspace_path", "connector_scopes", "connector_account_scopes", "claude_account"):
         if field in payload.model_fields_set:
             raise _admin_only(field)
     if payload.make_lead is not None:
         raise _admin_only("make_lead")
     if payload.approval_mode == "accept_edits" and agent.approval_mode != "accept_edits":
         raise _admin_only("approval_mode accept_edits")
+
+
+def _check_claude_account(account_id: str | None) -> None:
+    """Only a named Claude account that exists, or null for the default account."""
+    if account_id is None:
+        return
+    from app.services import claude_accounts
+
+    if not claude_accounts.exists(account_id):
+        raise _error(422, "account_not_found", "That Claude account does not exist.")
 
 
 def _check_workspace(path: str | None) -> str | None:
@@ -362,6 +374,7 @@ async def create_agent(payload: AgentCreateRequest, request: Request, rt: Thread
             raise _error(409, 'lead_engine', 'A lead needs an engine with team tools (Claude or Codex).')
     _check_engine(rt, payload.provider, payload.model)
     _check_fallback(rt, payload.provider, payload.fallback_provider, payload.fallback_model)
+    _check_claude_account(payload.claude_account)
     workspace = _check_workspace(payload.workspace_path)
     try:
         async with rt.session() as db:
@@ -385,6 +398,7 @@ async def create_agent(payload: AgentCreateRequest, request: Request, rt: Thread
                 use_helper=payload.use_helper,
                 fallback_provider=payload.fallback_provider,
                 fallback_model=payload.fallback_model,
+                claude_account=payload.claude_account,
                 make_lead=payload.make_lead,
             )
     except store.AgentNameTaken:
@@ -448,11 +462,14 @@ async def _apply_update(
             "use_helper",
             "fallback_provider",
             "fallback_model",
+            "claude_account",
             "connector_scopes",
             "connector_account_scopes",
         )
         if field in payload.model_fields_set
     }
+    if "claude_account" in changes:
+        _check_claude_account(changes["claude_account"])
     account_scopes_submitted = "connector_account_scopes" in changes
     if "connector_scopes" in changes:
         changes["connector_scopes"] = await _check_connector_scopes(

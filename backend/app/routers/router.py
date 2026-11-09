@@ -16,6 +16,7 @@ from app.routers.computers import router as computers_router
 from app.routers.computer_credentials import router as computer_credentials_router, muapi_router as muapi_credentials_router
 from app.routers.browser_viewer import router as browser_viewer_router
 from app.routers.computer_viewer import router as computer_viewer_router
+from app.routers.claude_accounts import router as claude_accounts_router
 from app.routers.engines import router as engines_router
 from app.routers.routines import router as routines_router
 from app.routers.work_planner import router as planner_router
@@ -23,6 +24,7 @@ from app.routers.search import router as search_router
 from app.routers.attachments import router as attachments_router
 from app.routers.workspace_files import router as workspace_files_router
 from app.routers.workspace_snapshots import router as workspace_snapshots_router
+from app.routers.images import router as images_router
 from app.routers.usage import router as usage_router
 from app.routers.history_export import router as history_export_router
 from app.routers.profile import router as profile_router
@@ -58,6 +60,7 @@ router.include_router(computer_credentials_router)
 router.include_router(muapi_credentials_router)
 router.include_router(computer_viewer_router)
 router.include_router(browser_viewer_router)
+router.include_router(claude_accounts_router)
 router.include_router(engines_router)
 router.include_router(routines_router)
 router.include_router(planner_router)
@@ -65,6 +68,7 @@ router.include_router(search_router)
 router.include_router(attachments_router)
 router.include_router(workspace_files_router)
 router.include_router(workspace_snapshots_router)
+router.include_router(images_router)
 router.include_router(usage_router)
 router.include_router(history_export_router)
 router.include_router(profile_router)

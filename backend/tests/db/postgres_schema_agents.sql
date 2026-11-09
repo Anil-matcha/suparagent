@@ -10,6 +10,7 @@ CREATE TABLE agent (
 	effort VARCHAR(64),
 	fallback_provider VARCHAR, 
 	fallback_model VARCHAR, 
+	claude_account VARCHAR, 
 	workspace_path VARCHAR, 
 	approval_mode VARCHAR DEFAULT 'ask' NOT NULL, 
 	memory_enabled BOOLEAN DEFAULT true NOT NULL, 

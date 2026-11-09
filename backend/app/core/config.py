@@ -167,6 +167,10 @@ class Settings(BaseSettings):
     TOOL_CALL_TIMEOUT_SECONDS: int = 120
     # A connected-app result longer than this many characters is saved and the agent gets a preview.
     LARGE_TOOL_RESULT_CHARS: int = 20000
+    # Image generation (BL-114): any OpenAI-compatible images endpoint. Off until a key is set.
+    IMAGE_API_BASE_URL: str = "https://api.openai.com/v1"
+    IMAGE_API_KEY: str = ""
+    IMAGE_MODEL: str = "gpt-image-1"
     AUTH_LIMITS_DIR: str = ""
     # Whether a request from this machine needs no sign-in:
     #   off       every request signs in (default; safest)
@@ -212,6 +216,16 @@ class Settings(BaseSettings):
     # The nightly tidy-up runs once a day after this local hour (0-23) for each
     # agent with notes and upkeep on, never while it is working. 24 switches it off.
     MEMORY_TIDY_HOUR: int = 3
+
+    # Keep the prompt cache warm (docs/ENGINES.md): off by default. When on (here or
+    # in Settings), recently used Claude and Codex chats get one tiny message every
+    # few minutes so a long conversation stays cached. At most this many chats, each
+    # left alone after this many hours without the person, never while a turn runs.
+    CACHE_KEEP_WARM: bool = False
+    CACHE_KEEP_WARM_MAX_THREADS: int = Field(default=3, ge=1, le=10)
+    CACHE_KEEP_WARM_IDLE_HOURS: float = Field(default=2.0, ge=0.25, le=12.0)
+    # The gap between two messages to one chat; always kept under the cache lifetime.
+    CACHE_KEEP_WARM_INTERVAL_SECONDS: int = Field(default=240, ge=30, le=270)
 
     # Routines (docs/ROUTINES.md): how often the scheduler looks for due and
     # finished runs, the largest webhook body accepted, and an optional

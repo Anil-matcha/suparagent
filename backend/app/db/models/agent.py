@@ -55,6 +55,9 @@ class Agent(Base):
     # on it, if that engine can do what the turn needs (docs/ENGINES.md).
     fallback_provider: Mapped[str | None] = mapped_column(String, nullable=True)
     fallback_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    # A named Claude account (app/services/claude_accounts.py) this agent's Claude turns sign in with;
+    # null is the CLI's existing default account.
+    claude_account: Mapped[str | None] = mapped_column(String, nullable=True)
     # Null means the default workspace root, resolved when a thread is created.
     workspace_path: Mapped[str | None] = mapped_column(String, nullable=True)
     approval_mode: Mapped[str] = mapped_column(
