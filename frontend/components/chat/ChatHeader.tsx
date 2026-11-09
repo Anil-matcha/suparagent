@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, CalendarDays, Folder, Menu as MenuIcon, MoreHorizontal, ShieldCheck } from "lucide-react";
+import { BarChart3, CalendarDays, Folder, Link2, Menu as MenuIcon, MoreHorizontal, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Agent } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -28,6 +28,7 @@ export function ChatHeader({
   onFiles,
   onUsage,
   onToday,
+  onCopyLink,
   usageHint,
   trailing,
   status,
@@ -46,6 +47,8 @@ export function ChatHeader({
   onFiles?: () => void;
   onUsage?: () => void;
   onToday?: () => void;
+  // Copies a link that opens this chat or room again.
+  onCopyLink?: () => void;
   usageHint?: string;
   // The notification bell and anything else that sits at the far right.
   trailing?: ReactNode;
@@ -59,6 +62,8 @@ export function ChatHeader({
   if (onFiles) secondary.push({ key: "files", label: t("header.files"), icon: <Folder size={18} />, run: onFiles });
   if (onUsage) secondary.push({ key: "usage", label: t("header.usage"), icon: <BarChart3 size={18} />, run: onUsage, hint: usageHint });
   if (onToday) secondary.push({ key: "today", label: t("header.today"), icon: <CalendarDays size={18} />, run: onToday, hint: t("header.todayHint") });
+
+  if (onCopyLink) secondary.push({ key: "copyLink", label: t("header.copyLink"), icon: <Link2 size={18} />, run: onCopyLink });
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-app px-3 pt-[env(safe-area-inset-top)] sm:px-4">

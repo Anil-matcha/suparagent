@@ -19,6 +19,7 @@ const { createKeyStore, KeyStoreError } = require("./src/keystore");
 const { startBackend, backendEnvironment, newToken } = require("./src/backend");
 const { attachTokenTo, lockDown, sameOrigin } = require("./src/origin");
 const { registerExternalLinks } = require("./src/external-links");
+const { SCHEME: DEEP_LINK_SCHEME, deepLinkFromArgv, createDeepLinkHandler } = require("./src/deep-link");
 const { registerPathPicker } = require("./src/path-picker");
 const { registerDesktopPermissions } = require("./src/desktop-permissions");
 const { registerGoogleSignIn } = require("./src/google-sign-in");
@@ -56,6 +57,7 @@ function chooseUserData() {
 }
 
 let window = null;
+let deepLinkReady = () => {};
 let backend = null;
 let quitting = false;
 let backendStopped = false;
@@ -146,11 +148,34 @@ async function main() {
     app.exit(0);
     return;
   }
-  app.on("second-instance", () => {
+  // opendots://chat?thread=<id> opens one chat or room (BL-118). Links that arrive before the app is up wait for it.
+  const deepLinks = createDeepLinkHandler({
+    navigate: (pagePath) => (window && backendOrigin ? window.loadURL(`${backendOrigin}${pagePath}`) : undefined),
+    focus: () => {
+      if (!window) return;
+      if (window.isMinimized()) window.restore();
+      window.focus();
+    },
+  });
+  deepLinkReady = () => deepLinks.ready();
+  try {
+    app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
+  } catch {
+    // Registration can fail in a sandbox or a development run; links then just do not open the app.
+  }
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    deepLinks.open(url);
+  });
+  app.on("second-instance", (_event, argv) => {
+    const link = deepLinkFromArgv(argv);
+    if (link) deepLinks.open(link);
     if (!window) return;
     if (window.isMinimized()) window.restore();
     window.focus();
   });
+  const startupLink = deepLinkFromArgv(process.argv);
+  if (startupLink) deepLinks.open(startupLink);
 
   await app.whenReady();
   registerApplicationMenu({
@@ -317,6 +342,7 @@ async function main() {
     const replaced = error?.code === "ERR_ABORTED" && window && sameOrigin(window.webContents.getURL(), started.origin);
     if (!quitting && !replaced) throw error;
   }
+  deepLinkReady();
   setUpWorkspaces(token);
   startUpdateChecks();
 }

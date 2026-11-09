@@ -128,6 +128,8 @@ export const ru: Record<MessageKey, string> = {
   "composer.saveSkill": "Сохранить как навык",
   "header.today": "Сегодня",
   "header.todayHint": "Обновить сегодняшнюю сводку",
+  "header.copyLink": "Скопировать ссылку на этот чат",
+  "header.linkCopied": "Ссылка скопирована",
   "sidebar.planner": "Задачи и календарь",
   "planner.title": "Задачи и календарь",
   "planner.description": "Планируйте работу, следите за сроками и просматривайте запланированные процедуры.",

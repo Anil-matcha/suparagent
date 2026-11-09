@@ -128,6 +128,8 @@ export const nl: Record<MessageKey, string> = {
   "composer.saveSkill": "Opslaan als skill",
   "header.today": "Vandaag",
   "header.todayHint": "Het overzicht van vandaag vernieuwen",
+  "header.copyLink": "Link naar deze chat kopiëren",
+  "header.linkCopied": "Link gekopieerd",
   "sidebar.planner": "Taken en agenda",
   "planner.title": "Taken en agenda",
   "planner.description": "Plan je werk, houd deadlines bij en bekijk geplande routines.",

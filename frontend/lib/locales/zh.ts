@@ -128,6 +128,8 @@ export const zh: Record<MessageKey, string> = {
   "composer.saveSkill": "保存为技能",
   "header.today": "今天",
   "header.todayHint": "刷新今日摘要",
+  "header.copyLink": "复制此聊天的链接",
+  "header.linkCopied": "链接已复制",
   "sidebar.planner": "任务和日历",
   "planner.title": "任务和日历",
   "planner.description": "规划工作、跟踪截止日期并查看已安排的例行任务。",

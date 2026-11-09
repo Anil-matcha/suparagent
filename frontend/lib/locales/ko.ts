@@ -128,6 +128,8 @@ export const ko: Record<MessageKey, string> = {
   "composer.saveSkill": "스킬로 저장",
   "header.today": "오늘",
   "header.todayHint": "오늘의 요약 새로고침",
+  "header.copyLink": "이 채팅 링크 복사",
+  "header.linkCopied": "링크를 복사했습니다",
   "sidebar.planner": "작업 및 캘린더",
   "planner.title": "작업 및 캘린더",
   "planner.description": "작업을 계획하고 마감일을 추적하며 예정된 루틴을 확인하세요.",

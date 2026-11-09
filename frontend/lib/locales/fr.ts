@@ -128,6 +128,8 @@ export const fr: Record<MessageKey, string> = {
   "composer.saveSkill": "Enregistrer comme compétence",
   "header.today": "Aujourd’hui",
   "header.todayHint": "Actualiser le résumé du jour",
+  "header.copyLink": "Copier le lien de cette conversation",
+  "header.linkCopied": "Lien copié",
   "sidebar.planner": "Tâches et calendrier",
   "planner.title": "Tâches et calendrier",
   "planner.description": "Planifiez votre travail, suivez les échéances et consultez les routines programmées.",

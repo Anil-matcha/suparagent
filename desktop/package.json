@@ -52,6 +52,14 @@
         "to": "ui"
       }
     ],
+    "protocols": [
+      {
+        "name": "Open Duet chat link",
+        "schemes": [
+          "opendots"
+        ]
+      }
+    ],
     "asar": true,
     "win": {
       "icon": "build/icon.ico",

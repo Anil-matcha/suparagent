@@ -128,6 +128,8 @@ export const ja: Record<MessageKey, string> = {
   "composer.saveSkill": "スキルとして保存",
   "header.today": "今日",
   "header.todayHint": "今日の概要を更新",
+  "header.copyLink": "このチャットのリンクをコピー",
+  "header.linkCopied": "リンクをコピーしました",
   "sidebar.planner": "タスクとカレンダー",
   "planner.title": "タスクとカレンダー",
   "planner.description": "作業を計画し、期限を管理して、予定されているルーティンを確認できます。",

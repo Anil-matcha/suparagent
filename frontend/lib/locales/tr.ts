@@ -128,6 +128,8 @@ export const tr: Record<MessageKey, string> = {
   "composer.saveSkill": "Beceri olarak kaydet",
   "header.today": "Bugün",
   "header.todayHint": "Bugünün özetini yenile",
+  "header.copyLink": "Bu sohbetin bağlantısını kopyala",
+  "header.linkCopied": "Bağlantı kopyalandı",
   "sidebar.planner": "Görevler ve takvim",
   "planner.title": "Görevler ve takvim",
   "planner.description": "İşinizi planlayın, son tarihleri takip edin ve zamanlanmış rutinleri görün.",

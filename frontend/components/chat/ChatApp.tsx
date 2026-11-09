@@ -48,6 +48,9 @@ import { useSession } from "@/components/AuthGate";
 import { onboarding } from "@/lib/onboarding";
 import { TeamPanel } from "./TeamPanel";
 import { parseRoom, roomHref } from "@/lib/rooms";
+import { chatAppLink, chatWebLink, type ChatTarget } from "@/lib/chat-link";
+import { copyToClipboard } from "@/lib/clipboard";
+import { BASE_PATH } from "@/lib/paths";
 import { useThreadStream } from "./useThreadStream";
 import type { NeedsYouSnapshot } from "@/lib/needs-you";
 
@@ -179,6 +182,7 @@ export function ChatApp() {
   const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>({});
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [manageError, setManageError] = useState<string | null>(null);
   // The turn Stop was pressed for; cleared by the turn ending, which is what
@@ -989,6 +993,16 @@ export function ChatApp() {
   } : null;
 
   const computerText = threadComputer ? computerChip(threadComputer, liveComputerState) : null;
+  // The desktop app hands out its own link (the page's address is a private local one); the web app its page address.
+  const linkTarget: ChatTarget | null = roomId !== null && roomId !== "new" ? { kind: "room", id: roomId } : roomId === null && threadId !== null ? { kind: "thread", id: threadId } : null;
+  const copyLink = linkTarget ? async () => {
+    const isDesktop = typeof window !== "undefined" && "openDots" in window;
+    const link = isDesktop ? chatAppLink(linkTarget) : chatWebLink(window.location.origin, linkTarget, BASE_PATH);
+    if (await copyToClipboard(link)) {
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2000);
+    }
+  } : undefined;
   const buildHeader = (withSidebar: boolean) => (
     <ChatHeader
       title={roomId !== null
@@ -1047,6 +1061,7 @@ export function ChatApp() {
       onFiles={ready && threadId !== null && thread !== null ? () => setFilesOpen(true) : undefined}
       onUsage={ready ? () => setPanel("usage") : undefined}
       onToday={ready ? () => void refreshToday() : undefined}
+      onCopyLink={copyLink}
       usageHint={conversationTotal}
       trailing={
         <>
@@ -1063,7 +1078,7 @@ export function ChatApp() {
         </>
       }
       status={
-        roomId !== null ? null : stream.connection === "reconnecting"
+        linkCopied ? { text: t("header.linkCopied") } : roomId !== null ? null : stream.connection === "reconnecting"
           ? { text: t("header.reconnecting"), warn: true }
           : ready && selectedEngine
             ? { text: `${selectedEngine.available ? selectedEngine.version ?? t("header.ready") : t("header.unavailable")}${selectedEngine.capabilities.tools ? "" : ` · ${t("header.chatOnly")}`}` }
