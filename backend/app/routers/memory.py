@@ -16,6 +16,7 @@ router = APIRouter(prefix="/memory", tags=["Memory"], dependencies=[Depends(requ
 class SettingsChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
     learn_from_rooms: bool | None = None
+    keep_cache_warm: bool | None = None
     tidy_hour: int | None = None
     helper_models: dict[str, str] | None = None
     # The helper model: {"engine": "claude", "model": "claude-haiku-4-5"} (model optional),

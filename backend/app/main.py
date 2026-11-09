@@ -33,6 +33,19 @@ configure_logging()
 logger = get_logger(__name__)
 
 
+_keep_warm = None
+
+
+async def _keep_warm_tick() -> None:
+    """Off unless the person turned it on (app/services/cache_keep_warm.py)."""
+    global _keep_warm
+    if _keep_warm is None:
+        from app.services import cache_keep_warm
+
+        _keep_warm = cache_keep_warm.build(thread_runtime)
+    await _keep_warm.tick()
+
+
 def _desktop_account_job(job):
     async def run():
         if await desktop_signed_in():
@@ -125,6 +138,8 @@ async def _serving(app: FastAPI):
         # The Needs you card: refreshed once a minute, started only for something
         # that needs the person (app/team/needs_you.py).
         asyncio.create_task(run_every(60, per_tenant(_desktop_account_job(_needs_you_tick)))),
+        # Optional: keep the prompt cache of recently used chats warm (off by default).
+        asyncio.create_task(run_every(60, per_tenant(_desktop_account_job(_keep_warm_tick)))),
         # Local routines: due occurrences, starts, approvals, run limits, endings.
         asyncio.create_task(run_every(settings.ROUTINE_POLL_SECONDS, per_tenant(routines.tick))),
     ]
