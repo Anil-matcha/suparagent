@@ -30,7 +30,7 @@ function respondJson(status, body) {
 }
 
 const computer = (more = {}) => ({
-  id: 1, provider: 'docker', name: 'open-dots-computer-01234567-1', state: 'running', network: 'none',
+  id: 1, provider: 'docker', name: 'suparagent-computer-01234567-1', state: 'running', network: 'none',
   image: 'docker.io/library/python:3.12-slim-bookworm@sha256:abc', agent_id: 2, image_pinned: true, image_id: null,
   cpus: 1, memory_mb: 1024, pids_limit: 256, idle_minutes: 30, auto_start: true, live_state: null,
   needs_recreate: false, problem: null, last_error: null, workspace_path: '/w', guest_workspace: '/workspace',

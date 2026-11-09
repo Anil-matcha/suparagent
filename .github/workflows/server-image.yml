@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4.2.2
       - uses: astral-sh/setup-uv@v5.4.2
       - name: Build without engine packages or credentials
-        run: docker build --platform linux/amd64 --build-arg ENGINES= -t open-dots:smoke .
+        run: docker build --platform linux/amd64 --build-arg ENGINES= -t suparagent:smoke .
       - run: uv sync --frozen
         working-directory: backend
       - name: Verify packaging, fresh boot, upgrade, backup and restart
@@ -36,7 +36,7 @@ jobs:
         working-directory: backend
       - name: Save the exact tested image
         if: github.event_name == 'push' || inputs.publish
-        run: docker save open-dots:smoke -o /tmp/server-image.tar
+        run: docker save suparagent:smoke -o /tmp/server-image.tar
       - uses: actions/upload-artifact@v4.6.2
         if: github.event_name == 'push' || inputs.publish
         with:
@@ -81,8 +81,8 @@ jobs:
           set -euo pipefail
           image="ghcr.io/${REPOSITORY,,}"
           docker load -i /tmp/server-image.tar
-          docker tag open-dots:smoke "$image:$VERSION"
-          docker tag open-dots:smoke "$image:sha-$SOURCE_SHA"
+          docker tag suparagent:smoke "$image:$VERSION"
+          docker tag suparagent:smoke "$image:sha-$SOURCE_SHA"
           docker push "$image:$VERSION"
           docker push "$image:sha-$SOURCE_SHA"
           digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$image:$VERSION")

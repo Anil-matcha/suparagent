@@ -573,7 +573,7 @@ export function AgentsPanel({
         title: profile.title,
         description: "",
         instructions: profile.instructions,
-        mappingNotice: "The source agent's description is imported as Open Dots instructions.",
+        mappingNotice: "The source agent's description is imported as Suparagent instructions.",
       },
     });
     setOpenBotDatabase(null);
@@ -1088,7 +1088,7 @@ export function AgentsPanel({
                     The read-only file can be up to 128 MB and must use a supported schema version.
                   </p>
                   <p className="text-xs text-muted">
-                    The file is sent only to the local Open Dots backend for preview and discarded afterward. Only
+                    The file is sent only to the local Suparagent backend for preview and discarded afterward. Only
                     agent names, titles and role text are returned; memories, skills, routines, connections, messages,
                     credentials, tools and other settings are not imported. This option is unavailable on hosted accounts.
                   </p>
@@ -1153,7 +1153,7 @@ export function AgentsPanel({
                     <>
                       <input ref={migrationFileInput} type="file" accept=".json,.zip,application/json,application/zip" className="hidden" aria-label="Choose migration manifest file" onChange={(event) => previewAgentMigrationFile(event.target.files?.[0])} />
                       <div className="rounded-md border border-line p-3">
-                        <p className="text-xs text-muted">On the local app, pasted JSON and JSON/ZIP files are previewed as a full roster. Hosted accounts use the basic single-profile paste fallback. File content is sent only to this device&apos;s Open Dots backend.</p>
+                        <p className="text-xs text-muted">On the local app, pasted JSON and JSON/ZIP files are previewed as a full roster. Hosted accounts use the basic single-profile paste fallback. File content is sent only to this device&apos;s Suparagent backend.</p>
                         <button type="button" onClick={() => migrationFileInput.current?.click()} disabled={!canReadLocalBackend || busy} title={!canReadLocalBackend ? "Available only in the local app." : undefined} className={`${BUTTON} mt-2`}>
                           Choose manifest file{canReadLocalBackend ? "" : " · local app only"}
                         </button>
@@ -1187,7 +1187,7 @@ export function AgentsPanel({
                       onChange={(event) => setMigration({ ...migration, text: event.target.value, copied: false })}
                       rows={9}
                       className={`${FIELD} font-mono text-xs`}
-                      placeholder={migration.source === "grok" || migration.source === "hermes" ? canReadLocalBackend ? '{"format":"open-dots.agent-migration","version":1,"source":"grok","agents":[...]}' : '{"name":"Research assistant","instructions":"..."}' : '{"name":"Research assistant","instructions":"..."}'}
+                      placeholder={migration.source === "grok" || migration.source === "hermes" ? canReadLocalBackend ? '{"format":"suparagent.agent-migration","version":1,"source":"grok","agents":[...]}' : '{"name":"Research assistant","instructions":"..."}' : '{"name":"Research assistant","instructions":"..."}'}
                     />
                   </label>
                   <p className="text-xs text-muted">

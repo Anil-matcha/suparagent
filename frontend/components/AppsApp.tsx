@@ -189,7 +189,7 @@ function AppsBrowser() {
   const connect = async (app: CatalogApp) => {
     setBusy(`connect:${app.app}`); setError(null); setNotice(null);
     // Opened now, during the click, so a browser does not block it.
-    const page = reservePage(window.openDots, (url, target) => window.open(url, target) as TabWindow | null);
+    const page = reservePage(window.suparagent, (url, target) => window.open(url, target) as TabWindow | null);
     try {
       const link = await api.connectComposioApp(app.app, names[app.app]?.trim() || undefined);
       await page.navigate(link.redirect_url);

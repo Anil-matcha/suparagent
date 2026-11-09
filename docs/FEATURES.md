@@ -1,6 +1,6 @@
 # Features
 
-Open Duet is a workspace for named AI agents, durable conversations, teams,
+Suparagent is a workspace for named AI agents, durable conversations, teams,
 and recurring work. This page describes the repository's current source;
 features added after a desktop release tag may not be in that installer. See
 the [README](../README.md) for install options and the [roadmap](ROADMAP.md)

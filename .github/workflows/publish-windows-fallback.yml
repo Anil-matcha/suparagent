@@ -54,7 +54,7 @@ jobs:
         uses: softprops/action-gh-release@v2.2.2
         with:
           tag_name: ${{ steps.source.outputs.tag }}
-          name: Open Duet ${{ steps.source.outputs.tag }}
+          name: Suparagent ${{ steps.source.outputs.tag }}
           files: installers/*
           fail_on_unmatched_files: true
           prerelease: true

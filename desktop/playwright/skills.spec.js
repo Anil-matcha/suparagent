@@ -16,7 +16,7 @@ const skills = [
 
 const test = base.extend({
   app: [async ({}, use) => {
-    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "open-dots-skills-e2e-"));
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "suparagent-skills-e2e-"));
     const app = await launchApp({ dataDir });
     app.failureCount = 0;
     let browser;

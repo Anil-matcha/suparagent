@@ -1,6 +1,6 @@
-// opendots://chat?thread=<id> and ...?room=<id> open one chat or room (BL-118). The link only picks a page
+// suparagent://chat?thread=<id> and ...?room=<id> open one chat or room (BL-118). The link only picks a page
 // inside the app's own backend origin: it never runs anything, and the page's own sign-in check still applies.
-const SCHEME = "opendots";
+const SCHEME = "suparagent";
 
 function parseId(raw) {
   return typeof raw === "string" && /^[1-9]\d{0,14}$/.test(raw) ? raw : null;

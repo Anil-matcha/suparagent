@@ -147,7 +147,7 @@ def test_only_browser_tools_are_listed_and_callable(server):
     assert names == set(browser.DEFINITIONS)
     for other in ("exec", "read_file", "write_file", "click", "screenshot"):
         assert server.call(other, {})["isError"]
-    assert server.handle({"id": 2, "method": "initialize", "params": {}})["result"]["serverInfo"]["name"] == "open-dots-browser"
+    assert server.handle({"id": 2, "method": "initialize", "params": {}})["result"]["serverInfo"]["name"] == "suparagent-browser"
     assert server.handle({"id": 3, "method": "nope"})["error"]["code"] == -32601
 
 

@@ -4,7 +4,7 @@
 Every fenced `sh` block in the guide that is preceded by a marker comment is run:
 
     <!-- verify:root -->                 as root, in a clean Ubuntu container (stands for your own sudo account)
-    <!-- verify:account -->              as the service account `opendots`, with a login shell (sudo -iu opendots)
+    <!-- verify:account -->              as the service account `suparagent`, with a login shell (sudo -iu suparagent)
     <!-- verify:account doctor -->       exit 0 or 1 accepted: 1 means `doctor` found a problem (no engine in a clean container)
     <!-- verify:account serve -->        started in the background, stopped after the next `check` block
     <!-- verify:account check -->        run while the `serve` block runs
@@ -40,8 +40,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 GUIDE = REPO / "docs" / "SELF-HOSTING.md"
-IMAGE = "open-dots-verify-guide:local"
-CONTAINER = "open-dots-verify-guide"
+IMAGE = "suparagent-verify-guide:local"
+CONTAINER = "suparagent-verify-guide"
 PASSPHRASE = "a long passphrase for the guide check"
 
 
@@ -115,7 +115,7 @@ def copy_tree_in() -> None:
         archive = Path(folder) / "tree.tar"
         subprocess.run(["tar", "--null", "-cf", str(archive), "-T", "-"], cwd=REPO, input="\0".join(names).encode(), check=True)
         subprocess.run(["docker", "cp", str(archive), f"{CONTAINER}:/tmp/tree.tar"], check=True, capture_output=True)
-    result = container_exec("tar -xf /tmp/tree.tar -C /opt/open-dots && chown -R opendots:opendots /opt/open-dots && rm /tmp/tree.tar")
+    result = container_exec("tar -xf /tmp/tree.tar -C /opt/suparagent && chown -R suparagent:suparagent /opt/suparagent && rm /tmp/tree.tar")
     assert result.returncode == 0, result.stderr
 
 
@@ -147,10 +147,10 @@ def direct_route(steps: list[Block], keep: bool) -> bool:
                 good &= serve(step, steps[index])
             elif step.role == "account":
                 good &= account(step)
-        unit = container_exec("systemd-analyze verify /etc/systemd/system/open-dots.service 2>&1; echo exit=$?; "
-                              "grep -E '^(User|ExecStart|EnvironmentFile)=' /etc/systemd/system/open-dots.service")
+        unit = container_exec("systemd-analyze verify /etc/systemd/system/suparagent.service 2>&1; echo exit=$?; "
+                              "grep -E '^(User|ExecStart|EnvironmentFile)=' /etc/systemd/system/suparagent.service")
         print("----  generated unit:\n" + textwrap.indent(unit.stdout, "      "))
-        bad = [line for line in unit.stdout.splitlines() if "open-dots.service" in line and "Failed" in line]
+        bad = [line for line in unit.stdout.splitlines() if "suparagent.service" in line and "Failed" in line]
         good &= not bad
     finally:
         if not keep:
@@ -171,14 +171,14 @@ def account(step: Block) -> bool:
             key, value = word.split("=", 1)
             env[key] = value
     if env.get("HOME"):
-        container_exec(f"mkdir -p {env['HOME']} && chown opendots:opendots {env['HOME']}")
+        container_exec(f"mkdir -p {env['HOME']} && chown suparagent:suparagent {env['HOME']}")
     if "restore" in body:
-        archive = container_exec("ls -t /home/opendots/.open-dots/backups/open-dots-backup-*.tar.gz | head -1").stdout.strip()
-        body = re.sub(r"/path/to/open-dots-backup-\S*", archive, body)
-    result = container_exec(body, user="opendots", env=env, stdin=stdin)
+        archive = container_exec("ls -t /home/suparagent/.suparagent/backups/suparagent-backup-*.tar.gz | head -1").stdout.strip()
+        body = re.sub(r"/path/to/suparagent-backup-\S*", archive, body)
+    result = container_exec(body, user="suparagent", env=env, stdin=stdin)
     if "doctor" in step.extra.split():
         # `doctor` exits 1 when it found a problem; a clean container has no engine. Anything else is a failure.
-        if result.returncode == 1 and "Open Duet server check" in result.stdout:
+        if result.returncode == 1 and "Suparagent server check" in result.stdout:
             result.returncode = 0
     return show("run", step, result)
 
@@ -186,7 +186,7 @@ def account(step: Block) -> bool:
 def serve(step: Block, check: Block) -> bool:
     assert check.role == "account" and check.extra == "check", "a serve block is followed by a check block"
     import os
-    process = subprocess.Popen(["docker", "exec", "-u", "opendots", "-w", "/home/opendots", CONTAINER, "bash", "-lec", step.body],
+    process = subprocess.Popen(["docker", "exec", "-u", "suparagent", "-w", "/home/suparagent", CONTAINER, "bash", "-lec", step.body],
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env={**os.environ, "MSYS_NO_PATHCONV": "1"})
     try:
         deadline = time.monotonic() + 60
@@ -194,7 +194,7 @@ def serve(step: Block, check: Block) -> bool:
             if container_exec("curl -fsS http://127.0.0.1:8000/api/v1/health >/dev/null 2>&1").returncode == 0:
                 break
             time.sleep(1)
-        result = container_exec(check.body, user="opendots")
+        result = container_exec(check.body, user="suparagent")
     finally:
         container_exec("pkill -TERM -f 'python -m app.server$' || true")
         try:
@@ -212,20 +212,20 @@ def serve(step: Block, check: Block) -> bool:
 
 def docker_route(steps: list[Block], keep: bool) -> bool:
     print("-- Docker route, in a scratch copy of the repository --")
-    scratch = Path(tempfile.mkdtemp(prefix="open-dots-guide-")) / "open-dots"
+    scratch = Path(tempfile.mkdtemp(prefix="suparagent-guide-")) / "suparagent"
     listing = run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=REPO).stdout
     for name in filter(None, listing.split("\0")):
         source = REPO / name
-        if source.is_file() and not name.endswith(".db") and name != "open-dots.env":
+        if source.is_file() and not name.endswith(".db") and name != "suparagent.env":
             (scratch / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, scratch / name)
-    env = {"COMPOSE_PROJECT_NAME": "open-dots-guide", "OPEN_DOTS_PORT": "18321", "OPEN_DOTS_IMAGE": "open-dots:guide"}
+    env = {"COMPOSE_PROJECT_NAME": "suparagent-guide", "SUPARAGENT_PORT": "18321", "SUPARAGENT_IMAGE": "suparagent:guide"}
     good = True
     try:
         for step in steps:
             body = step.body
             if "git clone" in body:
-                body = "\n".join(line for line in body.splitlines() if not line.startswith(("git clone", "cd open-duet")))
+                body = "\n".join(line for line in body.splitlines() if not line.startswith(("git clone", "cd suparagent")))
             if "docker compose exec" in body:
                 body = body.replace("docker compose exec ", "docker compose exec -T ")
             stdin = None
@@ -238,13 +238,13 @@ def docker_route(steps: list[Block], keep: bool) -> bool:
                 good &= up.returncode == 0
                 time.sleep(8)
             result = run([BASH, "-ec", body], cwd=scratch, env=env, input=stdin)
-            if "doctor" in step.extra.split() and result.returncode == 1 and "Open Duet server check" in result.stdout:
+            if "doctor" in step.extra.split() and result.returncode == 1 and "Suparagent server check" in result.stdout:
                 result.returncode = 0  # `doctor` found a problem (no engine); see the account route
             good &= show("run", step, result)
     finally:
         if not keep:
             run([BASH, "-ec", "docker compose down -v --remove-orphans"], cwd=scratch, env=env)
-            run(["docker", "rmi", "open-dots:guide"])
+            run(["docker", "rmi", "suparagent:guide"])
             shutil.rmtree(scratch.parent, ignore_errors=True)
     return good
 

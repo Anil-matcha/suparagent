@@ -5,7 +5,7 @@ const { test, expect } = require("./fixtures");
 //                          list says so: a skip is not a pass and proves nothing about chat.
 //   npm run e2e:ui:real    the same tests, but an unavailable or signed-out Claude FAILS them.
 //                          Use this to show that a real conversation works.
-const REQUIRED = process.env.OPEN_DOTS_E2E_REQUIRE_CLAUDE === "1";
+const REQUIRED = process.env.SUPARAGENT_E2E_REQUIRE_CLAUDE === "1";
 
 test.describe("a conversation (real Claude)", () => {
   test.beforeEach(async ({ page }) => {

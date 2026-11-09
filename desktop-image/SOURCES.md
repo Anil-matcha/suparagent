@@ -2,7 +2,7 @@
 
 The pinned base is the official Python Debian Bookworm image. Packages are
 installed from Debian main; their exact installed versions are recorded inside
-the resulting image at /usr/share/open-dots-packages.txt. Debian security updates
+the resulting image at /usr/share/suparagent-packages.txt. Debian security updates
 mean local builds on different dates can have different package versions.
 
 Each package's copyright and licence texts remain under /usr/share/doc.

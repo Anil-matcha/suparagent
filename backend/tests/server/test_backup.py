@@ -28,7 +28,7 @@ POSIX = sys.platform != "win32"
 
 def point_at(monkeypatch, root: Path) -> dict[str, Path]:
     """An installation whose every part lives under `root`."""
-    monkeypatch.setattr(settings, "SQLITE_PATH", str(root / "data" / "open-dots.db"))
+    monkeypatch.setattr(settings, "SQLITE_PATH", str(root / "data" / "suparagent.db"))
     monkeypatch.setattr(settings, "ATTACHMENTS_DIR", str(root / "attachments"))
     monkeypatch.setattr(settings, "DECISION_LOG_DIR", str(root / "decisions"))
     monkeypatch.setattr(settings, "LOCAL_WORKSPACE_ROOT", str(root / "work"))
@@ -88,9 +88,9 @@ def members(archive: Path) -> dict[str, tarfile.TarInfo]:
 def test_a_backup_holds_every_part_with_a_manifest_and_leaves_the_source_alone(source, tmp_path):
     before = read_tree(source)
     report = backup.create_backup(tmp_path / "out")
-    assert report.archive.parent == (tmp_path / "out").resolve() and report.archive.name.startswith("open-dots-backup-")
+    assert report.archive.parent == (tmp_path / "out").resolve() and report.archive.name.startswith("suparagent-backup-")
     found = members(report.archive)
-    assert backup.MANIFEST in found and "database/open-dots.db" in found
+    assert backup.MANIFEST in found and "database/suparagent.db" in found
     for name in ("attachments/7/pic.png", "decisions/2026-10.ndjson", "memory-state/journal/1.ndjson",
                  "workspace/agents/1/MEMORY.md", "workspace/agents/1/project/run.sh", "workspace/agents/2"):
         assert name in found, name
@@ -112,7 +112,7 @@ def test_the_archive_is_private_and_carries_no_owner_or_key(source, tmp_path):
     raw = report.archive.read_bytes()
     assert settings.TOKEN_ENCRYPTION_KEYS.encode() not in raw
     with tarfile.open(report.archive) as tar:
-        database = tar.extractfile("database/open-dots.db").read()
+        database = tar.extractfile("database/suparagent.db").read()
     assert b"a stored token" not in database  # stored credentials stay encrypted
 
 
@@ -479,7 +479,7 @@ def test_a_backup_from_a_newer_version_is_refused(archive_and_target):
     import hashlib
 
     with tarfile.open(archive, "r:gz") as tar:
-        db_bytes = tar.extractfile("database/open-dots.db").read()
+        db_bytes = tar.extractfile("database/suparagent.db").read()
     scratch = tmp / "newer.db"
     scratch.write_bytes(db_bytes)
     connection = sqlite3.connect(scratch)
@@ -489,12 +489,12 @@ def test_a_backup_from_a_newer_version_is_refused(archive_and_target):
     newer = scratch.read_bytes()
 
     def swap(name, info, data):
-        if name == "database/open-dots.db":
+        if name == "database/suparagent.db":
             info.size = len(newer)
             return info, newer
         if name == backup.MANIFEST:
             manifest = json.loads(data)
-            manifest["files"]["database/open-dots.db"] = hashlib.sha256(newer).hexdigest()
+            manifest["files"]["database/suparagent.db"] = hashlib.sha256(newer).hexdigest()
             data = json.dumps(manifest).encode()
             info.size = len(data)
         return info, data
@@ -520,7 +520,7 @@ def test_the_commands_round_trip_and_say_what_is_not_included(source, tmp_path, 
     assert server_main(["backup", "--out", str(tmp_path / "out")]) == 0
     out = capsys.readouterr().out
     assert "Backup written to" in out and "TOKEN_ENCRYPTION_KEYS" in out and "engines' own sign-ins" in out
-    archive = next((tmp_path / "out").glob("open-dots-backup-*.tar.gz"))
+    archive = next((tmp_path / "out").glob("suparagent-backup-*.tar.gz"))
     point_at(monkeypatch, tmp_path / "fresh")
     assert server_main(["restore", str(archive)]) == 0
     assert "Restored" in capsys.readouterr().out
@@ -545,7 +545,7 @@ def test_a_password_protected_backup_round_trips_and_hides_its_content(source, t
     assert report.archive.name.endswith(".tar.gz.enc") and backup.is_encrypted(report.archive)
     raw = report.archive.read_bytes()
     assert b"remember the pelican" not in raw and b"SQLite format" not in raw
-    assert not list((tmp_path / "out").glob("*.part")) and not list((tmp_path / "out").glob("open-dots-backup-*.tar.gz"))
+    assert not list((tmp_path / "out").glob("*.part")) and not list((tmp_path / "out").glob("suparagent-backup-*.tar.gz"))
     target = point_at(monkeypatch, tmp_path / "fresh")
     result = backup.restore_backup(report.archive, passphrase="correct horse")
     assert read_tree(target) == before and result.parts["workspace"].files == 2

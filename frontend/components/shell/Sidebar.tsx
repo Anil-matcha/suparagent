@@ -400,7 +400,7 @@ export function Sidebar({
             {updateAvailable && (
               <span
                 className="ml-auto inline-flex items-center rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent"
-                title={`Open Duet ${latestVersion ?? ""} is available`}
+                title={`Suparagent ${latestVersion ?? ""} is available`}
               >
                 Update
               </span>

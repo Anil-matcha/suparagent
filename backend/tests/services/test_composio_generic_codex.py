@@ -61,7 +61,7 @@ async def codex_agent(crt, sessions, owner, composio):  # noqa: F811
 
 
 def call(tool, arguments):
-    return {"type": "team", "server": "open_dots_composio", "tool": tool, "arguments": arguments}
+    return {"type": "team", "server": "suparagent_composio", "tool": tool, "arguments": arguments}
 
 
 def run_args(composio, **more):
@@ -79,7 +79,7 @@ async def test_codex_gets_the_generic_tools_and_a_run_waits_on_a_card_with_the_e
     assert await crt.answer_approval(approval.id, "allow")
     await finished(sessions, thread.id)
 
-    server = codex.received("thread/start")[0]["params"]["config"]["mcp_servers"]["open_dots_composio"]
+    server = codex.received("thread/start")[0]["params"]["config"]["mcp_servers"]["suparagent_composio"]
     assert {"app_search_actions", "app_run_action"} <= set(server["enabled_tools"]) and server["default_tools_approval_mode"] == "prompt"
     assert server["args"][-2:] == ["--apps", "notion=write"] and KEY not in json.dumps(server)
     assert [(e["tool_slug"], e["arguments"], e["account"]) for e in composio.executes] == [("NOTION_CREATE_PAGE", {"title": "Plan"}, "ca_n")]

@@ -1,4 +1,4 @@
-"""Version and update detection for Open Duet (BL-64).
+"""Version and update detection for Suparagent (BL-64).
 
 Detects current version, git commit, installation mode (Docker, service/systemd,
 git checkout, or source), checks GitHub releases for newer versions, and formats
@@ -137,15 +137,15 @@ def get_git_commit(root: Path | None = None) -> str | None:
 
 
 def detect_install_kind(environ: Mapping[str, str] | None = None) -> str:
-    """Detects whether Open Duet is running via Docker, systemd service, git checkout, or source."""
+    """Detects whether Suparagent is running via Docker, systemd service, git checkout, or source."""
     env = os.environ if environ is None else environ
     if (
-        env.get("OPEN_DOTS_DOCKER")
+        env.get("SUPARAGENT_DOCKER")
         or os.path.exists("/.dockerenv")
         or env.get("DOCKER_CONTAINER")
     ):
         return "docker"
-    if env.get("OPEN_DOTS_SERVICE") or env.get("INVOCATION_ID"):
+    if env.get("SUPARAGENT_SERVICE") or env.get("INVOCATION_ID"):
         return "service"
 
     root = find_project_root()
@@ -160,7 +160,7 @@ def get_update_command(install_kind: str) -> str:
     if install_kind == "docker":
         return "git pull && docker compose build && docker compose up -d"
     elif install_kind == "service":
-        return "git pull && uv sync && (cd frontend && npm run build) && sudo systemctl restart open-dots"
+        return "git pull && uv sync && (cd frontend && npm run build) && sudo systemctl restart suparagent"
     elif install_kind == "git":
         return "git pull && uv sync && (cd frontend && npm run build)"
     return "git pull && uv sync && (cd frontend && npm run build)"
@@ -196,7 +196,7 @@ async def fetch_latest_release(
         resp = await client.get(
             RELEASES_URL,
             headers={
-                "User-Agent": "open-duet-version-checker",
+                "User-Agent": "suparagent-version-checker",
                 "Accept": "application/vnd.github.v3+json",
             },
         )

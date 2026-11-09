@@ -99,7 +99,7 @@ claims.
 
 ### P2 — Learn and share reviewed skills
 
-Open Duet already supports per-agent Markdown skills, import preview, secret
+Suparagent already supports per-agent Markdown skills, import preview, secret
 redaction, explicit invocation and disabled-by-default imports. Add a flow to
 draft a skill from a successful run, review/edit it, and verify it on a second
 fixture before saving. Later allow safe team sharing with text-only export,

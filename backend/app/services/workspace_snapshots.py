@@ -41,7 +41,7 @@ class SnapshotError(Exception):
 def store_dir_for(workspace: str | Path) -> Path:
     """Where one workspace's snapshots live: beside the workspace data, never inside it."""
     mine = tenant_paths.root()
-    base = (mine / "snapshots") if mine is not None else (Path.home() / ".open-dots" / "local" / "snapshots")
+    base = (mine / "snapshots") if mine is not None else (Path.home() / ".suparagent" / "local" / "snapshots")
     key = hashlib.sha256(str(Path(workspace).resolve()).encode()).hexdigest()[:24]
     return base / key
 

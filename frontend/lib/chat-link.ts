@@ -1,8 +1,8 @@
 // Links that open one chat or room (BL-118). No runtime imports, so node tests can load it.
-// Web: `<origin>/chat/?thread=3` or `?room=4`. Desktop app: `opendots://chat?thread=3`.
+// Web: `<origin>/chat/?thread=3` or `?room=4`. Desktop app: `suparagent://chat?thread=3`.
 // Only a positive whole number is accepted as an id; anything else yields null.
 
-export const DESKTOP_SCHEME = "opendots";
+export const DESKTOP_SCHEME = "suparagent";
 
 export type ChatTarget = { kind: "thread" | "room"; id: number };
 

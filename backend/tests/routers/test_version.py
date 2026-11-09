@@ -28,10 +28,10 @@ def test_compare_versions():
 
 
 def test_install_kind_and_update_command():
-    assert detect_install_kind({"OPEN_DOTS_DOCKER": "1"}) == "docker"
+    assert detect_install_kind({"SUPARAGENT_DOCKER": "1"}) == "docker"
     assert "docker compose" in get_update_command("docker")
 
-    assert detect_install_kind({"OPEN_DOTS_SERVICE": "1"}) == "service"
+    assert detect_install_kind({"SUPARAGENT_SERVICE": "1"}) == "service"
     assert "systemctl restart" in get_update_command("service")
 
     assert get_update_command("git") == "git pull && uv sync && (cd frontend && npm run build)"

@@ -94,7 +94,7 @@ function Home() {
     <div className="flex min-h-screen flex-col items-center bg-inset px-4 py-12">
       <main className="w-full max-w-lg space-y-4">
         <div className="mb-6 text-center">
-          <h1 className="text-xl font-semibold">Open Duet</h1>
+          <h1 className="text-xl font-semibold">Suparagent</h1>
           <p className="text-sm text-muted">
             Connect your accounts, then submit a task.
           </p>

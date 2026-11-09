@@ -24,7 +24,7 @@ def preference_file_path() -> Path:
         return desktop.data_dir / FILE_NAME
     if settings.SQLITE_PATH.strip():
         return Path(settings.SQLITE_PATH).expanduser().parent / FILE_NAME
-    return Path.home() / ".open-dots" / FILE_NAME
+    return Path.home() / ".suparagent" / FILE_NAME
 
 
 def read_preference() -> dict[str, str | None]:

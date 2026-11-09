@@ -64,7 +64,7 @@ class ClaudeLogin:
             raise LoginError("Use an absolute CLAUDE_CONFIG_DIR before signing in.")
         home = home.resolve()
         home.mkdir(parents=True, exist_ok=True)
-        fd = os.open(home / ".open-dots-login.lock", os.O_RDWR | os.O_CREAT, 0o600)
+        fd = os.open(home / ".suparagent-login.lock", os.O_RDWR | os.O_CREAT, 0o600)
         if not data_lease._try_lock(fd):
             os.close(fd)
             raise LoginError("Another Claude sign-in is running for this account.")

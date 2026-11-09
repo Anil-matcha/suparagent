@@ -6,7 +6,7 @@ export type EngineChoice = {
   effort?: string | null;
 };
 
-export const PREFERRED_ENGINE_STORAGE_KEY = "open_duet_preferred_engine";
+export const PREFERRED_ENGINE_STORAGE_KEY = "suparagent_preferred_engine";
 
 /**
  * Resolves the engine, model, and reasoning effort to start on when creating a new chat or loading the app.

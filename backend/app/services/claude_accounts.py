@@ -32,7 +32,7 @@ class AccountError(Exception):
 
 def base_dir() -> Path:
     mine = tenant_paths.root()
-    return (mine if mine is not None else Path.home() / ".open-dots" / "local") / "claude-accounts"
+    return (mine if mine is not None else Path.home() / ".suparagent" / "local") / "claude-accounts"
 
 
 def _registry() -> Path:

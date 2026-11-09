@@ -148,7 +148,7 @@ class NativeControl {
   }
   status(agent) {
     const permitted = this.platform === "darwin" && this.permissions(false);
-    return { supported: this.platform === "darwin" && this.available, enabled: this.enabled.has(agent), held: this.held, busy: !!this.owner, ready: permitted && !!this.driver && !this.driver.closed, reason: this.reason || (this.enabled.has(agent) && !permitted ? "Grant Accessibility and Screen Recording to Open Duet in System Settings, then retry." : null) };
+    return { supported: this.platform === "darwin" && this.available, enabled: this.enabled.has(agent), held: this.held, busy: !!this.owner, ready: permitted && !!this.driver && !this.driver.closed, reason: this.reason || (this.enabled.has(agent) && !permitted ? "Grant Accessibility and Screen Recording to Suparagent in System Settings, then retry." : null) };
   }
   async configure(agent, enabled) {
     if (!Number.isSafeInteger(agent) || agent < 1 || typeof enabled !== "boolean" || this.platform !== "darwin" || !this.available) fail();
@@ -175,18 +175,18 @@ class NativeControl {
       const sdk = await this.loadSdk(pathToFileURL(path.join(this.root, "sdk.mjs")).href);
       if (this.closing || this.held || generation !== this.generation) fail();
       if (prompt) sdk.requestPermissions();
-      if (!this.permissions(false)) { await this.stop(); throw new Error("Grant Accessibility and Screen Recording to Open Duet in System Settings, then retry."); }
+      if (!this.permissions(false)) { await this.stop(); throw new Error("Grant Accessibility and Screen Recording to Suparagent in System Settings, then retry."); }
       if (this.driver && !this.driver.closed) return;
       if (this.host) await this.stop();
       const hostGeneration = this.generation;
-      this.host = sdk.createHost(path.join(this.root, "driver"), "app.opendots.desktop");
+      this.host = sdk.createHost(path.join(this.root, "driver"), "app.suparagent.desktop");
       const host = this.host;
       try {
         const connection = await host.start();
         if (hostGeneration !== this.generation || this.held) fail();
         const driver = this.rpc(connection);
         this.driver = driver;
-        await driver.call("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "open-duet-native", version: "1" } });
+        await driver.call("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "suparagent-native", version: "1" } });
         driver.child?.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
         const listing = await driver.call("tools/list");
         this.tools = (listing.tools || []).filter(t => ALLOWED.has(t.name)).map(t => ({ ...t, name: "native_" + t.name, inputSchema: { ...t.inputSchema, additionalProperties: false, properties: Object.fromEntries(Object.entries(t.inputSchema.properties || {}).filter(([key]) => FIELDS.has(key))) } }));
@@ -283,7 +283,7 @@ class NativeControl {
 
 function registerNativeControl({ ipcMain, dialog, service, getWindow, getOrigin }) {
   let changing = false;
-  ipcMain.handle("open-dots:native-control", async (event, request) => {
+  ipcMain.handle("suparagent:native-control", async (event, request) => {
     const window = getWindow();
     if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !sameOrigin(event.senderFrame?.url, getOrigin())) fail();
     if (!["/chat", "/chat/"].includes(new URL(event.senderFrame.url).pathname)) fail();

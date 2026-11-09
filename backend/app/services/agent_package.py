@@ -25,7 +25,7 @@ from app.schemas.agent import INSTRUCTIONS_MAX_BYTES
 from app.services import agent_skills, memory_topics
 from app.services.agent_memory import FILE_MAX_BYTES, redact_secrets
 
-FORMAT = "open-dots.agent"
+FORMAT = "suparagent.agent"
 VERSION = 1
 # All topic notes together, so the file stays well inside PACKAGE_MAX_BYTES.
 TOPICS_MAX_BYTES = 600_000

@@ -14,7 +14,7 @@ export function DesktopPermissions() {
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let live = true;
-    const refresh = () => void window.openDots?.desktopPermissions?.("status").then(value => { if (live) { setPermissions(value); setError(null); } }).catch(() => { if (live) setError(t("appSettings.permissions.error.check")); });
+    const refresh = () => void window.suparagent?.desktopPermissions?.("status").then(value => { if (live) { setPermissions(value); setError(null); } }).catch(() => { if (live) setError(t("appSettings.permissions.error.check")); });
     refresh();
     window.addEventListener("focus", refresh);
     return () => { live = false; window.removeEventListener("focus", refresh); };
@@ -22,7 +22,7 @@ export function DesktopPermissions() {
   async function check(action: "status" | "accessibility" | "screen_recording") {
     setBusy(true); setError(null);
     try {
-      const value = await window.openDots?.desktopPermissions?.(action);
+      const value = await window.suparagent?.desktopPermissions?.(action);
       if (value) setPermissions(value);
     } catch { setError(t("appSettings.permissions.error.openCheck")); }
     finally { setBusy(false); }

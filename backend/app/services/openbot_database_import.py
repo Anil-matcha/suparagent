@@ -1,7 +1,7 @@
 """Read an OpenBot SQLite agent roster and normalize profiles to agent files.
 
 This reader opens a bounded copy read-only, never runs source migrations, and
-returns only the fields needed to review a new Open Dots agent.
+returns only the fields needed to review a new Suparagent agent.
 """
 
 import json
@@ -109,7 +109,7 @@ def _profile(row: sqlite3.Row) -> dict[str, Any]:
     ):
         raise OpenBotDatabaseImportError("An OpenBot agent profile is missing a supported name or text field.")
 
-    # OpenBot's description is its standing role text. Map it to Open Dots
+    # OpenBot's description is its standing role text. Map it to Suparagent
     # instructions; do not copy unrelated source settings from agent_json.
     document = {
         "format": agent_package.FORMAT,
@@ -119,7 +119,7 @@ def _profile(row: sqlite3.Row) -> dict[str, Any]:
     try:
         parsed = agent_package.parse_package(document)
     except agent_package.PackageError as exc:
-        raise OpenBotDatabaseImportError("An OpenBot agent profile exceeds Open Dots import limits.") from exc
+        raise OpenBotDatabaseImportError("An OpenBot agent profile exceeds Suparagent import limits.") from exc
 
     clean_agent: dict[str, str] = {"name": parsed["name"], "instructions": parsed["instructions"]}
     if parsed["title"]:

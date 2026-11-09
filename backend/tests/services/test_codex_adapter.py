@@ -143,7 +143,7 @@ async def test_codex_waits_for_the_exact_routine_connected_app_server(crt, sessi
     await finished(sessions, thread.id)
 
     started = codex.received("thread/start")[0]["params"]
-    server = started["config"]["mcp_servers"]["open_dots_composio"]
+    server = started["config"]["mcp_servers"]["suparagent_composio"]
     assert server["enabled_tools"] == ["gmail_fetch_emails"]
     assert server["required"] is True and server["startup_timeout_sec"] == 10
     assert server["default_tools_approval_mode"] == "prompt"

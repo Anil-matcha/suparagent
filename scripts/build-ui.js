@@ -97,7 +97,7 @@ function main(argv) {
   }
   try {
     const out = buildUi({ frontend, basePath });
-    console.log(`\nBuilt ${out}\nServe it with: OPEN_DOTS_UI_DIR=${out} python -m app.server`);
+    console.log(`\nBuilt ${out}\nServe it with: SUPARAGENT_UI_DIR=${out} python -m app.server`);
     return 0;
   } catch (error) {
     if (!(error instanceof UiBuildError)) throw error;

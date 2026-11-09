@@ -25,7 +25,7 @@ def _size(n: int) -> str:
     return f"{n} B"
 
 
-PASSWORD_ENV = "OPEN_DUET_BACKUP_PASSWORD"
+PASSWORD_ENV = "SUPARAGENT_BACKUP_PASSWORD"
 
 
 def _password(args, *, confirm: bool) -> str | None:
@@ -34,14 +34,14 @@ def _password(args, *, confirm: bool) -> str | None:
         try:
             text = args.password_file.read_text(encoding="utf-8")
         except OSError as exc:
-            raise SystemExit(f"Open Duet server: cannot read the password file ({exc.strerror}).") from None
+            raise SystemExit(f"Suparagent server: cannot read the password file ({exc.strerror}).") from None
         return text.rstrip("\r\n") or None
     if os.environ.get(PASSWORD_ENV):
         return os.environ[PASSWORD_ENV]
     if getattr(args, "password", False):
         first = getpass.getpass("Backup password: ")
         if confirm and getpass.getpass("Repeat it: ") != first:
-            raise SystemExit("Open Duet server: the passwords do not match.")
+            raise SystemExit("Suparagent server: the passwords do not match.")
         return first or None
     return None
 
@@ -106,8 +106,8 @@ def main(argv: Sequence[str]) -> int:
               "Where it is missing, sending a message says so and offers to start a new session; the history stays.")
         return 0
     except backup.KeyProblem as exc:
-        print(f"Open Duet server: {exc}", file=sys.stderr)
+        print(f"Suparagent server: {exc}", file=sys.stderr)
         return EXIT_KEY_MISMATCH
     except backup.BackupError as exc:
-        print(f"Open Duet server: {exc}", file=sys.stderr)
+        print(f"Suparagent server: {exc}", file=sys.stderr)
         return EXIT_DATA

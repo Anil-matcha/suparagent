@@ -526,7 +526,7 @@ export type AgentMigrationFileProfilePreview = {
 };
 
 export type AgentMigrationFilePreview = {
-  format: "open-dots.agent-migration";
+  format: "suparagent.agent-migration";
   version: number;
   source: "grok" | "hermes";
   profiles: AgentMigrationFileProfilePreview[];

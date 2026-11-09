@@ -3,7 +3,7 @@
 The desktop app can give a named Claude agent access to this Mac's real screen
 and accessible app controls. It is off by default. In the agent's Computer
 panel, choose **Enable for this agent…**, confirm the native dialog, and grant
-Accessibility and Screen Recording to Open Duet in System Settings. Retry after
+Accessibility and Screen Recording to Suparagent in System Settings. Retry after
 changing permissions. Docker computers remain the isolated default.
 
 An enabled agent uses native tools for new turns, even if it also has a Docker

@@ -280,7 +280,7 @@ function DockerComputerView({
             </label>
           ))}
           {kind === "desktop" && provider === "docker" && <p className="text-xs text-muted">Linux desktop with a browser. Build the image locally first; see desktop-image/README.md. The first build downloads several hundred MB.</p>}
-          {kind === "desktop" && provider === "boat" && <p className="text-xs text-muted">Cloud Linux desktop. The first start provisions a remote desktop and installs its screen-control tools. The live view uses a secret provider link that Open Dots clears when you hand control back; the provider does not expose a link revocation control.</p>}
+          {kind === "desktop" && provider === "boat" && <p className="text-xs text-muted">Cloud Linux desktop. The first start provisions a remote desktop and installs its screen-control tools. The live view uses a secret provider link that Suparagent clears when you hand control back; the provider does not expose a link revocation control.</p>}
         </fieldset>
         {provider === "docker" && <fieldset className="space-y-1">
           <legend className="text-xs text-muted">Network</legend>
@@ -460,7 +460,7 @@ function DockerComputerView({
       <div className="border-t border-line pt-3">
         {confirmRemove ? (
           <p className="flex flex-wrap items-center gap-2 text-xs">
-            {computer.provider === "muapi" ? "Permanently delete the Muapi computer and its files?" : computer.provider === "boat" ? "Permanently remove the cloud computer and its provider data? Boat deletion runs in the background while Open Dots waits for confirmation." : "Remove the computer? Everything inside it is lost; the workspace folder stays."} {agent.name} then works on this machine again.
+            {computer.provider === "muapi" ? "Permanently delete the Muapi computer and its files?" : computer.provider === "boat" ? "Permanently remove the cloud computer and its provider data? Boat deletion runs in the background while Suparagent waits for confirmation." : "Remove the computer? Everything inside it is lost; the workspace folder stays."} {agent.name} then works on this machine again.
             <button disabled={busy} className={SMALL} onClick={() => act(() => api.deleteComputer(computer.id)).then(() => setConfirmRemove(false))}>
               Remove
             </button>

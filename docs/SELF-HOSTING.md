@@ -1,6 +1,6 @@
 # Self-hosting on a server (one owner)
 
-Run Open Duet on a Linux machine you rent or own, so your agents and routines keep working with your laptop closed, and reach it from a browser or a phone over HTTPS. One person owns the server: you sign in with a passphrase and pair other devices with one-time codes. It is not a multi-user or hosted service (see [AUTH.md](AUTH.md) "Limits").
+Run Suparagent on a Linux machine you rent or own, so your agents and routines keep working with your laptop closed, and reach it from a browser or a phone over HTTPS. One person owns the server: you sign in with a passphrase and pair other devices with one-time codes. It is not a multi-user or hosted service (see [AUTH.md](AUTH.md) "Limits").
 
 There are two ways to run it. Both use the same server, the same settings and the same commands.
 
@@ -16,7 +16,7 @@ There are two ways to run it. Both use the same server, the same settings and th
 ## Before you start
 
 - A Linux server with `sudo`, a domain name whose address points at it, and ports 80 and 443 open.
-- At least one connected engine: Claude Code, Codex, Gemini CLI, Cursor, OpenRouter, a custom ACP command or an OpenAI-compatible endpoint. CLI engines must be installed and signed in **on the server**, as the same account that runs Open Duet: see [ENGINES.md](ENGINES.md) and [Engines](#engines). Agents run there, with that account's files.
+- At least one connected engine: Claude Code, Codex, Gemini CLI, Cursor, OpenRouter, a custom ACP command or an OpenAI-compatible endpoint. CLI engines must be installed and signed in **on the server**, as the same account that runs Suparagent: see [ENGINES.md](ENGINES.md) and [Engines](#engines). Agents run there, with that account's files.
 - Two secrets you must keep: your **passphrase**, and the **encryption key** (`TOKEN_ENCRYPTION_KEYS`). The key encrypts the credentials the server stores. Back it up somewhere else: without it those credentials cannot be read, and a backup archive does not contain it.
 
 Agents only run when the settings say `LOCAL_EXECUTION_ENABLED=true` (both routes below set it). Tools (file edits and commands) stay off until you also set `LOCAL_TOOLS_ENABLED=true`; every command still asks for your approval.
@@ -30,8 +30,8 @@ Needs Docker with the Compose plugin. The app listens only on the host's loopbac
    <!-- verify:docker -->
    ```sh
    git clone https://github.com/Anil-matcha/open-duet
-   cd open-duet
-   touch open-dots.env && chmod 600 open-dots.env
+   cd suparagent
+   touch suparagent.env && chmod 600 suparagent.env
    docker compose build
    ```
 
@@ -39,8 +39,8 @@ Needs Docker with the Compose plugin. The app listens only on the host's loopbac
 
    <!-- verify:docker -->
    ```sh
-   KEY=$(docker compose run --rm --no-deps --entrypoint python open-dots -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-   printf 'TOKEN_ENCRYPTION_KEYS=%s\nLOCAL_EXECUTION_ENABLED=true\nOPEN_DOTS_PUBLIC_URL=https://dots.example.com\n' "$KEY" > open-dots.env
+   KEY=$(docker compose run --rm --no-deps --entrypoint python suparagent -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+   printf 'TOKEN_ENCRYPTION_KEYS=%s\nLOCAL_EXECUTION_ENABLED=true\nSUPARAGENT_PUBLIC_URL=https://dots.example.com\n' "$KEY" > suparagent.env
    ```
 
    Keep a copy of that file somewhere else: it holds the key.
@@ -48,7 +48,7 @@ Needs Docker with the Compose plugin. The app listens only on the host's loopbac
 3. **Start it with a proxy in front.** Pick one and set the domain you own:
 
    ```sh
-   export OPEN_DOTS_DOMAIN=dots.example.com
+   export SUPARAGENT_DOMAIN=dots.example.com
    docker compose -f compose.yaml -f deploy/proxy/compose.caddy.yaml up -d      # Caddy: gets its own certificate
    # or: docker compose -f compose.yaml -f deploy/proxy/compose.nginx.yaml up -d  # nginx: you provide the certificate, see the file
    ```
@@ -59,21 +59,21 @@ Needs Docker with the Compose plugin. The app listens only on the host's loopbac
 
    <!-- verify:docker -->
    ```sh
-   docker compose exec open-dots python -m app.auth.cli set-passphrase
+   docker compose exec suparagent python -m app.auth.cli set-passphrase
    ```
 
    The first passphrase is set from the server's own shell on purpose: nobody who can merely reach the web address can claim the server. Then check the machine:
 
    <!-- verify:docker doctor -->
    ```sh
-   docker compose exec open-dots python -m app.server doctor
+   docker compose exec suparagent python -m app.server doctor
    ```
 
    Until an engine is installed and signed in (see [Engines](#engines)) `doctor` reports one problem, "No engine is ready", and exits with 1; everything else should say `ok`. Then open `https://dots.example.com/login/` and sign in.
 
 The container has no access to the host's Docker, so agent computers ([COMPUTERS.md](COMPUTERS.md)) are not available in this route; use the direct install if you need them.
 
-Data lives in the Docker volume `open-dots_data` (the container's `/data`). Update with `git pull`, then `docker compose build` and `up -d` again with the same `-f` files; the database is updated when the container starts, and a SQLite file is copied aside first.
+Data lives in the Docker volume `suparagent_data` (the container's `/data`). Update with `git pull`, then `docker compose build` and `up -d` again with the same `-f` files; the database is updated when the container starts, and a SQLite file is copied aside first.
 
 ### Use a published server image
 
@@ -92,16 +92,16 @@ Until a successful publishing run exists, use the source-build steps above.
 
 With Docker Compose **2.24.4 or newer**, use the image overlay after the base
 file. It removes the build recipe and requires an explicit image. Start with
-the code checkout and private `open-dots.env` from Route 1; set a digest from
+the code checkout and private `suparagent.env` from Route 1; set a digest from
 the workflow summary (replace the placeholder), then generate the key:
 
 ```sh
-export OPEN_DOTS_IMAGE='ghcr.io/anil-matcha/open-duet@sha256:<digest-from-run-summary>'
-touch open-dots.env && chmod 600 open-dots.env
-docker compose -f compose.yaml -f deploy/compose.image.yaml pull open-dots
-KEY=$(docker compose -f compose.yaml -f deploy/compose.image.yaml run --rm --no-deps --entrypoint python open-dots -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-printf 'TOKEN_ENCRYPTION_KEYS=%s\nLOCAL_EXECUTION_ENABLED=true\nOPEN_DOTS_PUBLIC_URL=https://dots.example.com\n' "$KEY" > open-dots.env
-export OPEN_DOTS_DOMAIN=dots.example.com
+export SUPARAGENT_IMAGE='ghcr.io/anil-matcha/open-duet@sha256:<digest-from-run-summary>'
+touch suparagent.env && chmod 600 suparagent.env
+docker compose -f compose.yaml -f deploy/compose.image.yaml pull suparagent
+KEY=$(docker compose -f compose.yaml -f deploy/compose.image.yaml run --rm --no-deps --entrypoint python suparagent -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+printf 'TOKEN_ENCRYPTION_KEYS=%s\nLOCAL_EXECUTION_ENABLED=true\nSUPARAGENT_PUBLIC_URL=https://dots.example.com\n' "$KEY" > suparagent.env
+export SUPARAGENT_DOMAIN=dots.example.com
 docker compose -f compose.yaml -f deploy/compose.image.yaml -f deploy/proxy/compose.caddy.yaml up -d --no-build
 ```
 
@@ -112,12 +112,12 @@ elsewhere, as described above. Never regenerate the key on an existing install.
 
 The published image contains **no engine CLIs and no credentials**. Use an
 OpenRouter or OpenAI-compatible connection in Settings, or build your own
-image with `OPEN_DOTS_ENGINES` using Route 1. That build setting has no effect
+image with `SUPARAGENT_ENGINES` using Route 1. That build setting has no effect
 on a pulled image. The image workflow checks server packaging with scripted
 engines; it does not qualify a real provider, ARM64, a VPS reboot or public TLS.
 
 To update, first back up the data and encryption key, choose a new digest,
-change `OPEN_DOTS_IMAGE`, and repeat `pull` and `up -d --no-build` with the
+change `SUPARAGENT_IMAGE`, and repeat `pull` and `up -d --no-build` with the
 same overlays. The volume is retained, and migration runs at startup. Tags
 can be replaced by a later publishing run; a digest pins the bytes you
 reviewed. A previous image digest alone cannot undo a database migration:
@@ -131,48 +131,48 @@ Install [Node.js 22](https://nodejs.org) and [uv](https://docs.astral.sh/uv/) fi
 
    <!-- verify:root -->
    ```sh
-   sudo useradd --create-home --shell /bin/bash opendots
-   sudo install -d -o opendots -g opendots /opt/open-dots
+   sudo useradd --create-home --shell /bin/bash suparagent
+   sudo install -d -o suparagent -g suparagent /opt/suparagent
    ```
 
    <!-- verify:skip -->
    ```sh
-   sudo -u opendots git clone https://github.com/Anil-matcha/open-duet /opt/open-dots
+   sudo -u suparagent git clone https://github.com/Anil-matcha/open-duet /opt/suparagent
    ```
 
-2. **Build the web pages and install the backend** (as `opendots`: `sudo -iu opendots`; repeat after each update)
+2. **Build the web pages and install the backend** (as `suparagent`: `sudo -iu suparagent`; repeat after each update)
 
    <!-- verify:account -->
    ```sh
-   cd /opt/open-dots/frontend && npm ci && cd ..
+   cd /opt/suparagent/frontend && npm ci && cd ..
    node scripts/build-ui.js            # writes frontend/out, a build that talks to whatever host serves it
    cd backend && uv sync --frozen
    ```
 
-3. **Write the settings** (back at your own account; the file is readable only by `opendots`)
+3. **Write the settings** (back at your own account; the file is readable only by `suparagent`)
 
    <!-- verify:root -->
    ```sh
-   sudo install -d /etc/open-dots
-   sudo install -m 0600 -o opendots -g opendots /dev/null /etc/open-dots/open-dots.env
-   KEY=$(/opt/open-dots/backend/.venv/bin/python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-   sudo tee /etc/open-dots/open-dots.env >/dev/null <<EOF
-   OPEN_DOTS_PUBLIC_URL=https://dots.example.com
+   sudo install -d /etc/suparagent
+   sudo install -m 0600 -o suparagent -g suparagent /dev/null /etc/suparagent/suparagent.env
+   KEY=$(/opt/suparagent/backend/.venv/bin/python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+   sudo tee /etc/suparagent/suparagent.env >/dev/null <<EOF
+   SUPARAGENT_PUBLIC_URL=https://dots.example.com
    TOKEN_ENCRYPTION_KEYS=$KEY
-   OPEN_DOTS_UI_DIR=/opt/open-dots/frontend/out
+   SUPARAGENT_UI_DIR=/opt/suparagent/frontend/out
    DATABASE_BACKEND=sqlite
    LOCAL_EXECUTION_ENABLED=true
    EOF
    ```
 
-   Without `DATABASE_BACKEND=sqlite` the server looks for a PostgreSQL database (the Docker image sets SQLite for you). [`deploy/open-dots.env.example`](../deploy/open-dots.env.example) lists every other setting you may want. **Back that file up** (it holds the key).
+   Without `DATABASE_BACKEND=sqlite` the server looks for a PostgreSQL database (the Docker image sets SQLite for you). [`deploy/suparagent.env.example`](../deploy/suparagent.env.example) lists every other setting you may want. **Back that file up** (it holds the key).
 
-4. **Prepare the database, set your passphrase, check the machine** (as `opendots`)
+4. **Prepare the database, set your passphrase, check the machine** (as `suparagent`)
 
    <!-- verify:account -->
    ```sh
-   cd /opt/open-dots/backend
-   set -a; . /etc/open-dots/open-dots.env; set +a
+   cd /opt/suparagent/backend
+   set -a; . /etc/suparagent/suparagent.env; set +a
    .venv/bin/python -m app.server migrate
    .venv/bin/python -m app.auth.cli set-passphrase
    ```
@@ -181,17 +181,17 @@ Install [Node.js 22](https://nodejs.org) and [uv](https://docs.astral.sh/uv/) fi
 
    <!-- verify:account doctor -->
    ```sh
-   cd /opt/open-dots/backend && set -a; . /etc/open-dots/open-dots.env; set +a
+   cd /opt/suparagent/backend && set -a; . /etc/suparagent/suparagent.env; set +a
    .venv/bin/python -m app.server doctor
    ```
 
    `doctor` changes nothing and says, for each problem, what to do. Until an engine is installed and signed in (see [Engines](#engines)) it reports one problem, "No engine is ready", and exits with 1; everything else should say `ok`.
 
-5. **Start it once by hand to see it work** (as `opendots`)
+5. **Start it once by hand to see it work** (as `suparagent`)
 
    <!-- verify:account serve -->
    ```sh
-   cd /opt/open-dots/backend && set -a; . /etc/open-dots/open-dots.env; set +a
+   cd /opt/suparagent/backend && set -a; . /etc/suparagent/suparagent.env; set +a
    .venv/bin/python -m app.server       # listens on 127.0.0.1:8000 only; stop with Ctrl-C
    ```
 
@@ -206,13 +206,13 @@ Install [Node.js 22](https://nodejs.org) and [uv](https://docs.astral.sh/uv/) fi
 
    <!-- verify:root -->
    ```sh
-   cd /opt/open-dots/backend && sudo .venv/bin/python -m app.server service --user opendots --write
+   cd /opt/suparagent/backend && sudo .venv/bin/python -m app.server service --user suparagent --write
    ```
 
    <!-- verify:skip -->
    ```sh
-   sudo systemctl daemon-reload && sudo systemctl enable --now open-dots
-   journalctl -u open-dots -f
+   sudo systemctl daemon-reload && sudo systemctl enable --now suparagent
+   journalctl -u suparagent -f
    ```
 
 7. **Put a reverse proxy in front.** Start from [`deploy/Caddyfile`](../deploy/Caddyfile) or [`deploy/nginx.conf.example`](../deploy/nginx.conf.example) and follow [the proxy rules](#the-proxy-rules). Then open `https://dots.example.com/login/` and sign in.
@@ -221,24 +221,24 @@ Update:
 
 <!-- verify:skip -->
 ```sh
-sudo systemctl stop open-dots
-sudo -u opendots -H bash -c 'cd /opt/open-dots && git pull --ff-only && (cd frontend && npm ci) && node scripts/build-ui.js && (cd backend && uv sync --frozen)'
-sudo systemctl start open-dots       # migrates first; a SQLite file is copied aside before a change
+sudo systemctl stop suparagent
+sudo -u suparagent -H bash -c 'cd /opt/suparagent && git pull --ff-only && (cd frontend && npm ci) && node scripts/build-ui.js && (cd backend && uv sync --frozen)'
+sudo systemctl start suparagent       # migrates first; a SQLite file is copied aside before a change
 ```
 
 If the migration fails, the server does not start and the journal says why; the copy made before is named in the message.
 
 ## Pair your phone
 
-In the web app: **Settings → Devices → Create pairing code**, choose *Chat only* for a phone, and scan the QR code or open the link. Or from the server's shell (inside the container for Route 1, prefixed with `docker compose exec open-dots`):
+In the web app: **Settings → Devices → Create pairing code**, choose *Chat only* for a phone, and scan the QR code or open the link. Or from the server's shell (inside the container for Route 1, prefixed with `docker compose exec suparagent`):
 
 <!-- verify:account -->
 ```sh
-cd /opt/open-dots/backend && set -a; . /etc/open-dots/open-dots.env; set +a
+cd /opt/suparagent/backend && set -a; . /etc/suparagent/suparagent.env; set +a
 .venv/bin/python -m app.auth.cli pairing-code --scope chat
 ```
 
-It prints a full link when `OPEN_DOTS_PUBLIC_URL` is set. A code works once and expires.
+It prints a full link when `SUPARAGENT_PUBLIC_URL` is set. A code works once and expires.
 
 The [phone app](MOBILE.md) pairs the same way, with a *Chat only*, *Chat and files* or *Chat, files and agents* code. It needs
 the server's HTTPS address (plain HTTP works only for an address on your own
@@ -255,7 +255,7 @@ and enter its code. The operation expires after five minutes and can be
 cancelled. **Sign in to Claude** opens a link from the installed Claude CLI;
 after signing in on Claude's page, paste its authorization code into Settings.
 The code goes once to the CLI over its private input pipe and is never saved
-by Open Duet. An existing working account is preserved. Both flows expire after
+by Suparagent. An existing working account is preserved. Both flows expire after
 five minutes, can be cancelled, and end when the backend shuts down. Their
 handles are process-local: keep this Settings page open, and use one worker or
 session affinity. **Sign out** requires confirmation and uses the installed
@@ -268,31 +268,31 @@ existing provider sessions may require a new conversation. Named accounts are
 not supported.
 Real-account, Windows and packaged sign-in remain unqualified. Other CLI
 browser sign-ins still run from a terminal as the account
-running Open Duet; API keys are another option on headless servers. OpenRouter
+running Suparagent; API keys are another option on headless servers. OpenRouter
 and OpenAI-compatible endpoints need no CLI. See [ENGINES.md](ENGINES.md) for
 the device flow's account, restart and worker limitations.
 
-- **Direct install:** install the CLI as `opendots` (see [ENGINES.md](ENGINES.md)), then `claude auth login` or `codex login --device-auth`. A service has a short `PATH`; the server also looks in `~/.local/bin`, `~/.npm-global/bin` and `/usr/local/bin`, and `OPEN_DOTS_EXTRA_PATH` adds more folders.
-- **Docker:** the image carries no engine and no credentials. To add one, name its package when you build, for example `OPEN_DOTS_ENGINES="@anthropic-ai/claude-code" docker compose build`, then sign in inside the container: `docker compose exec -it open-dots claude auth login`. The sign-in is kept in the data volume. Installing a CLI into a running container is lost when it is recreated; rebuild with `OPEN_DOTS_ENGINES` instead.
+- **Direct install:** install the CLI as `suparagent` (see [ENGINES.md](ENGINES.md)), then `claude auth login` or `codex login --device-auth`. A service has a short `PATH`; the server also looks in `~/.local/bin`, `~/.npm-global/bin` and `/usr/local/bin`, and `SUPARAGENT_EXTRA_PATH` adds more folders.
+- **Docker:** the image carries no engine and no credentials. To add one, name its package when you build, for example `SUPARAGENT_ENGINES="@anthropic-ai/claude-code" docker compose build`, then sign in inside the container: `docker compose exec -it suparagent claude auth login`. The sign-in is kept in the data volume. Installing a CLI into a running container is lost when it is recreated; rebuild with `SUPARAGENT_ENGINES` instead.
 
 Preset connection options:
 
 | Engine | Headless connection | Optional npm package in the image |
 |---|---|---|
-| Gemini CLI | Save a key in Settings, or `GEMINI_API_KEY`; Vertex environment names must be opted in with `OPEN_DOTS_ENGINE_ENV` | `@google/gemini-cli` |
+| Gemini CLI | Save a key in Settings, or `GEMINI_API_KEY`; Vertex environment names must be opted in with `SUPARAGENT_ENGINE_ENV` | `@google/gemini-cli` |
 | Cursor | Save a key in Settings, or `CURSOR_API_KEY` / `CURSOR_AUTH_TOKEN` | None; install Cursor separately |
 | OpenCode (experimental) | `opencode auth login` or its hosted API key | `opencode-ai` |
 | OpenRouter | Save an OpenRouter key in Settings | None |
 
-For example, `OPEN_DOTS_ENGINES="@google/gemini-cli opencode-ai" docker compose build` installs those packages; a direct image build uses `--build-arg ENGINES="@google/gemini-cli opencode-ai"`. These optional package builds have not been run. Cursor's installer is outside the supported image build. Preset CLIs on Windows have not been enabled.
+For example, `SUPARAGENT_ENGINES="@google/gemini-cli opencode-ai" docker compose build` installs those packages; a direct image build uses `--build-arg ENGINES="@google/gemini-cli opencode-ai"`. These optional package builds have not been run. Cursor's installer is outside the supported image build. Preset CLIs on Windows have not been enabled.
 
-`OPEN_DOTS_PRESET_ENGINES` is a comma-separated selection of presets. Unset means Gemini, Cursor and OpenRouter. Set it to an empty string to disable all presets, or `gemini,cursor,openrouter,opencode` to also expose experimental OpenCode. OpenCode must remain opt-in until a real adversarial configuration check proves its permission override. Custom ACP and endpoint engines remain available.
+`SUPARAGENT_PRESET_ENGINES` is a comma-separated selection of presets. Unset means Gemini, Cursor and OpenRouter. Set it to an empty string to disable all presets, or `gemini,cursor,openrouter,opencode` to also expose experimental OpenCode. OpenCode must remain opt-in until a real adversarial configuration check proves its permission override. Custom ACP and endpoint engines remain available.
 
 Saved keys are injected only into their engine's process and are readable by shell commands that process starts. Cursor credentials are not added to other engines' environments; existing globally allowed provider prefixes remain as described below. OpenCode strips ambient foreign API keys, removes configuration override variables, and pins project configuration off. Additional OpenCode provider-key maps are not implemented.
 
 `python -m app.server doctor` reports which engines it found and whether they are signed in.
 
-Engine processes (and any shell command or tool server they start) get a limited environment, not the server's: standard shell and OS names, proxy and certificate names, and the engines' own settings and provider keys (`ANTHROPIC_*`, `CLAUDE_*`, `CODEX_*`, `OPENAI_*`, `GEMINI_*`, `GOOGLE_API_KEY`). Cloud-account names (`AWS_*` for Bedrock, `GOOGLE_APPLICATION_CREDENTIALS` for Vertex, `AZURE_*`) and `SSH_AUTH_SOCK` are not passed by default. To give a turn another variable, such as `AWS_*` for Bedrock or a `GH_TOKEN` for `gh`, list it in `OPEN_DOTS_ENGINE_ENV` (comma-separated names, or a prefix ending in `*`). The app's own secrets, database settings and `OPEN_DOTS_*` names are never passed, even when listed. This limits what a steered turn can read from its environment; it does not stop it reading files the server's account can read.
+Engine processes (and any shell command or tool server they start) get a limited environment, not the server's: standard shell and OS names, proxy and certificate names, and the engines' own settings and provider keys (`ANTHROPIC_*`, `CLAUDE_*`, `CODEX_*`, `OPENAI_*`, `GEMINI_*`, `GOOGLE_API_KEY`). Cloud-account names (`AWS_*` for Bedrock, `GOOGLE_APPLICATION_CREDENTIALS` for Vertex, `AZURE_*`) and `SSH_AUTH_SOCK` are not passed by default. To give a turn another variable, such as `AWS_*` for Bedrock or a `GH_TOKEN` for `gh`, list it in `SUPARAGENT_ENGINE_ENV` (comma-separated names, or a prefix ending in `*`). The app's own secrets, database settings and `SUPARAGENT_*` names are never passed, even when listed. This limits what a steered turn can read from its environment; it does not stop it reading files the server's account can read.
 
 ## The proxy rules
 
@@ -313,12 +313,12 @@ The server believes `X-Forwarded-For` and `X-Forwarded-Proto` only from the addr
 
 - **A proxy on the same machine** connects from loopback: set nothing.
 - **A proxy container from `deploy/proxy/`**: the overlay gives it a fixed address and trusts exactly that address. Do not attach other containers to that network.
-- **A proxy on the host, with the Docker route:** the app sees it as the network's gateway address. Set `OPEN_DOTS_TRUSTED_PROXIES` to that address (`172.31.250.1` by default). On a native Linux engine that stands for the host. **On Docker Desktop, other containers can reach the app and arrive as the same address, so do not use it there for anything but your own machine.** `scripts/probe-docker-trust.sh` shows what your Docker host does.
+- **A proxy on the host, with the Docker route:** the app sees it as the network's gateway address. Set `SUPARAGENT_TRUSTED_PROXIES` to that address (`172.31.250.1` by default). On a native Linux engine that stands for the host. **On Docker Desktop, other containers can reach the app and arrive as the same address, so do not use it there for anything but your own machine.** `scripts/probe-docker-trust.sh` shows what your Docker host does.
 - **A proxy on another machine:** name its address.
 
 Name the proxy's own address, never a whole network: a network is every container ever attached to it. `*`, `/0` networks and host names are refused at start-up, and `FORWARDED_ALLOW_IPS` is ignored.
 
-Never open the server's own port (8000) to the internet. It listens on the machine's loopback only; in a container it listens on the container's address, and Docker publishes it on `127.0.0.1`. Do not change `OPEN_DOTS_BIND` to a public address without a proxy that terminates HTTPS in front.
+Never open the server's own port (8000) to the internet. It listens on the machine's loopback only; in a container it listens on the container's address, and Docker publishes it on `127.0.0.1`. Do not change `SUPARAGENT_BIND` to a public address without a proxy that terminates HTTPS in front.
 
 ## Backing up and restoring
 
@@ -326,8 +326,8 @@ One command makes an archive of the database (a consistent copy while the server
 
 <!-- verify:account -->
 ```sh
-cd /opt/open-dots/backend && set -a; . /etc/open-dots/open-dots.env; set +a
-.venv/bin/python -m app.server backup      # in Docker: docker compose exec open-dots python -m app.server backup
+cd /opt/suparagent/backend && set -a; . /etc/suparagent/suparagent.env; set +a
+.venv/bin/python -m app.server backup      # in Docker: docker compose exec suparagent python -m app.server backup
 ```
 
 It lands in `backups/` beside the database (in Docker, `/data/backups`). Copy it off the server. **It does not contain** the encryption key, the engines' own sign-ins, folders outside the workspace root that an agent was pointed at, or an engine's memory of a conversation. Keep the archive as private as the server: it holds your conversations in clear.
@@ -336,8 +336,8 @@ Restore on a machine with an empty data folder, with the same `TOKEN_ENCRYPTION_
 
 <!-- verify:account HOME=/tmp/restored -->
 ```sh
-cd /opt/open-dots/backend && set -a; . /etc/open-dots/open-dots.env; set +a
-.venv/bin/python -m app.server restore /path/to/open-dots-backup-….tar.gz
+cd /opt/suparagent/backend && set -a; . /etc/suparagent/suparagent.env; set +a
+.venv/bin/python -m app.server restore /path/to/suparagent-backup-….tar.gz
 .venv/bin/python -m app.server migrate     # needed if the archive is from an older version
 ```
 
@@ -354,12 +354,12 @@ A restore refuses to touch anything that exists and refuses while a server is ru
 
 Start with `python -m app.server doctor`. Then:
 
-- **"Refusing to listen on …"**: `OPEN_DOTS_HOST` is not loopback. Use `127.0.0.1` behind a proxy, or `OPEN_DOTS_ALLOW_PUBLIC_BIND=1` if you mean it (the Docker image does).
-- **"… has no index.html"**: the pages are not built, or `OPEN_DOTS_UI_DIR` points elsewhere. Run `node scripts/build-ui.js`.
+- **"Refusing to listen on …"**: `SUPARAGENT_HOST` is not loopback. Use `127.0.0.1` behind a proxy, or `SUPARAGENT_ALLOW_PUBLIC_BIND=1` if you mean it (the Docker image does).
+- **"… has no index.html"**: the pages are not built, or `SUPARAGENT_UI_DIR` points elsewhere. Run `node scripts/build-ui.js`.
 - **"The database has no tables yet / is from an older version"**: run `python -m app.server migrate` (the service and the container do this on every start).
 - **"cannot be decrypted with the encryption key"**: `TOKEN_ENCRYPTION_KEYS` is not the key this database was made with. Restore the right key; nothing was changed.
 - **Agents do not run**: `doctor` reports local execution off. Set `LOCAL_EXECUTION_ENABLED=true`.
-- **`untrusted_host` (421)**: the name in the address bar is not your public name. Check `OPEN_DOTS_PUBLIC_URL` and that the proxy passes the real `Host`.
+- **`untrusted_host` (421)**: the name in the address bar is not your public name. Check `SUPARAGENT_PUBLIC_URL` and that the proxy passes the real `Host`.
 - **A sign-in loop, or cookie trouble**: the proxy is not sending `X-Forwarded-Proto: https`, or the server does not believe it (see [Who is believed to be the proxy](#who-is-believed-to-be-the-proxy)), or you opened the site over plain `http://`.
 - **The log warns about `X-Forwarded-For`**: see [the proxy rules](#the-proxy-rules).
 - **Live updates stall or the chat seems frozen until you reload**: the proxy is buffering the event stream.

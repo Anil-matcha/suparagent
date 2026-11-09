@@ -96,6 +96,6 @@ test("doctor finds preset CLIs without running them and gates experimental OpenC
   assert.equal(result.engines.find((e) => e.id === "gemini").installed, true);
   assert.equal(result.engines.find((e) => e.id === "cursor").installed, true);
   assert.equal(result.engines.some((e) => e.id === "opencode"), false);
-  const experimental = diagnose({ layout: paths, nodeVersion: "v24.0.0", platform: "darwin", env: { PATH: bin, OPEN_DOTS_PRESET_ENGINES: "opencode" } });
+  const experimental = diagnose({ layout: paths, nodeVersion: "v24.0.0", platform: "darwin", env: { PATH: bin, SUPARAGENT_PRESET_ENGINES: "opencode" } });
   assert.equal(experimental.engines.find((e) => e.id === "opencode").installed, true);
 });

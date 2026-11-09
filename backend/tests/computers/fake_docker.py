@@ -161,7 +161,7 @@ elif command == "ps":
     for name, container in state["containers"].items():
         labels = container["inspect"]["Config"]["Labels"]
         if all(labels.get(k) == v for k, v in wanted):
-            print(f"{name}\t{labels.get('dev.open-dots.computer.id', '')}")
+            print(f"{name}\t{labels.get('dev.suparagent.computer.id', '')}")
 
 elif command == "exec":
     rest = args[1:]

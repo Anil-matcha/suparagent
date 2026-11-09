@@ -65,11 +65,11 @@ jobs:
     env:
       DATABASE_BACKEND: sqlite
       TOKEN_ENCRYPTION_KEYS: 3n3b2YkQd0xVv8m1c1m0nq1l4Z3xk9q0n7xv7y5q8wE=
-      OPEN_DUET_BROWSER_IMAGE: open-duet-browser:qa
+      SUPARAGENT_BROWSER_IMAGE: suparagent-browser:qa
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: astral-sh/setup-uv@v5.4.2
-      - run: docker build -t open-duet-browser:qa desktop-image
+      - run: docker build -t suparagent-browser:qa desktop-image
       - run: uv sync --frozen
         working-directory: backend
       - run: uv run pytest tests/computers/test_browser.py tests/computers/test_browser_real.py -q

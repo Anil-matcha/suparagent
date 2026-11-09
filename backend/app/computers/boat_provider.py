@@ -32,7 +32,7 @@ _READY_STATES = {"ready", "idle", "running"}
 _STOPPED_STATES = {"archived"}
 _MAX_OUTPUT = 2_000_000
 _MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024
-_SCREENSHOT_PATH = "/tmp/open-dots-screen.png"
+_SCREENSHOT_PATH = "/tmp/suparagent-screen.png"
 
 
 class BoatProvider:
@@ -164,14 +164,14 @@ class BoatProvider:
                 setup += "\nif ! command -v xdotool >/dev/null 2>&1 || ! command -v scrot >/dev/null 2>&1; then sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xdotool scrot; fi"
             # Idle stopping is managed by the local lifecycle service. Provider
             # TTLs may delete the sandbox, so they must not mirror idle_minutes.
-            idem = str(uuid.uuid5(uuid.NAMESPACE_URL, f"open-dots:{spec.instance}:{spec.computer_id}:{spec.provider_generation}"))
+            idem = str(uuid.uuid5(uuid.NAMESPACE_URL, f"suparagent:{spec.instance}:{spec.computer_id}:{spec.provider_generation}"))
             data = self._request(
                 "POST",
                 "/sandboxes",
                 body={
                     "type": "default",
                     "name": spec.name[:120],
-                    "labels": {"open-dots/instance": spec.instance, "open-dots/computer": str(spec.computer_id)},
+                    "labels": {"suparagent/instance": spec.instance, "suparagent/computer": str(spec.computer_id)},
                     "noEnv": True,
                     "visibility": "private",
                     "monitoring": False,
@@ -507,7 +507,7 @@ class BoatProvider:
                 ]
             }
         args_list = screen.input_args(name, args)
-        command = 'd=$(cat /tmp/open-dots-display 2>/dev/null); export DISPLAY="${d:-${DISPLAY:-:0}}"; ' + shlex.join(["xdotool", *args_list])
+        command = 'd=$(cat /tmp/suparagent-display 2>/dev/null); export DISPLAY="${d:-${DISPLAY:-:0}}"; ' + shlex.join(["xdotool", *args_list])
         result = self._command(sandbox_id, command, 25)
         if result.get("exitCode") != 0:
             raise ComputerError("The cloud screen action failed. Check that the desktop is ready.", "boat_screen_failed")
@@ -530,7 +530,7 @@ def _screenshot_command(area: tuple[int, int, int, int] | None = None) -> str:
         'for display in "${DISPLAY:-}" :0 :1; do '
         '[ -n "$display" ] || continue; export DISPLAY="$display"; '
         f'{capture}; '
-        'if test -s "$f"; then printf "%s\\n" "$DISPLAY" > /tmp/open-dots-display; echo captured; exit 0; fi; '
+        'if test -s "$f"; then printf "%s\\n" "$DISPLAY" > /tmp/suparagent-display; echo captured; exit 0; fi; '
         'done; echo "The desktop display is not ready." >&2; exit 1'
     )
 

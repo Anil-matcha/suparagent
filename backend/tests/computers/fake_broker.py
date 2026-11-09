@@ -12,7 +12,7 @@ from pathlib import Path
 sock = Path(os.environ["OD_BROWSER_SOCKET"])
 keys = [k for k in os.environ if k.startswith("OD_BROWSER_")]
 child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
-(sock.parent / "seen.json").write_text(json.dumps({"env": {k: os.environ[k] for k in keys}, "child": child.pid, "pgid": os.getpgrp(), "marker": os.environ.get("OPEN_DOTS_ENGINE_OF")}))
+(sock.parent / "seen.json").write_text(json.dumps({"env": {k: os.environ[k] for k in keys}, "child": child.pid, "pgid": os.getpgrp(), "marker": os.environ.get("SUPARAGENT_ENGINE_OF")}))
 server = socket.socket(socket.AF_UNIX)
 server.bind(str(sock))
 server.listen(4)

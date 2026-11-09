@@ -36,11 +36,11 @@ def test_boat_screenshot_fetches_image_from_files_api(monkeypatch):
     assert provider.screenshot(make_spec()) == PNG
     assert requests[0] == ("POST", "/sandboxes/bx_test/desktop?vnc=1", {"publicAccess": False})
     assert requests[1][0] == "GET"
-    assert "path=%2Ftmp%2Fopen-dots-screen.png&encoding=base64" in requests[1][1]
+    assert "path=%2Ftmp%2Fsuparagent-screen.png&encoding=base64" in requests[1][1]
     assert "base64" not in commands[0]
     assert '"${DISPLAY:-}" :0 :1' in commands[0]
     assert "import -window root" in commands[0]
-    assert '"$DISPLAY" > /tmp/open-dots-display' in commands[0]
+    assert '"$DISPLAY" > /tmp/suparagent-display' in commands[0]
 
 
 def test_boat_mcp_screenshot_uses_same_capture_and_preserves_crop(monkeypatch):

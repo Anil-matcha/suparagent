@@ -46,7 +46,7 @@ bytes. All chat scope.
 - **Storage.** A private folder outside every workspace:
   `<data>/attachments/<thread id>/<uuid><ext>` with a small `<uuid>.json`
   beside it (display name, type, size, sha256). `<data>` is
-  `ATTACHMENTS_DIR`, else `~/.open-dots/attachments`, else the desktop data
+  `ATTACHMENTS_DIR`, else `~/.suparagent/attachments`, else the desktop data
   folder. Folders `0700`, files `0600`. The stored file name is always a fresh
   UUID plus an extension chosen from the type; the person's file name is only
   ever a display name (control characters and path separators removed,

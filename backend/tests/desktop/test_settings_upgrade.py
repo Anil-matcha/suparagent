@@ -43,7 +43,7 @@ def history(database):
 
 
 def test_existing_desktop_history_is_backed_up_upgraded_and_survives_restart(launches, tmp_path):
-    database = tmp_path / "data" / "open-dots.db"
+    database = tmp_path / "data" / "suparagent.db"
     ciphertext = historical_fixture(database)
     before = history(database)
     first = launch(launches, tmp_path).start()

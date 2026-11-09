@@ -29,9 +29,9 @@ import httpx
 from cryptography.fernet import Fernet
 
 REPO = Path(__file__).resolve().parents[1]
-PROJECT = "open-dots-smoke"
-IMAGE = "open-dots:smoke"
-ENGINE_IMAGE = "open-dots:smoke-engine"
+PROJECT = "suparagent-smoke"
+IMAGE = "suparagent:smoke"
+ENGINE_IMAGE = "suparagent:smoke-engine"
 HOST = "dots.example.com"
 PASSPHRASE = "a long passphrase for the docker smoke"
 STOP_BUDGET_SECONDS = 25
@@ -75,21 +75,21 @@ class Stack:
 
     def __init__(self, scratch: Path) -> None:
         self.port = free_port()
-        self.env_file = scratch / "open-dots.env"
+        self.env_file = scratch / "suparagent.env"
         self.env_file.write_text(
             "\n".join([
                 f"TOKEN_ENCRYPTION_KEYS={Fernet.generate_key().decode()}",
                 "LOCAL_EXECUTION_ENABLED=true",
                 "LOOPBACK_TRUST=off",
-                f"OPEN_DOTS_PUBLIC_URL=https://{HOST}",
+                f"SUPARAGENT_PUBLIC_URL=https://{HOST}",
                 "",
             ]),
             encoding="utf-8",
         )
         self.environment = {
-            "OPEN_DOTS_ENV_FILE": str(self.env_file),
-            "OPEN_DOTS_PORT": str(self.port),
-            "OPEN_DOTS_IMAGE": IMAGE,
+            "SUPARAGENT_ENV_FILE": str(self.env_file),
+            "SUPARAGENT_PORT": str(self.port),
+            "SUPARAGENT_IMAGE": IMAGE,
         }
 
     def compose(self, *args: str, check_exit: bool = True, timeout: int = 300) -> subprocess.CompletedProcess:
@@ -99,7 +99,7 @@ class Stack:
                    timeout=timeout, env={**os.environ, **self.environment})
 
     def container(self) -> str:
-        return self.compose("ps", "-q", "open-dots").stdout.strip()
+        return self.compose("ps", "-q", "suparagent").stdout.strip()
 
     def state(self) -> dict:
         return json.loads(run(["docker", "inspect", self.container()]).stdout)[0]["State"]
@@ -118,7 +118,7 @@ class Stack:
         raise AssertionError(f"the container did not become healthy in {timeout:.0f} s:\n{self.logs()[-2500:]}")
 
     def logs(self) -> str:
-        result = self.compose("logs", "--no-color", "open-dots", check_exit=False)
+        result = self.compose("logs", "--no-color", "suparagent", check_exit=False)
         return result.stdout + result.stderr
 
     def url(self, path: str) -> str:
@@ -130,7 +130,7 @@ class Stack:
         return httpx.post(self.url("/api/v1/auth/login"), json={"passphrase": passphrase}, headers=headers, timeout=20)
 
     def exec(self, *command: str, stdin: str | None = None) -> subprocess.CompletedProcess:
-        return self.compose("exec", "-T", "open-dots", *command, check_exit=False) if stdin is None else run(
+        return self.compose("exec", "-T", "suparagent", *command, check_exit=False) if stdin is None else run(
             ["docker", "exec", "-i", self.container(), *command], check_exit=False, input=stdin)
 
 
@@ -149,7 +149,7 @@ def main() -> int:
         print("Docker is not available.", file=sys.stderr)
         return 2
 
-    scratch = Path(tempfile.mkdtemp(prefix="open-dots-smoke-docker-"))
+    scratch = Path(tempfile.mkdtemp(prefix="suparagent-smoke-docker-"))
     stack = Stack(scratch)
     try:
         if not args.skip_build:
@@ -160,7 +160,7 @@ def main() -> int:
             report = image_shell(IMAGE, """
                 echo "uid=$(id -u)"
                 echo "home=$HOME"
-                find / -xdev \\( -name '.env' -o -name '.env.*' -o -name '.internal' -o -name 'open-dots.env' \\) \\
+                find / -xdev \\( -name '.env' -o -name '.env.*' -o -name '.internal' -o -name 'suparagent.env' \\) \\
                      -not -path '/proc/*' 2>/dev/null | sed 's/^/leak=/'
                 find /app \\( -name tests -o -name '.pytest_cache' -o -name '.ruff_cache' -o -name '*.md' \\) | sed 's/^/stray=/'
                 for tool in node npm uv claude codex; do command -v $tool >/dev/null 2>&1 && echo "tool=$tool"; done
@@ -168,7 +168,7 @@ def main() -> int:
                 echo "engines_bin=$(ls -A /opt/engines/bin | wc -l)"
             """)
             lines = dict(line.split("=", 1) for line in report.splitlines() if "=" in line and not line.startswith(("leak=", "stray=", "tool=")))
-            assert lines["uid"] == "10001" and lines["home"] == "/data" and lines["data_owner"] == "opendots", report
+            assert lines["uid"] == "10001" and lines["home"] == "/data" and lines["data_owner"] == "suparagent", report
             for prefix in ("leak=", "stray=", "tool="):
                 assert not [line for line in report.splitlines() if line.startswith(prefix)], report
             assert lines["engines_bin"] == "0", report
@@ -207,7 +207,7 @@ def main() -> int:
             assert httpx.get(stack.url("/api/v1/health"), timeout=10).status_code == 200
             assert httpx.get(stack.url("/login/"), headers={"Host": HOST}, timeout=10).status_code == 200
             assert httpx.get(stack.url("/api/v1/agents"), headers={"Host": HOST}, timeout=10).status_code == 401
-            mapping = stack.compose("port", "open-dots", "8000").stdout.strip()
+            mapping = stack.compose("port", "suparagent", "8000").stdout.strip()
             assert mapping.startswith("127.0.0.1:"), f"the port is published on {mapping}"
 
         published()
@@ -224,11 +224,11 @@ def main() -> int:
 
         untrusted_by_default()
 
-        @check("naming the gateway address in OPEN_DOTS_TRUSTED_PROXIES makes a host-side proxy believed, with a lockout per visitor")
+        @check("naming the gateway address in SUPARAGENT_TRUSTED_PROXIES makes a host-side proxy believed, with a lockout per visitor")
         def gateway_opt_in():
             gateway = json.loads(run(["docker", "network", "inspect", f"{PROJECT}_default"]).stdout)[0]["IPAM"]["Config"][0]["Gateway"]
             assert gateway == "172.31.250.1", gateway  # the address compose.yaml documents
-            stack.environment["OPEN_DOTS_TRUSTED_PROXIES"] = gateway
+            stack.environment["SUPARAGENT_TRUSTED_PROXIES"] = gateway
             stack.compose("up", "-d", "--no-build")
             stack.wait_healthy()
             first = stack.visitor("198.51.100.11", PASSPHRASE)
@@ -257,7 +257,7 @@ def main() -> int:
             result = stack.exec("python", "-m", "app.server", "backup")
             assert result.returncode == 0 and "Backup written to /data/backups/" in result.stdout, result.stdout + result.stderr
             listing = stack.exec("ls", "/data/backups").stdout
-            assert "open-dots-backup-" in listing, listing
+            assert "suparagent-backup-" in listing, listing
 
         backup()
 

@@ -1,7 +1,7 @@
 """`python -m app.server doctor`: is this machine ready to run the server?
 
 Run it with the same environment the server gets (the service's settings file, or
-`set -a; . /etc/open-dots/open-dots.env; set +a`). It reads and probes; it never
+`set -a; . /etc/suparagent/suparagent.env; set +a`). It reads and probes; it never
 changes anything: no folder is created, no database is touched, no engine runs a
 turn. Each check says what it found and, when something is wrong, what to do.
 
@@ -77,12 +77,12 @@ def check_options(environ: Mapping[str, str]) -> tuple[Check, object | None]:
 
 def check_pages(ui_dir: Path | None) -> Check:
     if ui_dir is None:
-        return _problem("Pages", "No pages folder is set.", "Set OPEN_DOTS_UI_DIR to the folder made by `node scripts/build-ui.js`.")
+        return _problem("Pages", "No pages folder is set.", "Set SUPARAGENT_UI_DIR to the folder made by `node scripts/build-ui.js`.")
     needed = ["index.html", "login/index.html", "pair/index.html", "chat/index.html", "settings/index.html"]
     missing = [page for page in needed if not (ui_dir / page).is_file()]
     if missing:
         return _problem("Pages", f"{ui_dir} is missing {', '.join(missing)}.",
-                        "Build the pages again: `node scripts/build-ui.js`, then point OPEN_DOTS_UI_DIR at frontend/out.")
+                        "Build the pages again: `node scripts/build-ui.js`, then point SUPARAGENT_UI_DIR at frontend/out.")
     return Check("Pages", OK, f"All {len(needed)} pages are in {ui_dir}.")
 
 
@@ -97,14 +97,14 @@ def check_port(options) -> Check:
         probe.close()
     if in_use:
         return Check("Port", INFO, f"Something already answers on {options.host}:{options.port}.",
-                     "That is expected if the server is running now; otherwise choose another OPEN_DOTS_PORT.")
+                     "That is expected if the server is running now; otherwise choose another SUPARAGENT_PORT.")
     return Check("Port", OK, f"{options.host}:{options.port} is free.")
 
 
 def check_public_url(settings) -> Check:
     origin = settings.PUBLIC_ORIGIN
     if not origin:
-        return Check("Public address", WARN, "OPEN_DOTS_PUBLIC_URL is not set.",
+        return Check("Public address", WARN, "SUPARAGENT_PUBLIC_URL is not set.",
                      "Set it to the address people use, for example https://dots.example.com. Without it the public name must be listed in TRUSTED_HOSTS, and pairing links are not printed.")
     if origin.startswith("http://"):
         return Check("Public address", WARN, f"{origin} is not HTTPS.",
@@ -276,7 +276,7 @@ def check_url(url: str, fetch: Callable | None = None) -> list[Check]:
         return [_problem("Address check", f"{origin} did not answer properly ({type(exc).__name__}).")]
     if health.status_code == 421:
         checks.append(_problem("Address check", f"{origin} answers, but the server refuses that host name (421).",
-                               "Set OPEN_DOTS_PUBLIC_URL to this address, and make the proxy pass the real Host header."))
+                               "Set SUPARAGENT_PUBLIC_URL to this address, and make the proxy pass the real Host header."))
     elif health.status_code != 200 or '"ok"' not in health.text:
         checks.append(_problem("Address check", f"{origin}/api/v1/health answered {health.status_code}, not the server's health.",
                                "The proxy may be sending the visit somewhere else; point it at the server's port."))
@@ -291,7 +291,7 @@ def check_url(url: str, fetch: Callable | None = None) -> list[Check]:
     if page is not None and page.status_code == 200:
         checks.append(Check("Sign-in page", OK, "The sign-in page loads from outside."))
     elif page is not None:
-        checks.append(_problem("Sign-in page", f"{origin}/login/ answered {page.status_code}.", "Check OPEN_DOTS_UI_DIR and that the pages are built."))
+        checks.append(_problem("Sign-in page", f"{origin}/login/ answered {page.status_code}.", "Check SUPARAGENT_UI_DIR and that the pages are built."))
     return checks
 
 
@@ -312,7 +312,7 @@ def run_checks(environ: Mapping[str, str] | None = None, url: str | None = None,
 
     options_check, options = check_options(env)
     checks.append(options_check)
-    ui_value = env.get("OPEN_DOTS_UI_DIR", "")
+    ui_value = env.get("SUPARAGENT_UI_DIR", "")
     checks.append(check_pages(Path(ui_value).expanduser().resolve() if ui_value else None))
     if options is not None:
         checks.append(check_port(options))
@@ -339,7 +339,7 @@ def run_checks(environ: Mapping[str, str] | None = None, url: str | None = None,
 
 def render(checks: Sequence[Check]) -> str:
     marks = {OK: "ok  ", WARN: "WARN", FAIL: "FAIL", INFO: "info"}
-    lines = ["Open Duet server check", ""]
+    lines = ["Suparagent server check", ""]
     for check in checks:
         lines.append(f"  {marks[check.status]}  {check.name}: {check.detail}")
         if check.advice:

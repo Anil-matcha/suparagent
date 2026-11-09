@@ -49,7 +49,7 @@ NOT_CONFIGURED = "Set the endpoint's address (and key, if it needs one) in Setti
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_HOST = "openrouter.ai"
 # OpenRouter's optional app attribution (its public app rankings).
-OPENROUTER_ATTRIBUTION = {"HTTP-Referer": "https://github.com/Anil-matcha/open-duet", "X-Title": "Open Duet"}
+OPENROUTER_ATTRIBUTION = {"HTTP-Referer": "https://github.com/Anil-matcha/open-duet", "X-Title": "Suparagent"}
 
 
 class InvalidConfig(ValueError):
@@ -447,7 +447,7 @@ class OpenRouterAdapter(OpenAIChatAdapter):
     required, and models are OpenRouter ids such as `openai/gpt-4o-mini` or
     `meta-llama/llama-3.3-70b-instruct:free`. Requests to openrouter.ai
     itself also carry OpenRouter's optional app-attribution headers, which tell
-    OpenRouter this account's traffic comes from Open Duet; another address (a
+    OpenRouter this account's traffic comes from Suparagent; another address (a
     proxy) never gets them."""
 
     key = "openrouter"

@@ -464,8 +464,8 @@ export function ChatApp() {
         setNewAgentId(detail.id); setNewModel(null); setNewEffort(null); router.push(`/chat?agent=${detail.id}`); setFocusComposer(true);
       }
     };
-    window.addEventListener("open-dots:open-agent", openAgent);
-    return () => window.removeEventListener("open-dots:open-agent", openAgent);
+    window.addEventListener("suparagent:open-agent", openAgent);
+    return () => window.removeEventListener("suparagent:open-agent", openAgent);
   }, [agents, router, setAgentsOpen]);
 
   useEffect(() => {
@@ -559,7 +559,7 @@ export function ChatApp() {
           .find((item) => item.kind === "assistant" && item.turnId === finishedTurnId);
         const textContent = (assistantItem as { text?: string })?.text ?? null;
 
-        const agentName = threadAgent?.name || "Open Duet";
+        const agentName = threadAgent?.name || "Suparagent";
 
         notifyTurnCompletion({
           agentName,
@@ -581,7 +581,7 @@ export function ChatApp() {
       if (item.kind === "approval" && item.status === "pending") {
         if (!alertedApprovalIds.current.has(item.approvalId)) {
           alertedApprovalIds.current.add(item.approvalId);
-          const agentName = threadAgent?.name || "Open Duet";
+          const agentName = threadAgent?.name || "Suparagent";
           notifyApprovalNeeded({
             agentName,
             summary: item.summary,
@@ -1017,7 +1017,7 @@ export function ChatApp() {
   // The desktop app hands out its own link (the page's address is a private local one); the web app its page address.
   const linkTarget: ChatTarget | null = roomId !== null && roomId !== "new" ? { kind: "room", id: roomId } : roomId === null && threadId !== null ? { kind: "thread", id: threadId } : null;
   const copyLink = linkTarget ? async () => {
-    const isDesktop = typeof window !== "undefined" && "openDots" in window;
+    const isDesktop = typeof window !== "undefined" && "suparagent" in window;
     const link = isDesktop ? chatAppLink(linkTarget) : chatWebLink(window.location.origin, linkTarget, BASE_PATH);
     if (await copyToClipboard(link)) {
       setLinkCopied(true);
@@ -1181,8 +1181,8 @@ export function ChatApp() {
     return (
       <div className="flex h-dvh flex-col">
         {header}
-        <Notice title="Open this from the Open Duet app">
-          This address only works inside the Open Duet window, which keeps your conversations
+        <Notice title="Open this from the Suparagent app">
+          This address only works inside the Suparagent window, which keeps your conversations
           private to it. Use that window instead of a browser tab.
         </Notice>
       </div>
@@ -1240,7 +1240,7 @@ export function ChatApp() {
           <div className="inline-flex max-w-full flex-wrap items-center justify-center gap-2.5 rounded-full border border-accent/30 bg-accent/10 px-4 py-1.5 text-xs text-ink shadow-xs">
             <div className="flex items-center gap-1.5">
               <span className="font-semibold text-accent">Update available:</span>
-              <span>Open Duet {latestVersion} is available.</span>
+              <span>Suparagent {latestVersion} is available.</span>
             </div>
             <span className="hidden text-muted/60 sm:inline" aria-hidden="true">•</span>
             <Link

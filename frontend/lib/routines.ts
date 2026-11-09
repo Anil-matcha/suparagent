@@ -216,7 +216,7 @@ export function nextRunText(
 // The full address of a webhook path ("/hooks/12") on the configured backend.
 // A page served by the backend itself is built with a relative API path ("/api/v1"),
 // so the address it was loaded from is the backend's address. A path that is already a full
-// address (the server was given OPEN_DOTS_WEBHOOK_BASE) is returned as it is.
+// address (the server was given SUPARAGENT_WEBHOOK_BASE) is returned as it is.
 export function webhookUrl(
   path: string,
   apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1",

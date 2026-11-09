@@ -72,7 +72,7 @@ class ComposioBridge:
         self.account_scopes = accounts_for(account_scopes if account_scopes is not None else
                                            getattr(run.ctx, "composio_account_scopes", {}))
         self.client_factory = client_factory or (lambda key: make_client(key))
-        self.folder = Path(tempfile.mkdtemp(prefix=f"open-dots-composio-{run.turn_id}-"))
+        self.folder = Path(tempfile.mkdtemp(prefix=f"suparagent-composio-{run.turn_id}-"))
         self.task: asyncio.Task | None = None
         self.calls: set[asyncio.Task] = set()
 

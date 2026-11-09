@@ -127,7 +127,7 @@ class Server:
             return None
         if method == "initialize":
             result = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
-                      "serverInfo": {"name": "open-dots-community", "version": "1"}}
+                      "serverInfo": {"name": "suparagent-community", "version": "1"}}
         elif method == "ping":
             result = {}
         elif method == "tools/list":

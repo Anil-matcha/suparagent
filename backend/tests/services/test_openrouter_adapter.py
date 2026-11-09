@@ -85,7 +85,7 @@ async def test_probe_lists_openrouter_models_with_the_headers(endpoint):
     request = endpoint.requests[1]
     assert str(request.url) == "https://openrouter.ai/api/v1/models"
     assert request.headers["authorization"] == f"Bearer {KEY}"
-    assert request.headers["x-title"] == "Open Duet" and request.headers["http-referer"].startswith("https://")
+    assert request.headers["x-title"] == "Suparagent" and request.headers["http-referer"].startswith("https://")
 
 
 async def test_invalid_key_is_not_ready_even_with_public_models(endpoint):
@@ -141,7 +141,7 @@ async def test_a_turn_goes_to_openrouter_with_its_own_saved_config(ort, sessions
     assert data_of(events, "assistant.message") == [{"text": "Hello"}]
     request = next(r for r in endpoint.requests if r.method == "POST")
     assert str(request.url) == "https://openrouter.ai/api/v1/chat/completions"
-    assert request.headers["authorization"] == f"Bearer {KEY}" and request.headers["x-title"] == "Open Duet"
+    assert request.headers["authorization"] == f"Bearer {KEY}" and request.headers["x-title"] == "Suparagent"
     assert json.loads(request.content)["model"] == MODEL
     # The plain OpenAI-compatible engine keeps its own address and sends no OpenRouter headers.
     other = await ort.create_thread(provider="openai_compat")

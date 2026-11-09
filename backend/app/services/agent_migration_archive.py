@@ -19,7 +19,7 @@ from app.schemas.agent import INSTRUCTIONS_MAX_BYTES
 from app.services import agent_package, agent_skills
 from app.services.agent_memory import FILE_MAX_BYTES, redact_secrets
 
-FORMAT = "open-dots.agent-migration"
+FORMAT = "suparagent.agent-migration"
 VERSION = 1
 MAX_SOURCE_BYTES = 10_000_000
 MAX_MANIFEST_BYTES = 10_000_000

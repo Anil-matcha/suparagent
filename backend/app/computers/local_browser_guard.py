@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-SIZE_ENV = "OPEN_DOTS_SANDBOX_SIZE"
+SIZE_ENV = "SUPARAGENT_SANDBOX_SIZE"
 STRICT_SIZES = frozenset({"", "small"})  # a missing size gets the stricter caps; any other named size gets the larger ones
 LOW_BYTES = 512 * 1024 * 1024
 LOW_FRACTION = 0.12

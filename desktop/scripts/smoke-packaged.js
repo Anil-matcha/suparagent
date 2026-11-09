@@ -21,15 +21,15 @@ function cleanEnvironment(environment) {
     !["python", "python3", "python.exe"].some((name) => fs.existsSync(path.join(dir, name)))
   ).join(path.delimiter);
   for (const name of Object.keys(env)) {
-    if (/^(VIRTUAL_ENV|PYTHON.*|UV_.*|ELECTRON_RUN_AS_NODE|OPEN_DOTS_.*)$/i.test(name)) delete env[name];
+    if (/^(VIRTUAL_ENV|PYTHON.*|UV_.*|ELECTRON_RUN_AS_NODE|SUPARAGENT_.*)$/i.test(name)) delete env[name];
   }
   return env;
 }
 
 async function runSmoke({ executable, args = [], timeoutMs = 90_000, environment = process.env, keep = false } = {}) {
   if (!executable || !fs.existsSync(executable)) throw new Error(`Packaged executable missing: ${executable}. Run npm run package first.`);
-  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "open-dots-packaged-smoke-"));
-  const env = { ...cleanEnvironment(environment), OPEN_DOTS_DATA_DIR: dataRoot };
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "suparagent-packaged-smoke-"));
+  const env = { ...cleanEnvironment(environment), SUPARAGENT_DATA_DIR: dataRoot };
   let child;
   let failure;
   let finished;
@@ -61,7 +61,7 @@ async function runSmoke({ executable, args = [], timeoutMs = 90_000, environment
       if (response.status !== 401) throw new Error(`${pathname}: expected unauthenticated HTTP 401, got ${response.status}.`);
     }
     if (finished) throw failure;
-    if (!fs.existsSync(path.join(dataRoot, "data", "open-dots.db"))) throw new Error("Packaged backend did not create its SQLite database.");
+    if (!fs.existsSync(path.join(dataRoot, "data", "suparagent.db"))) throw new Error("Packaged backend did not create its SQLite database.");
     return { origin, dataRoot };
   } catch (error) {
     error.message += ` Profile: ${dataRoot}`;

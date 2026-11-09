@@ -17,7 +17,7 @@ FAKE = Path(__file__).with_name("fake_acp_agent.py")
 @pytest.fixture
 def fake(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_ACP_DIR", str(tmp_path))
-    monkeypatch.setenv("OPEN_DOTS_ENGINE_ENV", "FAKE_*")
+    monkeypatch.setenv("SUPARAGENT_ENGINE_ENV", "FAKE_*")
     return FakeAcp(tmp_path)
 
 
@@ -103,7 +103,7 @@ async def test_gemini_oauth_fixture_expiry_and_refresh(fake, monkeypatch):
 
 
 def test_opencode_permission_controls_override_host_and_drop_foreign_keys(monkeypatch):
-    monkeypatch.setenv("OPEN_DOTS_ENGINE_ENV", "OPENCODE_*")
+    monkeypatch.setenv("SUPARAGENT_ENGINE_ENV", "OPENCODE_*")
     monkeypatch.setenv("OPENCODE_PERMISSION", '{"*":"allow"}')
     monkeypatch.setenv("OPENCODE_CONFIG_CONTENT", '{"permission":{"*":"allow"}}')
     monkeypatch.setenv("OPENAI_API_KEY", "foreign")
@@ -150,12 +150,12 @@ async def test_cursor_discovery_parses_synthetic_catalog_markers(fake):
 
 def test_opencode_default_off_and_explicit_preset_list(monkeypatch):
     from app.services.engine_registry import default_adapters
-    monkeypatch.delenv("OPEN_DOTS_PRESET_ENGINES", raising=False)
+    monkeypatch.delenv("SUPARAGENT_PRESET_ENGINES", raising=False)
     assert {"gemini", "cursor", "openrouter"} <= default_adapters().keys()
     assert "opencode" not in default_adapters()
-    monkeypatch.setenv("OPEN_DOTS_PRESET_ENGINES", "opencode")
+    monkeypatch.setenv("SUPARAGENT_PRESET_ENGINES", "opencode")
     assert "opencode" in default_adapters() and "gemini" not in default_adapters()
-    monkeypatch.setenv("OPEN_DOTS_PRESET_ENGINES", "")
+    monkeypatch.setenv("SUPARAGENT_PRESET_ENGINES", "")
     assert not ({"gemini", "cursor", "opencode", "openrouter"} & default_adapters().keys())
 
 

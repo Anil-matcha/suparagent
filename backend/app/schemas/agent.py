@@ -244,7 +244,7 @@ class AgentMigrationProfilePreview(BaseModel):
 
 
 class AgentMigrationPreviewResponse(BaseModel):
-    format: Literal["open-dots.agent-migration"]
+    format: Literal["suparagent.agent-migration"]
     version: Literal[1]
     source: Literal["grok", "hermes"]
     profiles: list[AgentMigrationProfilePreview]

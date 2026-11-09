@@ -65,7 +65,7 @@ def get_model(model_size: str = "tiny"):
 def transcribe_file(file_path: str, model_size: str = "tiny", language: str | None = None) -> dict[str, Any]:
     """Transcribe an audio file using local Whisper.
 
-    Returns standard transcription result dict matching Open Duet schema.
+    Returns standard transcription result dict matching Suparagent schema.
     """
     model = get_model(model_size)
     segments_gen, info = model.transcribe(file_path, language=language, beam_size=1)

@@ -26,7 +26,7 @@ export function attachmentProblem(name: string, mime: string, size: number | und
 /** One file as a `multipart/form-data` body. Built by hand because `expo/fetch` cannot send `{ uri }` parts. */
 export function buildMultipart(field: string, name: string, mime: string, bytes: Uint8Array): { body: Uint8Array; contentType: string } {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let boundary = '----OpenDots';
+  let boundary = '----Suparagent';
   for (let i = 0; i < 24; i++) boundary += alphabet[Math.floor(Math.random() * alphabet.length)];
   // A quote, backslash or line break in a name would end the header early.
   const safeName = name.replace(/["\\\r\n]/g, '_');

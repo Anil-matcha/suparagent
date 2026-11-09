@@ -34,7 +34,7 @@ export interface ProfileStats {
   teammates: Array<{ agent: { id: number; name: string }; tokens: number }>;
 }
 
-const PROFILE_CACHE_KEY = "open_duet_user_profile_cache";
+const PROFILE_CACHE_KEY = "suparagent_user_profile_cache";
 
 export function readCachedProfile(): Partial<UserProfile> | null {
   if (typeof window === "undefined") return null;

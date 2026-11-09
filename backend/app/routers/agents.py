@@ -1024,7 +1024,7 @@ async def import_agent(payload: AgentImportRequest, rt: ThreadRuntime = Depends(
 async def preview_migration_archive(request: Request):
     """Preview JSON or a one-manifest ZIP from raw request bytes, without saving it."""
     if settings.HOST_EXECUTION_DISABLED:
-        raise _error(403, "migration_import_unavailable", "Agent migration is available only in the local Open Dots app.")
+        raise _error(403, "migration_import_unavailable", "Agent migration is available only in the local Suparagent app.")
     data = bytearray()
     async for chunk in request.stream():
         if len(data) + len(chunk) > agent_migration_archive.MAX_SOURCE_BYTES:
@@ -1040,7 +1040,7 @@ async def preview_migration_archive(request: Request):
 async def preview_openbot_database(file: UploadFile = File(...)):
     """Read the local OpenBot database and return normalized agent fields for review."""
     if settings.HOST_EXECUTION_DISABLED:
-        raise _error(403, "openbot_import_unavailable", "OpenBot migration is available only in the local Open Dots app.")
+        raise _error(403, "openbot_import_unavailable", "OpenBot migration is available only in the local Suparagent app.")
     try:
         data = await file.read(openbot_database_import.MAX_SOURCE_DATABASE_BYTES + 1)
     finally:

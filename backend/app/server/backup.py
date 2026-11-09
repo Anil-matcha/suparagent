@@ -2,7 +2,7 @@
 
 What is in an archive, each under its own top-level folder:
 
-    database/open-dots.db   a consistent copy of the SQLite database (SQLite's own backup API)
+    database/suparagent.db   a consistent copy of the SQLite database (SQLite's own backup API)
     attachments/            files attached to messages
     decisions/              the decision log
     memory-state/           the notes journal and the proposed-notes queue
@@ -35,9 +35,9 @@ from pathlib import Path
 
 FORMAT = 1
 MANIFEST = "manifest.json"
-DATABASE_NAME = "open-dots.db"
+DATABASE_NAME = "suparagent.db"
 PARTS = ("database", "attachments", "decisions", "memory-state", "workspace")
-ARCHIVE_PREFIX = "open-dots-backup-"
+ARCHIVE_PREFIX = "suparagent-backup-"
 WORKSPACE_TABLES = ("agent", "computer", "thread")  # tables with a workspace_path column
 LEASE_SUFFIXES = (".lease", ".lock")  # the data-folder lease sits beside the database; it is not data
 
@@ -150,7 +150,7 @@ def _check_database(path: Path) -> str | None:
         try:
             row = connection.execute("SELECT version_num FROM alembic_version").fetchone()
         except sqlite3.Error:
-            raise BackupError("This is not an Open Duet database (it has no schema version).") from None
+            raise BackupError("This is not an Suparagent database (it has no schema version).") from None
         return row[0] if row else None
     except sqlite3.DatabaseError as exc:
         raise BackupError(f"The database file cannot be read ({exc}).") from None
@@ -215,7 +215,7 @@ def decrypt_file(source: Path, target: Path, passphrase: str) -> None:
     with source.open("rb") as reader:
         header = reader.read(len(ENC_MAGIC) + 20)
         if len(header) != len(ENC_MAGIC) + 20 or not header.startswith(ENC_MAGIC):
-            raise BackupError("This is not a password-protected Open Duet backup.")
+            raise BackupError("This is not a password-protected Suparagent backup.")
         salt, prefix = header[len(ENC_MAGIC):len(ENC_MAGIC) + 16], header[-4:]
         gcm = AESGCM(_derive_key(passphrase, salt))
         size = ENC_CHUNK + 16
@@ -412,7 +412,7 @@ def _read_manifest(tar: tarfile.TarFile) -> dict:
     try:
         member = tar.getmember(MANIFEST)
     except KeyError:
-        raise BackupError("This is not an Open Duet backup (it has no manifest).") from None
+        raise BackupError("This is not an Suparagent backup (it has no manifest).") from None
     handle = tar.extractfile(member)
     try:
         manifest = json.loads(handle.read().decode("utf-8")) if handle else None
@@ -572,7 +572,7 @@ def restore_backup(archive: Path, passphrase: str | None = None) -> RestoreRepor
         revision = _check_database(staged_db)
         known = {script.revision for script in ScriptDirectory.from_config(_config()).walk_revisions()}
         if revision is not None and revision not in known:
-            raise BackupError("The backup was made by a newer version of Open Duet (its database revision is unknown here). "
+            raise BackupError("The backup was made by a newer version of Suparagent (its database revision is unknown here). "
                               "Update the code first. Nothing was restored.")
         _check_key(staged_db)
 

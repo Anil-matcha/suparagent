@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Open Duet",
+  title: "Suparagent",
   description: "A workspace of AI agents that work on your computer.",
 };
 

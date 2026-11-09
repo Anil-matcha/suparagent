@@ -11,7 +11,7 @@ app.whenReady().then(async () => {
   const c = hosted.hostedContents();
   await new Promise((r) => { c.once("did-finish-load", r); setTimeout(r, 20000); });
   console.log("url", c.getURL(), "title", await c.executeJavaScript("document.title"));
-  console.log("openDots exposed:", await c.executeJavaScript("typeof window.openDots"), "process:", await c.executeJavaScript("typeof process"), "require:", await c.executeJavaScript("typeof require"));
+  console.log("suparagent exposed:", await c.executeJavaScript("typeof window.suparagent"), "process:", await c.executeJavaScript("typeof process"), "require:", await c.executeJavaScript("typeof require"));
   console.log("cookies partition ok:", c.session === session.fromPartition(H.HOSTED_PARTITION), "!= default:", c.session !== session.defaultSession);
   console.log("body:", (await c.executeJavaScript("document.body.innerText")).slice(0, 200).replace(/\n/g, " | "));
   await hosted.signOut();

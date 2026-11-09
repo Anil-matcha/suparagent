@@ -28,8 +28,8 @@ from typing import Callable
 from app.computers import local_browser_guard as guard
 from app.core import engine_processes, host_exec
 
-BROKER_ENV = "OPEN_DOTS_BROWSER_BROKER"
-CHROME_ENV = "OPEN_DOTS_BROWSER_CHROME"
+BROKER_ENV = "SUPARAGENT_BROWSER_BROKER"
+CHROME_ENV = "SUPARAGENT_BROWSER_CHROME"
 CDP_FILE = "cdp.json"  # in the state dir: where the app finds this browser's debug port for the live view
 CHROME_NAMES = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
 START_SECONDS = 20

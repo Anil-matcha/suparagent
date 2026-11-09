@@ -3,7 +3,7 @@
 One encrypted row in the credential table (`user_credential`, provider
 `integration:composio`, like `engine:<id>`; no migration):
 
-    {"api_key": "ak_...", "user_id": "opendots_<hex>", "session_id": "..." | null}
+    {"api_key": "ak_...", "user_id": "suparagent_<hex>", "session_id": "..." | null}
 
 `user_id` is this installation's one Composio user. Connections belong to that
 user, not to a session, so a lost session is replaced without losing them.
@@ -89,7 +89,7 @@ async def set_key(db: AsyncSession, owner_id: str, key: str, make_client) -> Non
         raise UserError(422, "invalid_composio_key", "A Composio project key starts with ak_ and has no spaces.")
     async with lock:
         previous = await load(db, owner_id)
-        user_id = previous["user_id"] if previous else "opendots_" + uuid.uuid4().hex
+        user_id = previous["user_id"] if previous else "suparagent_" + uuid.uuid4().hex
         try:
             await make_client(key).accounts(user_id)
         except ComposioError as exc:

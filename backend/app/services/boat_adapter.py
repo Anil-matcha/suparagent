@@ -39,7 +39,7 @@ logger = get_logger(__name__)
 
 POLL_SECONDS = 1.5
 TURN_TIMEOUT_SECONDS = 1800
-WORK_DIR = "open-dots-work"
+WORK_DIR = "suparagent-work"
 CREDENTIAL_PROVIDER = "claude"
 SIGN_IN_REASON = "Connect your Claude account in Settings → Engines to use your private sandbox."
 # `ask` cannot be answered from inside a detached command, so tools that need permission are refused.
@@ -148,7 +148,7 @@ class BoatClaudeAdapter:
             return failed(f"Your private sandbox is not available: {exc}", "sandbox_unavailable")
 
         session_id = ctx.provider_session_id or self.new_session_id()
-        prompt_path = f".open-dots/prompt-{ctx.turn_id}.txt"
+        prompt_path = f".suparagent/prompt-{ctx.turn_id}.txt"
         command = build_command(session_id=session_id, resume=ctx.resume, prompt_path=prompt_path,
                                 model=ctx.model, approval_mode=ctx.approval_mode, instructions=ctx.instructions)
         try:

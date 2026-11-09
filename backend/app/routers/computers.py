@@ -357,7 +357,7 @@ async def boat_desktop_url(computer_id: int, request: Request, rt: ThreadRuntime
 async def provider_tool(computer_id: int, request: Request, rt: ThreadRuntime = Depends(get_runtime)):
     """Narrow local bridge for a cloud MCP child. A matching computer-turn
     capability and one-use approval permit are both required."""
-    token = request.headers.get("x-open-dots-computer-capability", "")
+    token = request.headers.get("x-suparagent-computer-capability", "")
     turn_id = computer_capabilities.allows(computer_id, token)
     grants_dir = computer_capabilities.grants_for(computer_id, token)
     if turn_id is None or grants_dir is None:

@@ -1,4 +1,4 @@
-# nginx on the host, in front of Open Duet on the same machine (docs/SELF-HOSTING.md, route 2).
+# nginx on the host, in front of Suparagent on the same machine (docs/SELF-HOSTING.md, route 2).
 #
 # This is deploy/proxy/nginx.conf, the one that was tested (in a container, with a self-signed
 # certificate that the client verified), with the address of the app changed to the loopback port.
@@ -6,7 +6,7 @@
 #
 # nginx connects from loopback, which the server believes by default: set no TRUSTED_PROXIES.
 # Get the certificate with certbot (or your provider) and renew it; nginx does not.
-# Replace dots.example.com, and also set OPEN_DOTS_PUBLIC_URL=https://dots.example.com in the
+# Replace dots.example.com, and also set SUPARAGENT_PUBLIC_URL=https://dots.example.com in the
 # server's settings.
 #
 # What the server relies on, and this file provides:

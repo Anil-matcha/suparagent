@@ -114,7 +114,7 @@ def default_adapters() -> dict:
         ("acp", "ACP agent", AcpAdapter),
         ("openai_compat", "OpenAI-compatible", OpenAIChatAdapter),
     ):
-        selected = os.environ.get("OPEN_DOTS_PRESET_ENGINES")
+        selected = os.environ.get("SUPARAGENT_PRESET_ENGINES")
         enabled = {name.strip() for name in selected.split(",")} if selected is not None else {"gemini", "cursor", "openrouter", "antigravity"}
         if key in {"gemini", "cursor", "opencode", "openrouter", "antigravity"} and key not in enabled:
             continue

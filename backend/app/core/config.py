@@ -30,12 +30,12 @@ class Settings(BaseSettings):
     # defaults that match docker-compose, so a setup with none of them in .env
     # is still a PostgreSQL setup.)
     DATABASE_BACKEND: str = ""
-    # SQLite database file. Empty means ~/.open-dots/open-dots.db.
+    # SQLite database file. Empty means ~/.suparagent/suparagent.db.
     SQLITE_PATH: str = ""
     # Folder for the decision log (what was asked, and how it was settled).
-    # Empty means ~/.open-dots/decisions. The desktop app uses its data folder.
+    # Empty means ~/.suparagent/decisions. The desktop app uses its data folder.
     DECISION_LOG_DIR: str = ""
-    # Folder for files attached to messages. Empty means ~/.open-dots/attachments.
+    # Folder for files attached to messages. Empty means ~/.suparagent/attachments.
     # The desktop app uses its data folder.
     ATTACHMENTS_DIR: str = ""
     # Optional audio transcription, loaded from backend/.env like other providers.
@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     # Folder where the backend records the engine processes it starts, so the
     # next start can end any a hard kill left running (docs/RELIABILITY.md).
     # Empty means an `engine-processes` folder next to the SQLite file (by
-    # default ~/.open-dots/engine-processes, also on PostgreSQL).
+    # default ~/.suparagent/engine-processes, also on PostgreSQL).
     ENGINE_PROCESS_DIR: str = ""
     # Decision log months older than this many days are deleted (1 to 3650).
     DECISION_LOG_RETENTION_DAYS: int = 180
@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     # Full path to the `codex` executable for the Codex engine. Empty means
     # auto-detect on PATH.
     LOCAL_CODEX_CLI_PATH: str = ""
-    # Working directory for local runs. Empty means ~/.open-dots/local.
+    # Working directory for local runs. Empty means ~/.suparagent/local.
     LOCAL_WORKSPACE_ROOT: str = ""
     # Linux server-only filesystem/PID isolation. A failed request never falls back.
     TURN_SANDBOX_ENABLED: bool = False
@@ -135,11 +135,11 @@ class Settings(BaseSettings):
     # "https://dots.example.com" (scheme and host only, no path). Its host name
     # is answered to as if it were listed in TRUSTED_HOSTS, and pairing links
     # printed on the server use it. Empty for the desktop app and local use.
-    OPEN_DOTS_PUBLIC_URL: str = ""
+    SUPARAGENT_PUBLIC_URL: str = ""
     # Where senders reach this server's routine webhooks when that is not the server's own
     # address, e.g. "https://dots.example.com/hooks/a/<key>" behind a gateway that forwards to
     # "/hooks/<id>". The full address shown for a routine is "<base>/<id>". Empty: "/hooks/<id>".
-    OPEN_DOTS_WEBHOOK_BASE: str = ""
+    SUPARAGENT_WEBHOOK_BASE: str = ""
     # Hosted deployments only: give each signed-in account its own PostgreSQL schema
     # (app/db/tenant_schema.py). Off for the desktop app and self-hosting.
     TENANT_SCHEMAS_ENABLED: bool = False
@@ -155,7 +155,7 @@ class Settings(BaseSettings):
     # Off until the resource guard exists; never on where HOST_EXECUTION_DISABLED is set.
     LOCAL_BROWSER_ENABLED: bool = False
     # Hosted deployments: the folder holding one subfolder per account for its files (workspace,
-    # memory, attachments, decision log). Empty means ~/.open-dots/tenants.
+    # memory, attachments, decision log). Empty means ~/.suparagent/tenants.
     TENANT_DATA_DIR: str = ""
     # Owner sign-in: how long a signed-in browser or device stays signed in without use, in days
     # (1 to 90; each use renews it, up to the 180-day cap), and where failed-attempt lockouts are
@@ -268,15 +268,15 @@ class Settings(BaseSettings):
     @property
     def TRUSTED_HOST_LIST(self) -> list[str]:
         hosts = [host.strip().lower() for host in self.TRUSTED_HOSTS.split(",") if host.strip()]
-        public = public_url.hostname(self.OPEN_DOTS_PUBLIC_URL)
+        public = public_url.hostname(self.SUPARAGENT_PUBLIC_URL)
         return hosts + [public] if public and public not in hosts else hosts
 
     @property
     def PUBLIC_ORIGIN(self) -> str:
         """The normalized public address, or "" when none is set."""
-        return self.OPEN_DOTS_PUBLIC_URL
+        return self.SUPARAGENT_PUBLIC_URL
 
-    @field_validator("OPEN_DOTS_PUBLIC_URL")
+    @field_validator("SUPARAGENT_PUBLIC_URL")
     @classmethod
     def _check_public_url(cls, value: str) -> str:
         return public_url.normalize(value)
@@ -339,7 +339,7 @@ class Settings(BaseSettings):
     def SQLITE_FILE(self) -> Path:
         if self.SQLITE_PATH.strip():
             return Path(self.SQLITE_PATH).expanduser()
-        return Path.home() / ".open-dots" / "open-dots.db"
+        return Path.home() / ".suparagent" / "suparagent.db"
 
     @property
     def ASYNC_DATABASE_URL(self) -> str:

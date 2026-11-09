@@ -26,7 +26,7 @@ function notify() {
 export function isUpdateDismissed(version: string | null | undefined): boolean {
   if (typeof window === "undefined" || !version) return false;
   try {
-    return window.localStorage.getItem(`open-duet:dismissed-update:${version}`) === "1";
+    return window.localStorage.getItem(`suparagent:dismissed-update:${version}`) === "1";
   } catch {
     return false;
   }
@@ -35,7 +35,7 @@ export function isUpdateDismissed(version: string | null | undefined): boolean {
 export function dismissUpdate(version: string | null | undefined): void {
   if (typeof window === "undefined" || !version) return;
   try {
-    window.localStorage.setItem(`open-duet:dismissed-update:${version}`, "1");
+    window.localStorage.setItem(`suparagent:dismissed-update:${version}`, "1");
     notify();
   } catch {}
 }
@@ -87,8 +87,8 @@ export function useVersionUpdate(): VersionUpdateState & {
 
     // Also sync with Electron desktop updater if present
     const bridge = (window as unknown as {
-      openDots?: { updates?: { onState: (cb: (state: unknown) => void) => () => void } };
-    })?.openDots?.updates;
+      suparagent?: { updates?: { onState: (cb: (state: unknown) => void) => () => void } };
+    })?.suparagent?.updates;
     let stopBridge: (() => void) | undefined;
     if (bridge?.onState) {
       stopBridge = bridge.onState((desktopState: unknown) => {

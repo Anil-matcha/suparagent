@@ -21,8 +21,8 @@ pytestmark = pytest.mark.skipif(not DOC.exists(), reason="the repository's docs 
 FILES = [DOC, *sorted(path for path in DEPLOY.rglob("*") if path.is_file())]
 
 # Read by the server entry point, not by the Settings class.
-ENTRY_SETTINGS = {"OPEN_DOTS_HOST", "OPEN_DOTS_PORT", "OPEN_DOTS_UI_DIR", "OPEN_DOTS_ALLOW_PUBLIC_BIND",
-                  "OPEN_DOTS_EXTRA_PATH", "OPEN_DOTS_PRESET_ENGINES", proxies.ENV_NAME}
+ENTRY_SETTINGS = {"SUPARAGENT_HOST", "SUPARAGENT_PORT", "SUPARAGENT_UI_DIR", "SUPARAGENT_ALLOW_PUBLIC_BIND",
+                  "SUPARAGENT_EXTRA_PATH", "SUPARAGENT_PRESET_ENGINES", proxies.ENV_NAME}
 SERVER_COMMANDS = {"migrate", "doctor", "backup", "restore", "service"}
 AUTH_COMMANDS = {"set-passphrase", "pairing-code", "devices", "revoke"}
 
@@ -34,45 +34,45 @@ def text(path: Path) -> str:
 def compose_variables() -> set[str]:
     names: set[str] = set()
     for path in [ROOT / "compose.yaml", *(DEPLOY / "proxy").glob("compose.*.yaml"), DEPLOY / "proxy" / "Caddyfile"]:
-        names |= set(re.findall(r"\bOPEN_DOTS_[A-Z_]+\b", text(path)))
+        names |= set(re.findall(r"\bSUPARAGENT_[A-Z_]+\b", text(path)))
     return names
 
 
 def test_the_files_exist():
-    assert {"Caddyfile", "nginx.conf.example", "open-dots.env.example"} <= {path.name for path in DEPLOY.iterdir()}
-    assert not (DEPLOY / "open-dots.service.example").exists(), "the unit comes from `python -m app.server service`"
+    assert {"Caddyfile", "nginx.conf.example", "suparagent.env.example"} <= {path.name for path in DEPLOY.iterdir()}
+    assert not (DEPLOY / "suparagent.service.example").exists(), "the unit comes from `python -m app.server service`"
     assert DOC.is_file()
 
 
 def test_every_setting_in_the_env_example_exists():
-    known = set(Settings.model_fields) | ENTRY_SETTINGS | {"OPEN_DOTS_PUBLIC_URL", EXTRA_NAMES_VARIABLE}
-    named = set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]+)=", text(DEPLOY / "open-dots.env.example"), re.MULTILINE))
+    known = set(Settings.model_fields) | ENTRY_SETTINGS | {"SUPARAGENT_PUBLIC_URL", EXTRA_NAMES_VARIABLE}
+    named = set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]+)=", text(DEPLOY / "suparagent.env.example"), re.MULTILINE))
     assert named, "the example names no settings?"
     assert named <= known, f"not settings: {sorted(named - known)}"
 
 
-def test_every_open_dots_name_the_docs_use_is_a_setting_or_a_compose_variable():
-    known = set(Settings.model_fields) | ENTRY_SETTINGS | compose_variables() | {"OPEN_DOTS_PUBLIC_URL", EXTRA_NAMES_VARIABLE}
+def test_every_suparagent_name_the_docs_use_is_a_setting_or_a_compose_variable():
+    known = set(Settings.model_fields) | ENTRY_SETTINGS | compose_variables() | {"SUPARAGENT_PUBLIC_URL", EXTRA_NAMES_VARIABLE}
     for path in FILES:
-        named = set(re.findall(r"\bOPEN_DOTS_[A-Z_]+\b", text(path)))
+        named = set(re.findall(r"\bSUPARAGENT_[A-Z_]+\b", text(path)))
         assert named <= known, f"{path.name} names things that do not exist: {sorted(named - known)}"
 
 
 def test_the_required_settings_are_in_the_example_uncommented():
-    lines = text(DEPLOY / "open-dots.env.example").splitlines()
+    lines = text(DEPLOY / "suparagent.env.example").splitlines()
     active = {line.split("=", 1)[0] for line in lines if re.match(r"^[A-Z]", line)}
-    assert {"OPEN_DOTS_PUBLIC_URL", "TOKEN_ENCRYPTION_KEYS", "OPEN_DOTS_UI_DIR", "OPEN_DOTS_HOST", "OPEN_DOTS_PORT",
+    assert {"SUPARAGENT_PUBLIC_URL", "TOKEN_ENCRYPTION_KEYS", "SUPARAGENT_UI_DIR", "SUPARAGENT_HOST", "SUPARAGENT_PORT",
             "LOCAL_EXECUTION_ENABLED"} <= active
     assert "LOCAL_EXECUTION_ENABLED=true" in lines  # agents do not run without it, and the server does not turn it on
 
 
 def test_the_host_proxy_examples_point_at_the_servers_default_port(tmp_path):
     (tmp_path / "index.html").write_text("<html></html>")
-    options = entry.read_options([], {"OPEN_DOTS_UI_DIR": str(tmp_path)})
+    options = entry.read_options([], {"SUPARAGENT_UI_DIR": str(tmp_path)})
     for name in ("Caddyfile", "nginx.conf.example"):
         assert f"127.0.0.1:{options.port}" in text(DEPLOY / name), name
-    assert f"OPEN_DOTS_PORT={options.port}" in text(DEPLOY / "open-dots.env.example")
-    assert f"OPEN_DOTS_HOST={options.host}" in text(DEPLOY / "open-dots.env.example")
+    assert f"SUPARAGENT_PORT={options.port}" in text(DEPLOY / "suparagent.env.example")
+    assert f"SUPARAGENT_HOST={options.host}" in text(DEPLOY / "suparagent.env.example")
 
 
 def uncommented(path: Path) -> str:
@@ -87,13 +87,13 @@ def test_the_host_nginx_example_keeps_what_the_tested_one_has_with_only_the_upst
         assert required in host and required in tested, required
     assert "proxy_add_x_forwarded_for" not in host and "gzip" not in host
     assert "location ~ ^/api/v1/threads/[0-9]+/events/stream$ {" in host
-    assert host.count("proxy_pass http://127.0.0.1:8000;") == 2 and "open-dots:8000" not in host
+    assert host.count("proxy_pass http://127.0.0.1:8000;") == 2 and "suparagent:8000" not in host
 
 
 def test_the_host_caddy_example_keeps_what_the_tested_one_has_with_only_the_upstream_changed():
     host = uncommented(DEPLOY / "Caddyfile")
     assert "flush_interval -1" in host and "max_size 20MB" in host
-    assert "reverse_proxy 127.0.0.1:8000" in host and "open-dots:8000" not in host
+    assert "reverse_proxy 127.0.0.1:8000" in host and "suparagent:8000" not in host
     assert "trusted_proxies" not in host and "encode" not in host  # both would change what the server is told
 
 
@@ -107,7 +107,7 @@ def test_relative_links_resolve():
 
 def test_the_guide_links_to_its_example_files_and_neighbours():
     guide = text(DOC)
-    for target in ("../deploy/Caddyfile", "../deploy/nginx.conf.example", "../deploy/open-dots.env.example",
+    for target in ("../deploy/Caddyfile", "../deploy/nginx.conf.example", "../deploy/suparagent.env.example",
                    "../deploy/proxy/", "AUTH.md", "ENGINES.md", "ROUTINES.md", "COMPUTERS.md", "ROADMAP.md"):
         assert f"]({target})" in guide, target
 
@@ -137,7 +137,7 @@ def test_the_commands_in_the_guide_exist():
 def test_the_guide_never_says_the_server_turns_execution_on_or_names_a_network_as_trusted():
     guide = text(DOC)
     assert "on by default" not in guide
-    assert not re.search(r"TRUSTED_PROXIES=\S*/\d+", guide + text(DEPLOY / "open-dots.env.example"))
+    assert not re.search(r"TRUSTED_PROXIES=\S*/\d+", guide + text(DEPLOY / "suparagent.env.example"))
     assert "172.18.0.0/16" not in guide
 
 
@@ -160,4 +160,4 @@ def test_the_blocks_the_verification_script_runs_are_still_in_the_guide():
 def test_the_direct_route_settings_choose_sqlite_because_the_default_is_postgresql():
     assert Settings(DATABASE_BACKEND="", TOKEN_ENCRYPTION_KEYS="x", _env_file=None).DATABASE_KIND == "postgres"
     assert "   DATABASE_BACKEND=sqlite\n" in text(DOC)  # the settings the guide writes for the direct route
-    assert "DATABASE_BACKEND=sqlite" in text(DEPLOY / "open-dots.env.example")
+    assert "DATABASE_BACKEND=sqlite" in text(DEPLOY / "suparagent.env.example")

@@ -20,10 +20,10 @@ export const GROK_AGENT_EXPORT_PROMPT = [
   "Export this bot as one versioned JSON manifest so I can review and recreate its basic setup in another agent app.",
   "Keep the full standing instructions exactly as written. Include notes only if they are useful and text-only skills only if their complete definition is plain text.",
   "{",
-  '  "format": "open-dots.agent-migration",',
+  '  "format": "suparagent.agent-migration",',
   '  "version": 1,',
   '  "source": "grok",',
-  '  "agents": [{ "format": "open-dots.agent", "version": 1, "agent": { "name": "Agent name", "title": "Short role title", "description": "Short description", "instructions": "Full standing instructions" }, "notes": { "MEMORY.md": "Optional notes" }, "skills": [{ "name": "Skill name", "description": "Text description", "body": "Text-only skill body" }] }]',
+  '  "agents": [{ "format": "suparagent.agent", "version": 1, "agent": { "name": "Agent name", "title": "Short role title", "description": "Short description", "instructions": "Full standing instructions" }, "notes": { "MEMORY.md": "Optional notes" }, "skills": [{ "name": "Skill name", "description": "Text description", "body": "Text-only skill body" }] }]',
   "}",
   "Omit credentials, private customer data, connections, routines, tools, executable skills, files and conversation history. Do not include avatars, schedules, or workspace state.",
   "Do not add explanatory text outside the JSON. Optional notes and skills may be omitted.",
@@ -35,10 +35,10 @@ export const HERMES_AGENT_EXPORT_PROMPT = [
   "Export the basic setup of the Hermes Agent profile we are using as one versioned JSON manifest for review in another agent app.",
   "Copy the full standing persona/instructions from SOUL.md when available. Include optional notes and text-only skills when useful.",
   "{",
-  '  "format": "open-dots.agent-migration",',
+  '  "format": "suparagent.agent-migration",',
   '  "version": 1,',
   '  "source": "hermes",',
-  '  "agents": [{ "format": "open-dots.agent", "version": 1, "agent": { "name": "Agent name", "title": "Short role title", "description": "Short description", "instructions": "Full standing persona and instructions" }, "notes": { "MEMORY.md": "Optional notes" }, "skills": [{ "name": "Skill name", "description": "Text description", "body": "Text-only skill body" }] }]',
+  '  "agents": [{ "format": "suparagent.agent", "version": 1, "agent": { "name": "Agent name", "title": "Short role title", "description": "Short description", "instructions": "Full standing persona and instructions" }, "notes": { "MEMORY.md": "Optional notes" }, "skills": [{ "name": "Skill name", "description": "Text description", "body": "Text-only skill body" }] }]',
   "}",
   "Omit credentials, private customer data, connections, routines, tools, executable skills, files and conversation history. Do not include avatars, schedules, or workspace state.",
   "Do not add explanatory text outside the JSON. Optional notes and skills may be omitted.",
@@ -117,7 +117,7 @@ export function parseExternalAgentSetup(
   source: AgentMigrationSource,
 ): AgentMigrationPreview {
   const root = parseObject(input);
-  const isManifest = root.format === "open-dots.agent-migration" && root.version === 1;
+  const isManifest = root.format === "suparagent.agent-migration" && root.version === 1;
   const firstManifestAgent = isManifest && Array.isArray(root.agents) && isRecord(root.agents[0])
     ? root.agents[0]
     : {};
@@ -159,7 +159,7 @@ export function parseExternalAgentSetup(
 
   return {
     document: {
-      format: "open-dots.agent",
+      format: "suparagent.agent",
       version: 1,
       agent,
       ...(Object.keys(notes).length ? { notes } : {}),

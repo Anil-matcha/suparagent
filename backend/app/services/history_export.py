@@ -123,7 +123,7 @@ async def _build(rt, handle: IO[bytes]) -> dict:
                 if files:
                     out.add(f"threads/{int(thread.id)}/attachments.json", json.dumps(files, indent=1))
         manifest = {
-            "format": "open-dots-history", "version": FORMAT_VERSION,
+            "format": "suparagent-history", "version": FORMAT_VERSION,
             "exported_at": datetime.now().astimezone().isoformat(),
             "counts": {"agents": len(agents), "threads": len(threads),
                        "events": event_count, "attachments": attachment_count},
@@ -152,4 +152,4 @@ async def build_export(rt) -> tuple[IO[bytes], int, str]:
             raise
         size = handle.tell()
         handle.seek(0)
-        return handle, size, f"open-dots-history-{date.today().isoformat()}.zip"
+        return handle, size, f"suparagent-history-{date.today().isoformat()}.zip"

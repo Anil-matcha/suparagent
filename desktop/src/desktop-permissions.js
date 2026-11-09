@@ -6,7 +6,7 @@ const PANES = {
 };
 
 function registerDesktopPermissions({ ipcMain, systemPreferences, openExternal, getWindow, getOrigin, platform = process.platform }) {
-  ipcMain.handle("open-dots:desktop-permissions", async (event, action = "status") => {
+  ipcMain.handle("suparagent:desktop-permissions", async (event, action = "status") => {
     const window = getWindow();
     const origin = getOrigin();
     if (!window || !origin || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !sameOrigin(event.senderFrame?.url, origin)) throw new Error("Open permissions from the app window.");

@@ -97,7 +97,7 @@ def run_migrations_online() -> None:
         on_sqlite = connection.dialect.name == "sqlite"
         # A hosted deployment migrates one account's schema at a time (app/db/tenant_schema.py);
         # the version table then lives in that schema too.
-        tenant = os.environ.get("OPEN_DOTS_MIGRATE_TENANT")
+        tenant = os.environ.get("SUPARAGENT_MIGRATE_TENANT")
         if tenant and not on_sqlite:
             connection.execute(text(f'SET search_path TO "{tenant_schema.schema_for(tenant)}"'))
             connection.commit()

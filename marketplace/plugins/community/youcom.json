@@ -10,6 +10,6 @@
   "privacy_url": "https://you.com/privacy",
   "terms_url": "https://you.com/terms",
   "license": "Proprietary service; see You.com Terms of Service",
-  "setup_instructions": "Create an API key at https://you.com/platform/api-keys. In Open Dots, connect this listing and save the key as its bearer token. The default tool set is you-search, you-contents, you-research, you-finance, and you-discover. Grant only the individual tools each agent needs; you-research and you-contents can use more API credits than you-search. Do not paste the key into chat or a tool argument. Documentation: https://you.com/docs/welcome",
+  "setup_instructions": "Create an API key at https://you.com/platform/api-keys. In Suparagent, connect this listing and save the key as its bearer token. The default tool set is you-search, you-contents, you-research, you-finance, and you-discover. Grant only the individual tools each agent needs; you-research and you-contents can use more API credits than you-search. Do not paste the key into chat or a tool argument. Documentation: https://you.com/docs/welcome",
   "test_instructions": "Grant you-search to an agent and call it once with a short query such as \"Model Context Protocol\" and a result count of 1. A successful call returns web results with titles, URLs, and snippets. An authentication error means the saved bearer token is missing or invalid. Remove the grant if the agent does not need the search tool."
 }

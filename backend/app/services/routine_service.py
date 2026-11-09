@@ -546,7 +546,7 @@ async def latest_runs(db: AsyncSession, routine_ids: list[int]) -> dict[int, Rou
 
 def export_document(routine: Routine) -> dict:
     return {
-        "kind": "open-dots.routine",
+        "kind": "suparagent.routine",
         "version": 1,
         "name": routine.name,
         "prompt": routine.prompt,
@@ -567,7 +567,7 @@ async def import_document(
 ) -> Routine:
     """An imported routine is always paused and has no webhook, so it never
     runs until a person has looked at it."""
-    if not isinstance(document, dict) or document.get("kind") != "open-dots.routine":
+    if not isinstance(document, dict) or document.get("kind") != "suparagent.routine":
         raise InvalidRoutine("Not a routine document", "invalid_document")
     data = {k: document.get(k) for k in EDITABLE if k in document}
     data["agent_id"] = agent_id

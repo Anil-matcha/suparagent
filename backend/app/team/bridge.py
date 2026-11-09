@@ -43,7 +43,7 @@ class TeamBridge:
     def __init__(self, runtime, run):
         self.runtime, self.run = runtime, run
         # A fresh private folder outside all agent workspaces. Not backed up.
-        self.folder = Path(tempfile.mkdtemp(prefix=f'open-dots-team-{run.turn_id}-'))
+        self.folder = Path(tempfile.mkdtemp(prefix=f'suparagent-team-{run.turn_id}-'))
         self.task = None
         self.calls = set()
 

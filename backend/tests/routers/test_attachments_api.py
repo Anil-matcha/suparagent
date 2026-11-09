@@ -347,7 +347,7 @@ def test_docx_document_extraction(attachments_dir):
 
     doc = docx.Document()
     doc.add_heading("Project Overview", level=1)
-    doc.add_paragraph("This is the design specification for Open Duet.")
+    doc.add_paragraph("This is the design specification for Suparagent.")
     table = doc.add_table(rows=2, cols=2)
     table.cell(0, 0).text = "Metric"
     table.cell(0, 1).text = "Score"

@@ -66,7 +66,7 @@ export function MarketplaceApp() {
     if (existing && existing.manifest_digest !== listing.manifest_digest) forgetConnectionTools(existing.id);
     setNotice(existing
       ? existing.manifest_digest === listing.manifest_digest
-        ? `${listing.name} is now shown under ${section === "tested" ? "Tested by Open Dots" : "Community"}. Its pinned manifest, credential, and grants are unchanged.`
+        ? `${listing.name} is now shown under ${section === "tested" ? "Tested by Suparagent" : "Community"}. Its pinned manifest, credential, and grants are unchanged.`
         : `${listing.name} updated. The old credential and grants were cleared; connect again, discover tools, and grant them to agents.`
       : `${listing.name} installed. Connect its credential separately, then discover tools and choose exact per-agent grants.`);
     await refresh();
@@ -101,7 +101,7 @@ export function MarketplaceApp() {
     return <article key={`${section}:${listing.slug}`} className="space-y-4 rounded-lg border border-line p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0"><h3 className="font-semibold">{listing.name}</h3><p className="mt-1 text-sm text-muted">{listing.summary}</p></div>
-        <span className="rounded-full border border-line px-2 py-1 text-xs">{section === "tested" ? "Tested by Open Dots" : "Community"}</span>
+        <span className="rounded-full border border-line px-2 py-1 text-xs">{section === "tested" ? "Tested by Suparagent" : "Community"}</span>
       </div>
       <p className="text-xs text-muted">Version {listing.version} · {listing.publisher} · {listing.license}</p>
       <dl className="grid gap-2 rounded-md bg-inset p-3 text-xs sm:grid-cols-[8rem_1fr]">
@@ -114,7 +114,7 @@ export function MarketplaceApp() {
       {listing.evidence && <p className="text-xs text-muted">Tested {listing.evidence.tested_on} · <a className="underline" href={listing.evidence.evidence_url} target="_blank" rel="noreferrer">Evidence</a></p>}
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs"><a className="underline" href={listing.source_repo} target="_blank" rel="noreferrer">Source</a><a className="underline" href={listing.privacy_url} target="_blank" rel="noreferrer">Privacy</a><a className="underline" href={listing.terms_url} target="_blank" rel="noreferrer">Terms</a></div>
       {!connection ? <div className="space-y-2">
-        {installedElsewhere && <p className="text-xs text-muted">Already installed under {installedElsewhere.section === "tested" ? "Tested by Open Dots" : "Community"} at version {installedElsewhere.manifest.version}.</p>}
+        {installedElsewhere && <p className="text-xs text-muted">Already installed under {installedElsewhere.section === "tested" ? "Tested by Suparagent" : "Community"} at version {installedElsewhere.manifest.version}.</p>}
         <Button disabled={busy !== null} onClick={() => void install(section, listing)}>{busy === `install:${listing.slug}` ? "Installing…" : installedElsewhere?.manifest_digest === listing.manifest_digest ? `Show under ${section === "tested" ? "Tested" : "Community"}` : installedElsewhere ? `Update to version ${listing.version}` : "Install"}</Button>
       </div> : <div className="space-y-4 border-t border-line pt-4">
         <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">Installed · pinned to version {connection.manifest.version}</span>
@@ -124,7 +124,7 @@ export function MarketplaceApp() {
         <dl className="grid gap-2 rounded-md bg-inset p-3 text-xs sm:grid-cols-[10rem_1fr]">
           <dt className="font-medium">Active installed endpoint</dt><dd className="break-all"><code>{connection.manifest.endpoint}</code></dd>
           <dt className="font-medium">Active authentication</dt><dd>{connection.manifest.auth_mode === "bearer_token" ? "Bearer token" : "None"}</dd>
-          <dt className="font-medium">Pinned catalog section</dt><dd>{connection.section === "tested" ? "Tested by Open Dots" : "Community"}</dd>
+          <dt className="font-medium">Pinned catalog section</dt><dd>{connection.section === "tested" ? "Tested by Suparagent" : "Community"}</dd>
         </dl>
         {connection.manifest_digest !== listing.manifest_digest && <div className="space-y-2 rounded-md border border-line p-3 text-sm">
           <p>A newer listing is available. This installation continues using its pinned manifest until you update it.</p>
@@ -179,7 +179,7 @@ export function MarketplaceApp() {
       <div><h2 className="text-xl font-semibold">MCP Marketplace</h2><p className="mt-2 text-sm text-muted">Install remote MCP services, then grant specific tools to each agent. Every call asks for your approval before it runs.</p></div>
       {error && <Banner tone="danger">{error}</Banner>}{notice && <p role="status" className="text-sm text-muted">{notice}</p>}
       {!catalog ? <SkeletonList rows={3} /> : ([
-        ["Tested by Open Dots", "tested", catalog.tested], ["Community", "community", catalog.community],
+        ["Tested by Suparagent", "tested", catalog.tested], ["Community", "community", catalog.community],
       ] as const).map(([heading, section, listings]) => <section key={section} className="space-y-3">
         <h2 className="text-lg font-semibold">{heading}</h2>
         {listings.map((listing) => listingCard(section, listing))}

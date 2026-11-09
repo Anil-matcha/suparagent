@@ -54,9 +54,9 @@ export function CodexEngineSetup({ onChanged, signedIn }: { onChanged: () => voi
     {running && !flow.user_code && <p role="status" className="text-xs text-muted">Preparing a device code…</p>}
     {running && flow.authorization_url === "https://auth.openai.com/codex/device" && flow.user_code && <div className="space-y-2 text-sm">
       <p>Open <a href={flow.authorization_url} onClick={event => {
-        if (!window.openDots?.openEngineSignIn) return;
+        if (!window.suparagent?.openEngineSignIn) return;
         event.preventDefault();
-        void window.openDots.openEngineSignIn(flow.authorization_url!).catch(() => setError("Could not open your browser. Try signing in again."));
+        void window.suparagent.openEngineSignIn(flow.authorization_url!).catch(() => setError("Could not open your browser. Try signing in again."));
       }} target="_blank" rel="noreferrer" className="underline">ChatGPT device sign-in</a> and enter <code className="select-all font-semibold">{flow.user_code}</code>.</p>
       <p className="text-xs text-muted">Enable device-code login in your ChatGPT security settings if prompted. This code expires in five minutes.</p>
     </div>}

@@ -32,7 +32,7 @@ EXIT_KEY_MISMATCH = 3
 EXIT_DATABASE = 4
 EXIT_UI_MISSING = 5
 
-READY_PREFIX = "OPEN_DOTS_READY "
+READY_PREFIX = "SUPARAGENT_READY "
 
 # After the launcher has gone, the server gets this long to finish cleanly.
 SHUTDOWN_BACKSTOP_SECONDS = 20

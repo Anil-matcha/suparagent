@@ -1,42 +1,66 @@
-# Open Duet
+# Suparagent
 
-**Build a team of AI coworkers and choose where they run.**
+**A workspace for AI coworkers.**
 
-Open Duet is an open-source workspace for creating named AI agents, giving
-them jobs and workspaces, and bringing them together to complete tasks. Keep
-useful context between conversations, run routines, and review actions before
-they make changes. Use the desktop app, run your own server, or visit the
-separate hosted service.
+Create named agents, give each a job and workspace, and bring them together to
+complete real tasks. Suparagent keeps conversations, memory, routines, and
+approvals in one place. Use the desktop app or host the server yourself; the
+hosted service is a separate product.
 
-Open Duet does not include an AI model or model subscription. You choose the
-engine and provider account used for your work.
+Bring your own engine and provider account. Suparagent does not include a model
+or model subscription.
 
-## Project links
+**[Desktop downloads](https://github.com/Anil-matcha/open-duet/releases) · [Self-hosting](docs/SELF-HOSTING.md) · [Hosted app](https://suparagent.ai) · [Watch the demo](https://youtu.be/vtFy94DfETE) · [Discord](https://discord.com/invite/zpnuBRXhKg)**
 
-- [GitHub repository](https://github.com/Anil-matcha/open-duet)
-- [Desktop downloads](https://github.com/Anil-matcha/open-duet/releases)
-- [Hosted app](https://suparagent.ai)
-- [Watch the demo](https://youtu.be/vtFy94DfETE)
-- [Quick start](#quick-start)
-- [Guides](#guides)
-- [Discord support](https://discord.com/invite/zpnuBRXhKg)
+<p align="center"><img src="docs/suparagent-workflow.svg" alt="A request goes to a Claude or Codex team lead, who delegates work to specialists. Teammates can share a project folder, and you review actions when approval is required." width="100%"></p>
 
-<p align="center"><a href="https://youtu.be/vtFy94DfETE" title="Watch the Open Duet demo"><img src="https://i.ytimg.com/vi/vtFy94DfETE/maxresdefault.jpg" alt="Open Duet demo video thumbnail — click to watch on YouTube" width="720"></a></p>
-
-> **Status:** Open Duet is in active development. Desktop releases, self-hosting,
+> **Status:** Suparagent is in active development. Desktop releases, self-hosting,
 > agent computers, and newer team features are still evolving. Review
 > [known limitations](#known-limitations) before relying on them for important work.
 
 ## Contents
 
+- [Quick start](#quick-start)
 - [What you can do](#what-you-can-do)
-- [Ways to run Open Duet](#ways-to-run-open-duet)
+- [Ways to run Suparagent](#ways-to-run-suparagent)
 - [Hosted plans](#hosted-plans)
 - [Engines, data, and costs](#engines-data-and-costs)
+- [Example: prepare a weekly project briefing](#example-prepare-a-weekly-project-briefing)
+- [Scheduling tasks](#scheduling-tasks)
 - [Known limitations](#known-limitations)
+- [Guides](#guides)
 - [Support](#support)
 - [Contributing](#contributing)
 - [License](#license)
+
+## Quick start
+
+The desktop app runs from a source checkout. It needs Node.js 22 or newer,
+[uv](https://docs.astral.sh/uv/), and at least one engine available on the
+same computer. For a CLI engine, install it and sign in before opening Open
+Duet. You can also configure an API-based engine in **Settings → Engines**.
+Docker is only needed for the optional isolated agent computers.
+
+```bash
+git clone https://github.com/Anil-matcha/open-duet.git
+cd suparagent/desktop
+npm run app
+```
+
+On first launch, choose an engine, workspace, and approval mode. Then:
+
+1. Open **Settings → Engines** and confirm an engine is ready.
+2. Create an agent with a name, a clear job, and a workspace.
+3. Start a chat. Choose **Ask first** to pause for approval before actions that
+   need it.
+4. Add teammates or create a routine when you want to split up or repeat work.
+
+See the [Releases page](https://github.com/Anil-matcha/open-duet/releases) for
+current desktop installers and the [changelog](CHANGELOG.md) for changes.
+Installers are experimental and unsigned. The assisted update flow offers a
+SHA-256-verified installer for you to open; it does not install updates
+automatically. The release-to-release update path has not been verified end to
+end.
 
 ## What you can do
 
@@ -73,11 +97,11 @@ engine and provider account used for your work.
   images, import audio for transcription with your consent and credentials,
   browse or download workspace files, and export your history.
 
-## Ways to run Open Duet
+## Ways to run Suparagent
 
 | | Desktop app | Self-hosted server | Hosted web app | Development checkout |
 |---|---|---|---|---|
-| Best for | A personal workspace on your computer | Keeping your agents and routines available on a server you control | Using the separately operated Suparagent service | Contributing or changing Open Duet |
+| Best for | A personal workspace on your computer | Keeping your agents and routines available on a server you control | Using the separately operated Suparagent service | Contributing or changing Suparagent |
 | Where workspace data lives | Your computer | Your server | An account-specific hosted workspace | Your development machine or configured database |
 | Start here | [Quick start](#quick-start) | [Self-hosting guide](docs/SELF-HOSTING.md) | [suparagent.ai](https://suparagent.ai) | [Development setup](docs/SETUP.md) |
 | Main requirements | Node.js 22+, uv, and an engine | Linux server, HTTPS, Docker or Node.js and uv, and an engine | An account and an AI provider account | Node.js, uv, and Docker if you use PostgreSQL |
@@ -122,7 +146,7 @@ computers, for example, are not supported by every engine. See
 For desktop and self-hosted use, conversations, agent notes, routines, and
 settings are stored in that instance's local data folder or server database.
 Workspace files stay in the folders you assign to agents. API keys saved
-through Open Duet are encrypted there; command-line sign-ins remain with the
+through Suparagent are encrypted there; command-line sign-ins remain with the
 engine installed on that machine.
 
 When an agent answers, the selected engine receives the prompt and the context
@@ -131,36 +155,9 @@ workspace content the engine reads. If the engine is a hosted service, that
 information is handled under that provider's terms. You bring the provider
 account, CLI sign-in, or API key; model usage may cost money.
 
-## Quick start
-
-The desktop app runs from a source checkout. It needs Node.js 22 or newer,
-[uv](https://docs.astral.sh/uv/), and at least one engine available on the
-same computer. For a CLI engine, install it and sign in before opening Open
-Duet. You can also configure an API-based engine in **Settings → Engines**.
-Docker is only needed for the optional isolated agent computers.
-
-```bash
-git clone https://github.com/Anil-matcha/open-duet.git
-cd open-duet/desktop
-npm run app
-```
-
-On first launch, choose an engine, workspace, and approval mode. Then:
-
-1. Open **Settings → Engines** and confirm an engine is ready.
-2. Create an agent with a name, a clear job, and a workspace.
-3. Start a chat. Choose **Ask first** to pause for approval before actions that
-   need it.
-4. Add teammates or create a routine when you want to split up or repeat work.
-
-See the [Releases page](https://github.com/Anil-matcha/open-duet/releases) for
-current desktop installers and the [changelog](CHANGELOG.md) for changes.
-Installers are experimental and unsigned. The assisted update flow offers a
-SHA-256-verified installer for you to open; it does not install updates
-automatically. The release-to-release update path has not been verified end to
-end.
-
 ## Example: prepare a weekly project briefing
+
+<p align="center"><a href="https://youtu.be/vtFy94DfETE" title="Watch the Suparagent demo"><img src="https://i.ytimg.com/vi/vtFy94DfETE/maxresdefault.jpg" alt="Suparagent demo video thumbnail — click to watch on YouTube" width="720"></a></p>
 
 Create a lead agent and specialists, such as a researcher and an editor. Give
 them the same project workspace, and set the lead's engine to Claude or
@@ -183,7 +180,7 @@ details](backend/README.md#scheduling) and [environment settings](backend/.env.e
 
 ## Known limitations
 
-- Open Duet is early and changing. The self-hosted server is experimental and
+- Suparagent is early and changing. The self-hosted server is experimental and
   intended for one owner with paired devices, not a multi-user organization.
 - Team delegation is new; lead agents need to use Claude or Codex.
 - The phone app has been tried on an Android emulator and an Android phone, not
@@ -233,7 +230,7 @@ details](backend/README.md#scheduling) and [environment settings](backend/.env.e
 
 ## Support
 
-- Join the [Open Duet Discord community](https://discord.com/invite/zpnuBRXhKg)
+- Join the [Suparagent Discord community](https://discord.com/invite/zpnuBRXhKg)
   for questions and discussion.
 - Report bugs and request features in [GitHub Issues](https://github.com/Anil-matcha/open-duet/issues).
 - For hosted account or billing questions, use the contact link on
@@ -252,4 +249,4 @@ manifest requirements and validation steps.
 
 ## License
 
-Open Duet is licensed under the [Apache License 2.0](LICENSE).
+Suparagent is licensed under the [Apache License 2.0](LICENSE).

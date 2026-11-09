@@ -115,7 +115,7 @@ def root_dir() -> Path:
         return desktop.data_dir / "attachments"
     if settings.ATTACHMENTS_DIR.strip():
         return Path(settings.ATTACHMENTS_DIR).expanduser()
-    return Path.home() / ".open-dots" / "attachments"
+    return Path.home() / ".suparagent" / "attachments"
 
 
 def thread_dir(thread_id: int) -> Path:

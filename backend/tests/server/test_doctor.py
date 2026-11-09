@@ -43,14 +43,14 @@ def ui(tmp_path) -> Path:
 
 @pytest.fixture
 def target(tmp_path, monkeypatch) -> Path:
-    file = tmp_path / "data" / "open-dots.db"
+    file = tmp_path / "data" / "suparagent.db"
     monkeypatch.setattr(settings, "SQLITE_PATH", str(file))
     monkeypatch.setattr(settings, "LOCAL_WORKSPACE_ROOT", str(tmp_path / "work"))
     return file
 
 
 def environment(ui: Path, **extra) -> dict:
-    return {"OPEN_DOTS_UI_DIR": str(ui), "OPEN_DOTS_PORT": "18999", **extra}
+    return {"SUPARAGENT_UI_DIR": str(ui), "SUPARAGENT_PORT": "18999", **extra}
 
 
 # -- individual checks --------------------------------------------------------------------------
@@ -64,11 +64,11 @@ def test_pages_complete_and_incomplete(ui):
 
 
 def test_the_public_address_states(monkeypatch):
-    monkeypatch.setattr(settings, "OPEN_DOTS_PUBLIC_URL", "")
+    monkeypatch.setattr(settings, "SUPARAGENT_PUBLIC_URL", "")
     assert doctor.check_public_url(settings).status == WARN
-    monkeypatch.setattr(settings, "OPEN_DOTS_PUBLIC_URL", "http://dots.example.com")
+    monkeypatch.setattr(settings, "SUPARAGENT_PUBLIC_URL", "http://dots.example.com")
     assert doctor.check_public_url(settings).status == WARN
-    monkeypatch.setattr(settings, "OPEN_DOTS_PUBLIC_URL", "https://dots.example.com")
+    monkeypatch.setattr(settings, "SUPARAGENT_PUBLIC_URL", "https://dots.example.com")
     assert doctor.check_public_url(settings).status == OK
 
 
@@ -212,7 +212,7 @@ def test_the_address_check_passes_when_the_server_answers():
 
 def test_the_address_check_names_a_refused_host():
     checks = doctor.check_url("https://dots.example.com", fetch_with(Reply(421, ""), Reply(200)))
-    assert checks[0].status == FAIL and "OPEN_DOTS_PUBLIC_URL" in checks[0].advice
+    assert checks[0].status == FAIL and "SUPARAGENT_PUBLIC_URL" in checks[0].advice
 
 
 def test_the_address_check_notices_a_proxy_that_does_not_reach_the_server():
@@ -242,7 +242,7 @@ def test_the_address_check_warns_about_plain_http_and_refuses_junk():
 
 def test_a_healthy_machine_has_no_problems(ui, target, monkeypatch):
     server_main(["migrate"])
-    monkeypatch.setattr(settings, "OPEN_DOTS_PUBLIC_URL", "https://dots.example.com")
+    monkeypatch.setattr(settings, "SUPARAGENT_PUBLIC_URL", "https://dots.example.com")
     checks = doctor.run_checks(environment(ui), describe=make_describe(READY_ENGINE))
     assert not [c for c in checks if c.status == FAIL], [c for c in checks if c.status == FAIL]
     assert by_name(checks, "Database").status == OK and by_name(checks, "Pages").status == OK
@@ -267,14 +267,14 @@ def test_a_new_machine_lists_what_to_do_and_changes_nothing(ui, target, monkeypa
 def test_without_pages_that_is_the_problem(target, tmp_path):
     empty = tmp_path / "nopages"
     empty.mkdir()
-    checks = doctor.run_checks({"OPEN_DOTS_UI_DIR": str(empty)})
+    checks = doctor.run_checks({"SUPARAGENT_UI_DIR": str(empty)})
     assert by_name(checks, "Pages").status == FAIL and by_name(checks, "Server options").status == FAIL
 
 
 def test_render_and_exit_codes(ui, target, capsys):
     assert doctor.main([], environment(ui)) == 1  # the database is new
     out = capsys.readouterr().out
-    assert "Open Duet server check" in out and "FAIL  Database" in out and "-> Run `python -m app.server migrate`" in out
+    assert "Suparagent server check" in out and "FAIL  Database" in out and "-> Run `python -m app.server migrate`" in out
     assert "1 problem(s)" in out and "Fix the problems above first." in out
 
 

@@ -121,7 +121,7 @@ test('the notes gauge goes amber from 80% and red once anything is cut', () => {
 test('agent files are read with a sentence when they are not one', () => {
   assert.throws(() => parseAgentFile('not json'), /not JSON/);
   assert.throws(() => parseAgentFile('[1]'), /not an agent file/);
-  const parsed = parseAgentFile(agentFileText({ format: 'open-dots.agent', notes: { 'MEMORY.md': '- a' } }));
+  const parsed = parseAgentFile(agentFileText({ format: 'suparagent.agent', notes: { 'MEMORY.md': '- a' } }));
   assert.equal(agentFileHasNotes(parsed), true);
   assert.equal(agentFileHasNotes({ notes: { 'MEMORY.md': '  ' } }), false);
   assert.equal(agentFileHasNotes({}), false);

@@ -1,7 +1,7 @@
 # Agent computers
 
 An agent can have its own computer: an isolated machine where its turns run
-their commands and file edits instead of on the machine running Open Duet.
+their commands and file edits instead of on the machine running Suparagent.
 Local Docker computers can be a shell or an isolated Linux desktop with screen
 tools, live viewing and takeover. In the Desktop app, a person can also choose
 a Boat cloud computer. Cloud computers have internet access, use a separate
@@ -65,7 +65,7 @@ One table, `computer` (migration `4b7e1d9c2a58`), at most one row per agent:
 On SQLite the id is `AUTOINCREMENT`: the container name is derived from it and
 must never be handed to a different computer.
 
-The local Docker machine's own name is `open-dots-computer-<installation>-<id>`, where
+The local Docker machine's own name is `suparagent-computer-<installation>-<id>`, where
 `<installation>` is the start of a random id kept in `computers/instance-id`
 in the data folder, so two installations sharing one Docker never touch each
 other's machines.
@@ -129,9 +129,9 @@ any state --remove--> deleting --(machine removed)--> (row gone)
 - a 512 MB `tmpfs` at `/tmp`, with `HOME=/tmp/home`;
 - one bind mount: the workspace folder at `/workspace`, also the working
   directory;
-- labels that record ownership (`dev.open-dots.computer`, `…computer.id`,
-  `dev.open-dots.instance`) and a fingerprint of the settings that need a
-  recreate (`dev.open-dots.config`);
+- labels that record ownership (`dev.suparagent.computer`, `…computer.id`,
+  `dev.suparagent.instance`) and a fingerprint of the settings that need a
+  recreate (`dev.suparagent.config`);
 - the command `sleep infinity`: every tool call is a `docker exec`.
 
 A command runs as `docker exec -u <user> -w /workspace <name> timeout -k 5 <N>
@@ -161,8 +161,8 @@ FROM docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c10
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 ```
 
-`docker build -t open-dots-computer:git .` and set the image to
-`open-dots-computer:git`.
+`docker build -t suparagent-computer:git .` and set the image to
+`suparagent-computer:git`.
 
 ## How a turn reaches the computer
 
@@ -259,10 +259,10 @@ sends it to Boat's API over HTTPS for authentication; the key is not included in
 agent turns or sent to the cloud computer. Commands and files go to the cloud
 computer. Screenshots can be returned to the selected engine when the agent
 requests them. No local workspace is mounted into or synced with the cloud
-machine. The live desktop view uses a secret provider URL. Open Dots clears it
+machine. The live desktop view uses a secret provider URL. Suparagent clears it
 from the view when control is handed back, but Boat does not expose a URL
 revocation endpoint. Remove all cloud computers before resetting or deleting
-the Desktop profile. Boat deletion is accepted asynchronously; Open Dots keeps
+the Desktop profile. Boat deletion is accepted asynchronously; Suparagent keeps
 the local computer record and blocks profile reset until Boat reports deletion
 complete. The resources may incur charges until removed or archived.
 
@@ -274,7 +274,7 @@ complete. The resources may incur charges until removed or archived.
   Claude CLI calling the real MCP server) are tested end to end.
 - `tests/computers/test_real_docker.py` runs against a real daemon when
   `docker info` answers within 10 seconds and the image is already present; it
-  never downloads one (`OPEN_DOTS_TEST_IMAGE` picks another local image).
+  never downloads one (`SUPARAGENT_TEST_IMAGE` picks another local image).
 
 ## Not yet
 

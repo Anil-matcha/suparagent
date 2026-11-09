@@ -1,6 +1,6 @@
 # First-run setup
 
-> **Type:** spec · **Status:** source implemented, qualification pending · **Verified against:** Open Duet 89a4475715bf2cd23dcf76ca32f85075b6cf3383 plus the last-agent onboarding change on 2026-11-04
+> **Type:** spec · **Status:** source implemented, qualification pending · **Verified against:** Suparagent 89a4475715bf2cd23dcf76ca32f85075b6cf3383 plus the last-agent onboarding change on 2026-11-04
 
 Open the desktop app and sign in to your app account using the code sent to your
 email. The first sign-in asks you to associate the local profile with that account,

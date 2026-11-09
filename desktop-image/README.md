@@ -3,7 +3,7 @@
 Build from the repository root:
 
 ```sh
-docker build -t open-dots-desktop:local desktop-image
+docker build -t suparagent-desktop:local desktop-image
 ```
 
 This installs Debian's TigerVNC, Openbox, Firefox ESR, Chromium, xterm, xdotool,

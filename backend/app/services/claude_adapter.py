@@ -205,7 +205,7 @@ class ClaudeAdapter:
         control = local_claude_runner.RunControl()
 
         def call() -> local_claude_runner.RunOutput:
-            with tempfile.TemporaryDirectory(prefix="open-dots-helper-") as empty:
+            with tempfile.TemporaryDirectory(prefix="suparagent-helper-") as empty:
                 return local_claude_runner.run_blocking(
                     args, stdin_text=prompt, cwd=Path(empty), timeout_seconds=timeout,
                     max_output_bytes=256 * 1024, control=control, keep_stdin_open=False,

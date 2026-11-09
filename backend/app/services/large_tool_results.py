@@ -28,7 +28,7 @@ _REF = re.compile(r"[0-9a-f]{16}")
 
 def _base() -> Path:
     mine = tenant_paths.root()
-    return (mine / "tool-results") if mine is not None else (Path.home() / ".open-dots" / "local" / "tool-results")
+    return (mine / "tool-results") if mine is not None else (Path.home() / ".suparagent" / "local" / "tool-results")
 
 
 def _folder(owner_id: str, thread_id: int) -> Path:

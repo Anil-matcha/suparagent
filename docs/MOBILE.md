@@ -148,7 +148,7 @@ in **Settings → Devices**; the app notices and returns to pairing.
 | That code is wrong, expired or already used | Create a new chat-only code. |
 | Too many wrong codes from this network | Wait the time shown; ten wrong codes lock an address out for ten minutes. |
 | Your server does not accept this address | Add the name to `TRUSTED_HOSTS` on the server. |
-| That address answered, but it does not look like an Open Duet server | Check the address and any proxy in front of it. |
+| That address answered, but it does not look like an Suparagent server | Check the address and any proxy in front of it. |
 | Could not reach the server | Check the connection and that the HTTPS certificate is trusted by the phone. |
 | Plain http:// works only for addresses on your own network | Use the server's HTTPS address, or an address such as 192.168.1.5 on your own network. |
 | That code gives full access | Create a code with Access set to **Chat only**, **Chat and files** or **Chat, files and agents**. |

@@ -155,11 +155,11 @@ def _build_command(
         # Per-invocation config keeps saved MCP servers and credentials intact.
         mcp_config = {
             "mcpServers": {
-                "open-dots-parallel-search": {
+                "suparagent-parallel-search": {
                     "type": "http",
                     "url": "https://search.parallel.ai/mcp",
                     "headers": {
-                        "User-Agent": "OpenDuet/0.1 (+https://github.com/Anil-matcha/open-duet)"
+                        "User-Agent": "Suparagent/0.1 (+https://github.com/Anil-matcha/open-duet)"
                     },
                 }
             }

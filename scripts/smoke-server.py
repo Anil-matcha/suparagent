@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end smoke test of the server run mode (`python -m app.server`).
 
-Walks through what a person does when they put Open Duet on a server behind a
+Walks through what a person does when they put Suparagent on a server behind a
 reverse proxy, against a real process and a scratch SQLite database: migrate, set
 the owner passphrase, start the server, load the pages, sign in as a visitor
 arriving through a proxy (by hand-written forwarded headers), pair a phone, and
@@ -82,7 +82,7 @@ class Server:
     def __init__(self, root: Path, ui_dir: Path) -> None:
         self.root = root
         self.ui_dir = ui_dir
-        self.database = root / "data" / "open-dots.db"
+        self.database = root / "data" / "suparagent.db"
         self.port = free_port()
         self.url = f"http://127.0.0.1:{self.port}"
         self.process: subprocess.Popen | None = None
@@ -107,9 +107,9 @@ class Server:
             "ATTACHMENTS_DIR": str(self.root / "attachments"),
             "ENGINE_PROCESS_DIR": str(self.root / "engines"),
             "LOCAL_WORKSPACE_ROOT": str(self.root / "work"),
-            "OPEN_DOTS_UI_DIR": str(self.ui_dir),
-            "OPEN_DOTS_PORT": str(self.port),
-            "OPEN_DOTS_PUBLIC_URL": PUBLIC_URL,
+            "SUPARAGENT_UI_DIR": str(self.ui_dir),
+            "SUPARAGENT_PORT": str(self.port),
+            "SUPARAGENT_PUBLIC_URL": PUBLIC_URL,
             "LOCAL_EXECUTION_ENABLED": "true",  # a server install sets this in its settings file; the agents API needs it
             **extra,
         }
@@ -201,8 +201,8 @@ def sets_passphrase(server: Server) -> None:
 
 @check("the server will not listen beyond this machine without being told to")
 def refuses_public_bind(server: Server) -> None:
-    result = server.run("-m", "app.server", OPEN_DOTS_HOST="0.0.0.0")
-    assert result.returncode == 2 and "OPEN_DOTS_ALLOW_PUBLIC_BIND" in result.stderr, (result.returncode, result.stderr)
+    result = server.run("-m", "app.server", SUPARAGENT_HOST="0.0.0.0")
+    assert result.returncode == 2 and "SUPARAGENT_ALLOW_PUBLIC_BIND" in result.stderr, (result.returncode, result.stderr)
 
 
 @check("the pages load without signing in; a missing page is a 404")
@@ -285,7 +285,7 @@ def warns_about_proxy(server: Server) -> None:
 @check("a second server on the same data is refused")
 def second_server_refused(server: Server) -> None:
     other = subprocess.Popen(
-        [sys.executable, "-m", "app.server"], cwd=server.root, env=server.env(OPEN_DOTS_PORT=str(free_port())),
+        [sys.executable, "-m", "app.server"], cwd=server.root, env=server.env(SUPARAGENT_PORT=str(free_port())),
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     try:
@@ -325,7 +325,7 @@ def main() -> int:
     if not args.ui_dir and not args.stand_in_ui:
         parser.error("give --ui-dir, or --stand-in-ui for a run with no web build")
 
-    root = Path(tempfile.mkdtemp(prefix="open-dots-smoke-server-"))
+    root = Path(tempfile.mkdtemp(prefix="suparagent-smoke-server-"))
     ui_dir = make_stand_in_ui(root / "ui") if args.stand_in_ui else Path(args.ui_dir).resolve()
     if not (ui_dir / "login" / "index.html").is_file():
         print(f"{ui_dir} has no login page; build the pages first (node scripts/build-ui.js).", file=sys.stderr)

@@ -116,7 +116,7 @@ async def test_csv_has_one_row_per_turn_and_neutralises_formulas(api, sessions, 
     await turn(sessions, a.id, None, at=at, status="failed")
     response = await api.get("/api/v1/usage.csv", params={"month": "2026-08"})
     assert response.status_code == 200
-    assert response.headers["content-disposition"] == 'attachment; filename="open-dots-usage-2026-08.csv"'
+    assert response.headers["content-disposition"] == 'attachment; filename="suparagent-usage-2026-08.csv"'
     rows = list(csv.reader(io.StringIO(response.text)))
     assert rows[0][:6] == ["started_at", "thread_id", "conversation", "engine", "model", "status"]
     assert len(rows) == 3

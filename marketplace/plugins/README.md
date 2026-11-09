@@ -1,6 +1,6 @@
-# Open Dots MCP marketplace
+# Suparagent MCP marketplace
 
-The marketplace has two sections: **Tested by Open Dots** and **Community**. Every merged community manifest is listed in Community. A listing appears in Tested by Open Dots only after an Open Dots maintainer records product test evidence in the `tested` catalog.
+The marketplace has two sections: **Tested by Suparagent** and **Community**. Every merged community manifest is listed in Community. A listing appears in Tested by Suparagent only after an Suparagent maintainer records product test evidence in the `tested` catalog.
 
 ## Submit a community listing
 
@@ -14,4 +14,4 @@ Only unauthenticated access and user-entered bearer tokens are supported by this
 
 ## Tested listings
 
-Tested entries use the same manifest fields under `marketplace/plugins/tested/` and add an `evidence` object containing the tested version, date, and an Open Dots evidence URL. Only maintainers may add or change these files. A community listing can also appear in Tested by Open Dots after it has been exercised; the Community listing remains available, and the two labels describe different facts. Copies in both sections must use the same manifest content.
+Tested entries use the same manifest fields under `marketplace/plugins/tested/` and add an `evidence` object containing the tested version, date, and an Suparagent evidence URL. Only maintainers may add or change these files. A community listing can also appear in Tested by Suparagent after it has been exercised; the Community listing remains available, and the two labels describe different facts. Copies in both sections must use the same manifest content.

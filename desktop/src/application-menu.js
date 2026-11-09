@@ -1,6 +1,6 @@
 const { sameOrigin } = require("./origin");
 
-const SETTINGS_NAVIGATION_CHANNEL = "open-dots:navigate-settings";
+const SETTINGS_NAVIGATION_CHANNEL = "suparagent:navigate-settings";
 const SETTINGS_ROUTE = "/settings/";
 
 // Native, so the hosted page can neither read nor draw it. Radio items show where the window is.
@@ -20,7 +20,7 @@ function workspaceMenu({ platform, workspace }) {
   };
 }
 
-function createApplicationMenuTemplate({ platform, appName = "Open Dots", onOpenSettings = () => {}, workspace = null }) {
+function createApplicationMenuTemplate({ platform, appName = "Suparagent", onOpenSettings = () => {}, workspace = null }) {
   const isMac = platform === "darwin";
   const settings = {
     label: isMac ? "Settings..." : "Settings",

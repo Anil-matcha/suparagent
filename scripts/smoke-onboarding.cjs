@@ -7,7 +7,7 @@ const assert = require("node:assert/strict");
 
 const ROOT = path.resolve(__dirname, "..");
 const STATIC_ROOT = path.join(ROOT, "frontend", "out");
-const SHOTS = process.env.ONBOARDING_QA_SCREENSHOTS || path.join(require("node:os").tmpdir(), "open-dots-onboarding-qa");
+const SHOTS = process.env.ONBOARDING_QA_SCREENSHOTS || path.join(require("node:os").tmpdir(), "suparagent-onboarding-qa");
 const PLAYWRIGHT_PATH = process.env.PLAYWRIGHT_MODULE || path.join(ROOT, "desktop", "node_modules", "@playwright", "test");
 const { chromium, expect } = require(PLAYWRIGHT_PATH);
 
@@ -205,7 +205,7 @@ async function setupPage(browser, baseUrl, state, pageErrors, { desktopBridge = 
   if (desktopBridge) await context.addInitScript(() => {
     window.__smokePermissionCalls = [];
     window.__smokePermissionStatusReads = 0;
-    window.openDots = {
+    window.suparagent = {
       updates: {},
       desktopPermissions: async (action = "status") => {
         window.__smokePermissionCalls.push(action);
@@ -259,7 +259,7 @@ async function main() {
       const { context, page, goto } = await setupPage(browser, baseUrl, state, errors, { width: 390 });
       try {
         await goto("/onboarding/");
-        await page.getByRole("heading", { name: "Welcome to Open Duet" }).waitFor();
+        await page.getByRole("heading", { name: "Welcome to Suparagent" }).waitFor();
         await noHorizontalOverflow(page, 390);
         await screenshot(page, "claude-welcome-390");
         await clickContinue(page);
@@ -305,7 +305,7 @@ async function main() {
       const { context, page, goto } = await setupPage(browser, baseUrl, state, errors);
       try {
         await goto("/onboarding/");
-        await page.getByRole("heading", { name: "Welcome to Open Duet" }).waitFor();
+        await page.getByRole("heading", { name: "Welcome to Suparagent" }).waitFor();
         await clickContinue(page);
         await page.getByLabel("Engine").selectOption("codex");
         await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeEnabled({ timeout: 10000 });
@@ -316,7 +316,7 @@ async function main() {
         await goto("/onboarding/");
         await page.getByRole("heading", { name: "Set up when you are ready" }).waitFor();
         await page.getByRole("button", { name: "Continue setup" }).click();
-        await page.getByRole("heading", { name: "Welcome to Open Duet" }).waitFor();
+        await page.getByRole("heading", { name: "Welcome to Suparagent" }).waitFor();
         assert.equal(state.onboarding.status, "pending");
         assert.ok(state.requests.some((req) => req.endpoint === "/onboarding/skip" && req.method === "POST"));
         assert.ok(state.requests.some((req) => req.endpoint === "/onboarding/restart" && req.method === "POST"));
@@ -332,7 +332,7 @@ async function main() {
         await page.getByText("Setup progress is unavailable.").waitFor();
         await page.getByRole("alert").filter({ hasText: "temporarily unavailable" }).waitFor();
         await page.getByRole("button", { name: "Try again" }).click();
-        await page.getByRole("heading", { name: "Welcome to Open Duet" }).waitFor();
+        await page.getByRole("heading", { name: "Welcome to Suparagent" }).waitFor();
         assert.equal(state.onboardingReads, 2);
         await screenshot(page, "read-failure-recovered");
       } finally { await context.close(); }
@@ -348,8 +348,8 @@ async function main() {
       try {
         await goto("/onboarding/");
         await second.goto(`${baseUrl}/onboarding/`, { waitUntil: "networkidle" });
-        await first.getByRole("heading", { name: "Welcome to Open Duet" }).waitFor();
-        await second.getByRole("heading", { name: "Welcome to Open Duet" }).waitFor();
+        await first.getByRole("heading", { name: "Welcome to Suparagent" }).waitFor();
+        await second.getByRole("heading", { name: "Welcome to Suparagent" }).waitFor();
         await clickContinue(first);
         await waitSaved(first);
         await clickContinue(second);
@@ -373,7 +373,7 @@ async function main() {
         await goto("/chat/");
         await page.getByRole("textbox").waitFor({ timeout: 10000 });
         assert.match(page.url(), /\/chat\//);
-        assert.equal(await page.getByRole("heading", { name: "Welcome to Open Duet" }).count(), 0);
+        assert.equal(await page.getByRole("heading", { name: "Welcome to Suparagent" }).count(), 0);
         assert.ok(state.requests.some((req) => req.endpoint === "/onboarding" && req.method === "GET"));
         assert.equal(state.requests.some((req) => req.endpoint === "/onboarding/restart"), false);
         await screenshot(page, "returning-user-chat");
@@ -425,7 +425,7 @@ async function main() {
       const { context, page, goto } = await setupPage(browser, baseUrl, state, errors, { desktopBridge: true, width: 390 });
       try {
         await goto("/chat/");
-        await page.getByRole("heading", { name: "Sign in to Open Duet" }).waitFor();
+        await page.getByRole("heading", { name: "Sign in to Suparagent" }).waitFor();
         await page.getByLabel("Email").fill("owner@example.test");
         await page.getByRole("button", { name: "Email me a code" }).click();
         await page.getByText("Check your email for a sign-in code.").waitFor();
@@ -444,7 +444,7 @@ async function main() {
         assert.equal(state.accountSignedIn, false, "invalid code must not sign in");
         await page.getByLabel("Email code").fill("123456");
         await verify.click();
-        await page.getByRole("heading", { name: "Welcome to Open Duet" }).waitFor({ timeout: 10000 });
+        await page.getByRole("heading", { name: "Welcome to Suparagent" }).waitFor({ timeout: 10000 });
         assert.equal(state.accountSignedIn, true);
         assert.equal(state.profileBound, true);
         const verifyRequest = state.requests.find((req) => req.endpoint === "/desktop-account/email/verify" && req.body?.code === "123456");

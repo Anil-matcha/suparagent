@@ -122,9 +122,9 @@ async def _one(db, routine) -> RoutineResponse:
 
 def _hook_path(routine_id: int) -> str:
     """The address to give a sender. In a hosted deployment it names the account (routers/hooks.py).
-    A configured OPEN_DOTS_WEBHOOK_BASE wins and makes the address absolute."""
-    if settings.OPEN_DOTS_WEBHOOK_BASE:
-        return f"{settings.OPEN_DOTS_WEBHOOK_BASE.rstrip('/')}/{routine_id}"
+    A configured SUPARAGENT_WEBHOOK_BASE wins and makes the address absolute."""
+    if settings.SUPARAGENT_WEBHOOK_BASE:
+        return f"{settings.SUPARAGENT_WEBHOOK_BASE.rstrip('/')}/{routine_id}"
     tenant = tenant_schema.current_tenant()
     return f"/hooks/t/{tenant[2:]}/{routine_id}" if tenant else f"/hooks/{routine_id}"
 

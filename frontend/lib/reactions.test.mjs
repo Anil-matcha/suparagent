@@ -48,9 +48,9 @@ test("findPendingApproval finds the active pending approval item", () => {
 });
 
 test("getReactionsStorageKey formats thread-scoped keys", () => {
-  assert.equal(getReactionsStorageKey(42), "open-duet:reactions:42");
-  assert.equal(getReactionsStorageKey(null), "open-duet:reactions:global");
-  assert.equal(getReactionsStorageKey(undefined), "open-duet:reactions:global");
+  assert.equal(getReactionsStorageKey(42), "suparagent:reactions:42");
+  assert.equal(getReactionsStorageKey(null), "suparagent:reactions:global");
+  assert.equal(getReactionsStorageKey(undefined), "suparagent:reactions:global");
 });
 
 test("loadThreadReactions and saveThreadReaction handle mock localStorage and toggling", () => {

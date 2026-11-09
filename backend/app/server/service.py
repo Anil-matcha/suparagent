@@ -1,6 +1,6 @@
 """`python -m app.server service`: a systemd unit for this installation, made from its real paths.
 
-    python -m app.server service [--user NAME] [--env-file PATH] [--name open-dots]
+    python -m app.server service [--user NAME] [--env-file PATH] [--name suparagent]
     python -m app.server service --write [PATH]        # needs root; refuses to replace an existing file
     python -m app.server service --install [--scope system|user] [--dry-run]
     python -m app.server service --uninstall [--scope system|user] [--dry-run]
@@ -27,7 +27,7 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-DEFAULT_ENV_FILE = "/etc/open-dots/open-dots.env"
+DEFAULT_ENV_FILE = "/etc/suparagent/suparagent.env"
 DEFAULT_UNIT_PATH = "/etc/systemd/system/{name}.service"
 UNIT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.@-]{0,60}$")
 ACCOUNT = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
@@ -54,7 +54,7 @@ def _check_path(label: str, path: str) -> str:
 
 
 def render(*, user: str, env_file: str = DEFAULT_ENV_FILE, python: str | None = None, backend: Path | None = None,
-           description: str = "Open Duet", scope: str = "system") -> str:
+           description: str = "Suparagent", scope: str = "system") -> str:
     """The unit text."""
     if scope == "user":
         user_line, wanted_by = "", "default.target"
@@ -65,7 +65,7 @@ def render(*, user: str, env_file: str = DEFAULT_ENV_FILE, python: str | None = 
     python_path = _check_path("The Python path", python or sys.executable)
     work = _check_path("The backend folder", (backend or backend_dir()).as_posix())
     env = _check_path("The settings file", env_file)
-    return f"""# Open Duet, made by `python -m app.server service`.
+    return f"""# Suparagent, made by `python -m app.server service`.
 # The settings are in {env} (mode 0600, owned by {user}); see the self-hosting notes for what to put there.
 
 [Unit]
@@ -126,12 +126,12 @@ def install(*, name: str, user: str, env_file: str, scope: str = "system", dry_r
     """Write the unit and enable it. Never replaces an existing unit."""
     problem = _preflight(scope, platform=platform, which=which, euid=euid)
     if problem:
-        out(f"Open Duet server: {problem}", file=sys.stderr)
+        out(f"Suparagent server: {problem}", file=sys.stderr)
         return 2
     try:
         text = render(user=user, env_file=env_file, scope=scope)
     except ServiceError as exc:
-        out(f"Open Duet server: {exc}", file=sys.stderr)
+        out(f"Suparagent server: {exc}", file=sys.stderr)
         return 2
     path = target or unit_target(name, scope)
     systemctl = _systemctl(scope)
@@ -140,19 +140,19 @@ def install(*, name: str, user: str, env_file: str, scope: str = "system", dry_r
         out("Dry run, nothing changed. Would:\n" + "\n".join(f"  - {step}" for step in steps) + "\n\n" + text)
         return 0
     if path.exists():
-        out(f"Open Duet server: {path} already exists and was not replaced. Run --uninstall first, or remove it.", file=sys.stderr)
+        out(f"Suparagent server: {path} already exists and was not replaced. Run --uninstall first, or remove it.", file=sys.stderr)
         return 4
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
         path.chmod(0o644)
     except OSError as exc:
-        out(f"Open Duet server: could not write {path} ({exc.strerror or exc}).", file=sys.stderr)
+        out(f"Suparagent server: could not write {path} ({exc.strerror or exc}).", file=sys.stderr)
         return 4
     out(f"Wrote {path}.")
     for command in (systemctl + ["daemon-reload"], systemctl + ["enable", "--now", name]):
         if run(command) != 0:
-            out(f"Open Duet server: `{' '.join(command)}` failed. The unit is at {path}; check `journalctl -u {name}`.", file=sys.stderr)
+            out(f"Suparagent server: `{' '.join(command)}` failed. The unit is at {path}; check `journalctl -u {name}`.", file=sys.stderr)
             return 5
     out(f"Installed and started {name}. Watch it: journalctl {'--user ' if scope == 'user' else ''}-u {name} -f")
     return 0
@@ -165,7 +165,7 @@ def uninstall(*, name: str, scope: str = "system", dry_run: bool = False,
     """Stop, disable and remove the unit. Data and settings files are left alone."""
     problem = _preflight(scope, platform=platform, which=which, euid=euid)
     if problem:
-        out(f"Open Duet server: {problem}", file=sys.stderr)
+        out(f"Suparagent server: {problem}", file=sys.stderr)
         return 2
     path = target or unit_target(name, scope)
     systemctl = _systemctl(scope)
@@ -174,15 +174,15 @@ def uninstall(*, name: str, scope: str = "system", dry_run: bool = False,
         out("Dry run, nothing changed. Would:\n" + "\n".join(f"  - {step}" for step in steps))
         return 0
     if not path.exists():
-        out(f"Open Duet server: {path} does not exist; nothing to remove.", file=sys.stderr)
+        out(f"Suparagent server: {path} does not exist; nothing to remove.", file=sys.stderr)
         return 4
     if run(systemctl + ["disable", "--now", name]) != 0:
-        out(f"Open Duet server: could not stop and disable {name}; the unit was left in place.", file=sys.stderr)
+        out(f"Suparagent server: could not stop and disable {name}; the unit was left in place.", file=sys.stderr)
         return 5
     try:
         path.unlink()
     except OSError as exc:
-        out(f"Open Duet server: could not remove {path} ({exc.strerror or exc}).", file=sys.stderr)
+        out(f"Suparagent server: could not remove {path} ({exc.strerror or exc}).", file=sys.stderr)
         return 4
     run(systemctl + ["daemon-reload"])
     out(f"Stopped, disabled and removed {name}. Settings, database and workspace were not touched.")
@@ -207,7 +207,7 @@ def main(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.server service", description="Make a systemd unit for this installation.")
     parser.add_argument("--user", default=None, help="the Linux account that runs the server (default: the current one)")
     parser.add_argument("--env-file", default=DEFAULT_ENV_FILE, help=f"the settings file (default {DEFAULT_ENV_FILE})")
-    parser.add_argument("--name", default="open-dots", help="the service name (default open-dots)")
+    parser.add_argument("--name", default="suparagent", help="the service name (default suparagent)")
     parser.add_argument("--write", nargs="?", const="", metavar="PATH", help="write the unit instead of printing it (default path /etc/systemd/system/NAME.service)")
     parser.add_argument("--install", action="store_true", help="write the unit, then enable and start it")
     parser.add_argument("--uninstall", action="store_true", help="stop, disable and remove the unit")
@@ -218,17 +218,17 @@ def main(argv: Sequence[str]) -> int:
     except SystemExit as exc:
         return 2 if exc.code else 0
     if not UNIT_NAME.match(args.name):
-        print(f"Open Duet server: {args.name!r} is not a usable service name.", file=sys.stderr)
+        print(f"Suparagent server: {args.name!r} is not a usable service name.", file=sys.stderr)
         return 2
     user = args.user or getpass.getuser()
     if args.install and args.uninstall:
-        print("Open Duet server: choose --install or --uninstall, not both.", file=sys.stderr)
+        print("Suparagent server: choose --install or --uninstall, not both.", file=sys.stderr)
         return 2
     geteuid = getattr(os, "geteuid", None)
     euid = geteuid() if geteuid else None
     env_file = args.env_file
     if args.scope == "user" and env_file == DEFAULT_ENV_FILE:
-        env_file = str(Path.home() / ".config" / "open-dots" / "open-dots.env")
+        env_file = str(Path.home() / ".config" / "suparagent" / "suparagent.env")
     if args.install:
         return install(name=args.name, user=user, env_file=env_file, scope=args.scope, dry_run=args.dry_run, euid=euid,
                        out=lambda m, file=sys.stdout: print(m, file=file))
@@ -238,23 +238,23 @@ def main(argv: Sequence[str]) -> int:
     try:
         text = render(user=user, env_file=args.env_file)
     except ServiceError as exc:
-        print(f"Open Duet server: {exc}", file=sys.stderr)
+        print(f"Suparagent server: {exc}", file=sys.stderr)
         return 2
     if args.write is None:
         print(text)
         return 0
     if not sys.platform.startswith("linux"):
-        print("Open Duet server: systemd is Linux only. The unit text can be printed here (leave out --write) and copied to the server.", file=sys.stderr)
+        print("Suparagent server: systemd is Linux only. The unit text can be printed here (leave out --write) and copied to the server.", file=sys.stderr)
         return 2
     target = Path(args.write or DEFAULT_UNIT_PATH.format(name=args.name))
     if target.exists():
-        print(f"Open Duet server: {target} already exists and was not replaced. Remove it or choose another --write PATH.", file=sys.stderr)
+        print(f"Suparagent server: {target} already exists and was not replaced. Remove it or choose another --write PATH.", file=sys.stderr)
         return 4
     try:
         target.write_text(text, encoding="utf-8")
         target.chmod(0o644)
     except OSError as exc:
-        print(f"Open Duet server: could not write {target} ({exc.strerror or exc}). Run it as root, or print the unit and copy it.", file=sys.stderr)
+        print(f"Suparagent server: could not write {target} ({exc.strerror or exc}). Run it as root, or print the unit and copy it.", file=sys.stderr)
         return 4
     print(f"Wrote {target}.\n")
     print(instructions(args.name, str(target), args.env_file, user))

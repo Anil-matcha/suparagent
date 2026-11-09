@@ -78,7 +78,7 @@ class ServerBackend(Backend):
     def env(self) -> dict:
         env = super().env()
         env["LOCAL_EXECUTION_ENABLED"] = "true"  # a server install turns this on in its settings file
-        env.update(OPEN_DOTS_UI_DIR=str(self.ui_dir), OPEN_DOTS_PORT=str(self.port))
+        env.update(SUPARAGENT_UI_DIR=str(self.ui_dir), SUPARAGENT_PORT=str(self.port))
         return env
 
     def migrate(self) -> None:
@@ -118,7 +118,7 @@ def main() -> int:
     if not args.ui_dir and not args.stand_in_ui:
         parser.error("give --ui-dir, or --stand-in-ui for a run with no web build")
 
-    root = Path(tempfile.mkdtemp(prefix="open-dots-smoke-server-chat-"))
+    root = Path(tempfile.mkdtemp(prefix="suparagent-smoke-server-chat-"))
     ui_dir = make_stand_in_ui(root / "ui") if args.stand_in_ui else Path(args.ui_dir).resolve()
     b = ServerBackend(root / "server", ui_dir)
     owner = None
@@ -319,7 +319,7 @@ def main() -> int:
 
             out = run(b, "backup", "--out", str(root / "backups"))
             assert "Backup written to" in out and "TOKEN_ENCRYPTION_KEYS" in out, out
-            archive = next((root / "backups").glob("open-dots-backup-*.tar.gz"))
+            archive = next((root / "backups").glob("suparagent-backup-*.tar.gz"))
 
             moved = ServerBackend(root / "restored", ui_dir)  # other data, workspace, attachments and engine home
             said = run(moved, "restore", str(archive))

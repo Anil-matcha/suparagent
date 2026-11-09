@@ -31,7 +31,7 @@ from app.services import user_credential_service
 logger = get_logger(__name__)
 
 PREFIX = "mcp__community__"
-SERVER = "open_dots_community"
+SERVER = "suparagent_community"
 MAX_REQUEST_BYTES = 64_000
 MAX_TOOL_DESCRIPTION = 4_000
 REQUEST_FILE = re.compile(r"^req-([0-9a-f]{32})\.json$")
@@ -110,7 +110,7 @@ class CommunityMcpBridge:
                 "alias": alias,
             }
         self.tools = tools
-        self.folder = Path(tempfile.mkdtemp(prefix=f"open-dots-community-{run.turn_id}-"))
+        self.folder = Path(tempfile.mkdtemp(prefix=f"suparagent-community-{run.turn_id}-"))
         try:
             self.folder.chmod(0o700)
         except OSError:
