@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Agent, Thread
 from app.db.models.agent import APPROVAL_MODES
 from app.db.transactions import begin_write
+from app.services import agent_history
 
 # The longest name the API and an agent file accept.
 NAME_MAX_CHARS = 80
@@ -143,7 +144,8 @@ async def create_agent(
 
 
 async def update_agent(
-    db: AsyncSession, agent_id: int, *, archived: bool | None = None, make_lead: bool | None = None, **changes
+    db: AsyncSession, agent_id: int, *, archived: bool | None = None, make_lead: bool | None = None,
+    revision_source: str = "edit", restored_from: int | None = None, **changes
 ) -> Agent:
     """Change the given fields. Raises AgentNotFound, ValueError, or
     AgentNameTaken (also when un-archiving into a name now in use)."""
@@ -161,6 +163,7 @@ async def update_agent(
     if agent is None:
         await db.rollback()
         raise AgentNotFound(agent_id)
+    before = agent_history.profile_of(agent)
     for field, value in changes.items():
         setattr(agent, field, value)
     if "instructions" in changes:
@@ -187,6 +190,7 @@ async def update_agent(
     name = agent.name  # read now: after a rollback the row is expired
     try:
         await db.flush()
+        await agent_history.record(db, agent, before, source=revision_source, restored_from=restored_from)
         await db.commit()
     except IntegrityError:
         await db.rollback()

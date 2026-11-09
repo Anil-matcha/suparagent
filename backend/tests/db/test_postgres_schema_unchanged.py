@@ -21,10 +21,11 @@ F04_SNAPSHOT = HERE / "postgres_schema_f04.sql"
 F04_TABLES = {"thread", "turn", "event", "approval"}
 SETTINGS_TABLES = {"app_setting", "setting_audit"}
 AGENT_TABLES = {"agent"}
+AGENT_REVISION_TABLES = {"agent_revision"}
 COMPUTER_TABLES = {"computer"}
 AUTH_TABLES = {"auth_owner", "auth_session", "auth_pairing_code"}
 TEAM_TABLES = {"team", "team_event", "agent_job", "agent_job_event", "agent_job_inbox", "team_setup_request"}
-ROOM_TABLES = {"room", "room_member", "room_dispatch"}
+ROOM_TABLES = {"room", "room_member", "room_dispatch", "room_webhook_receipt"}
 ROUTINE_TABLES = {"routine", "routine_run", "routine_app_action", "notification", "routine_webhook_receipt"}
 NEEDS_YOU_TABLES = {"needs_you_state"}
 NOTICE_TABLES = {"team_notice"}
@@ -73,6 +74,7 @@ def test_every_table_is_covered_by_one_of_the_snapshots():
         | F04_TABLES
         | SETTINGS_TABLES
         | AGENT_TABLES
+        | AGENT_REVISION_TABLES
         | COMPUTER_TABLES
         | AUTH_TABLES
         | ROUTINE_TABLES
@@ -141,3 +143,7 @@ def test_work_execution_tables_compile_to_their_reviewed_postgres_schema():
 
 def test_workflow_tables_compile_to_their_reviewed_postgres_schema():
     assert postgres_ddl(WORKFLOW_TABLES) == snapshot_text(HERE / "postgres_schema_workflows.sql")
+
+
+def test_agent_revision_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(AGENT_REVISION_TABLES) == snapshot_text(HERE / "postgres_schema_agent_revision.sql")

@@ -10,6 +10,7 @@ CREATE TABLE room (
 	archived_at TIMESTAMP WITH TIME ZONE,
 	deleting_at TIMESTAMP WITH TIME ZONE,
 	created_by VARCHAR DEFAULT 'person' NOT NULL,
+	webhook_secret_hash VARCHAR,
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
 	updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
 	PRIMARY KEY (id)
@@ -52,3 +53,15 @@ CREATE TABLE room_member (
 );
 
 CREATE UNIQUE INDEX uq_room_member ON room_member (room_id, agent_id);
+
+CREATE TABLE room_webhook_receipt (
+	room_id BIGINT NOT NULL,
+	key_hash VARCHAR(64) NOT NULL,
+	payload_hash VARCHAR(64) NOT NULL,
+	seq BIGINT NOT NULL,
+	expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+	PRIMARY KEY (room_id, key_hash),
+	FOREIGN KEY(room_id) REFERENCES room (id) ON DELETE CASCADE
+);
+
+CREATE INDEX ix_room_webhook_receipt_expires_at ON room_webhook_receipt (expires_at);

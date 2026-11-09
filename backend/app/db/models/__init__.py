@@ -7,7 +7,7 @@ from app.db.models.permission_rule import PermissionRule
 from app.db.models.permission_ask import PermissionAsk
 from app.db.models.delegation import AgentJobInbox
 from app.db.models.team import Team, TeamEvent, AgentJob, AgentJobEvent, Room, RoomWebhookReceipt, RoomMember, RoomDispatch, TeamSetupRequest, TeamNotice
-from app.db.models.agent import Agent
+from app.db.models.agent import Agent, AgentRevision
 from app.db.models.thread import Thread
 from app.db.models.turn import Turn
 from app.db.models.event import Event
@@ -34,6 +34,7 @@ __all__ = [
     "PermissionRule",
     "PermissionAsk",
     "Agent",
+    "AgentRevision",
     "Thread",
     "Turn",
     "Event",

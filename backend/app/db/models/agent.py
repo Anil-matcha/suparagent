@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, Index, String, Text, text, func
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, Text, text, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import expression
 
@@ -108,3 +108,24 @@ class Agent(Base):
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class AgentRevision(Base):
+    """One stored version of an agent's editable profile (BL-128). `snapshot` holds the editable fields
+    after the change, with secret-looking text redacted; `redacted` names the fields that was done to,
+    and a restore leaves those alone. Only the newest 20 per agent are kept."""
+
+    __tablename__ = "agent_revision"
+    __table_args__ = (Index("uq_agent_revision_number", "agent_id", "number", unique=True),)
+
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(always=True), primary_key=True)
+    agent_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("agent.id", ondelete="CASCADE"), nullable=False)
+    number: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # baseline (the profile before the first recorded edit), edit, or restore.
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor: Mapped[str] = mapped_column(String, nullable=False)
+    changed_fields: Mapped[list] = mapped_column(JSONValue, nullable=False, default=list)
+    redacted: Mapped[list] = mapped_column(JSONValue, nullable=False, default=list)
+    restored_from: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    snapshot: Mapped[dict] = mapped_column(JSONValue, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
