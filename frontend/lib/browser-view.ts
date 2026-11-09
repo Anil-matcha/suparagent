@@ -100,3 +100,13 @@ export function viewNote(state: ViewState): string {
 export function canDrive(state: ViewState): boolean {
   return state === "driving";
 }
+
+// Watching costs the server a stream and the browser a decode per frame, so it only runs while someone can see it:
+// the panel is on screen and the page is in the foreground. A held control session never pauses, because closing it
+// would drop the lease.
+export function shouldStream(panelShown: boolean, pageVisible: boolean, state: ViewState): boolean {
+  if (state === "driving" || state === "taking") return true;
+  return panelShown && pageVisible;
+}
+
+export const PAUSED_NOTE = "Paused while this view is hidden. It resumes when you come back.";
