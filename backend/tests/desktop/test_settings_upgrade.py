@@ -30,7 +30,10 @@ def historical_fixture(database):
 
 # Columns later migrations add (empty for these old rows) are left out, so the
 # comparison is about the history that existed before the upgrade.
-ADDED_LATER = {"turn": {"engine_phase", "origin"}, "approval": {"consumed_at"}}
+ADDED_LATER = {
+    "turn": {"engine_phase", "origin", "person_id", "person_label"},
+    "approval": {"consumed_at", "decided_by_person_id", "decided_by_label"},
+}
 
 
 def history(database):
