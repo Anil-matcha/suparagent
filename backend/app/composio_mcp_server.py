@@ -19,12 +19,36 @@ from uuid import uuid4
 from app import composio_tools
 
 
+# Kept here, not imported from the services, so this small process loads no app settings.
+READ_TOOL = "read_saved_result"
+READ_TOOL_SPEC = {
+    "name": READ_TOOL,
+    "description": ("Read part of a large tool result that was saved because it was too long to show. "
+                    "Pass the ref from the earlier reply. Give offset and length to read a slice, or query "
+                    "to find a word or phrase (up to 20 matches with surrounding text). Replies are short; "
+                    "read in several steps."),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "ref": {"type": "string", "description": "The saved_ref from the earlier reply."},
+            "offset": {"type": "integer", "minimum": 0},
+            "length": {"type": "integer", "minimum": 1, "maximum": 8000},
+            "query": {"type": "string", "maxLength": 200},
+        },
+        "required": ["ref"],
+        "additionalProperties": False,
+    },
+}
+
+
 class Server:
     def __init__(self, mailbox, levels, exact_tools=None, *, uninterrupted=False):
         self.mailbox = Path(mailbox)
         self.tools = composio_tools.mcp_tools(levels, routine_tools=exact_tools is not None, uninterrupted=uninterrupted)
         if exact_tools is not None:
             self.tools = [t for t in self.tools if t["name"] in exact_tools]
+        if any(t["name"] != "list_accounts" for t in self.tools):
+            self.tools = self.tools + [READ_TOOL_SPEC]
         self.names = {tool["name"] for tool in self.tools}
 
     def call(self, name, arguments):

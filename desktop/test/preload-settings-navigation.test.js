@@ -26,12 +26,12 @@ function loadPreload(origin) {
     Set,
     TypeError,
   });
-  return { api: exposed.openDots, handlers };
+  return { api: exposed.suparagent, handlers };
 }
 
 test("preload accepts only same-origin settings navigation and buffers it until subscribed", () => {
   const { api, handlers } = loadPreload("http://127.0.0.1:4567");
-  const dispatch = handlers.get("open-dots:navigate-settings");
+  const dispatch = handlers.get("suparagent:navigate-settings");
   let navigations = 0;
 
   dispatch({ senderFrame: { url: "http://127.0.0.1:4567/chat/" } }, "/settings/profile/");
@@ -45,7 +45,7 @@ test("preload accepts only same-origin settings navigation and buffers it until 
 
 test("preload delivers a valid request received before the app subscribes", () => {
   const { api, handlers } = loadPreload("http://127.0.0.1:4567");
-  handlers.get("open-dots:navigate-settings")(
+  handlers.get("suparagent:navigate-settings")(
     { senderFrame: { url: "http://127.0.0.1:4567/chat/" } },
     "/settings/",
   );

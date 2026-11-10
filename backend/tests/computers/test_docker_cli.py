@@ -83,9 +83,9 @@ def test_settings_that_need_a_new_container_change_the_fingerprint(tmp_path):
 
 
 def test_a_command_runs_as_the_user_in_the_workspace_with_the_limit_inside(tmp_path):
-    args = docker_cli.exec_args("open-dots-computer-01234567-7", "echo hi; rm -rf x", 30, "501:20")
+    args = docker_cli.exec_args("suparagent-computer-01234567-7", "echo hi; rm -rf x", 30, "501:20")
     assert args[:7] == ["exec", "-u", "501:20", "-w", "/workspace", "-e", "HOME=/tmp/home"]
-    assert args[7] == "open-dots-computer-01234567-7"
+    assert args[7] == "suparagent-computer-01234567-7"
     assert args[8:12] == ["timeout", "-k", "5", "30"]
     # The command is a positional argument, never spliced into the script.
     assert args[-1] == "echo hi; rm -rf x"
@@ -100,9 +100,9 @@ def test_time_limits_are_bounded_and_bad_values_refused():
         with pytest.raises(InvalidSpec):
             docker_cli.exec_seconds(bad)
     with pytest.raises(InvalidSpec):
-        docker_cli.exec_args("open-dots-computer-01234567-7", "   ", 5, "501:20")
+        docker_cli.exec_args("suparagent-computer-01234567-7", "   ", 5, "501:20")
     with pytest.raises(InvalidSpec):
-        docker_cli.exec_args("open-dots-computer-01234567-7", "x" * (docker_cli.MAX_COMMAND_CHARS + 1), 5, "501:20")
+        docker_cli.exec_args("suparagent-computer-01234567-7", "x" * (docker_cli.MAX_COMMAND_CHARS + 1), 5, "501:20")
     with pytest.raises(InvalidSpec):
         docker_cli.exec_args("--rm", "true", 5, "501:20")
 
@@ -117,7 +117,7 @@ def test_long_output_keeps_its_start_and_end():
 
 
 def test_a_missing_docker_cli_is_reported(monkeypatch):
-    monkeypatch.setenv("OPEN_DOTS_DOCKER", "/nonexistent/docker")
+    monkeypatch.setenv("SUPARAGENT_DOCKER", "/nonexistent/docker")
     with pytest.raises(docker_cli.DockerMissing):
         docker_cli.run(["info"], timeout=1)
 

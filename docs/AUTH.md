@@ -1,6 +1,6 @@
 # Authentication: owner, sessions and paired devices
 
-Open Duet runs agents with access to your machine, so the server must know who
+Suparagent runs agents with access to your machine, so the server must know who
 is asking. This document is the design and the operating guide for a
 self-hosted, single-owner install. The desktop app requires an app account as
 well as its local launch-token boundary (see Desktop app below).
@@ -12,7 +12,7 @@ Every request acts as exactly one of these, decided by the auth middleware
 
 | Principal | How it is proven | Scopes |
 |---|---|---|
-| `desktop` | The desktop launcher's per-launch token (`X-Open-Dots-Token`), checked by `LaunchAuthMiddleware` | admin + chat |
+| `desktop` | The desktop launcher's per-launch token (`X-Suparagent-Token`), checked by `LaunchAuthMiddleware` | admin + chat |
 | `browser` | The owner signed in with the passphrase, or a browser paired with a code; an `HttpOnly` session cookie | admin + chat, or chat |
 | `device` | A paired device (phone, script, another computer); `Authorization: Bearer ods_…` | admin + chat, or chat |
 | `loopback` | Only when `LOOPBACK_TRUST` allows it: a request from this machine directly to this server | admin + chat |
@@ -200,7 +200,7 @@ and signing out of the desktop account or resetting the profile does not touch
 the hosted workspace or account. Nothing is copied between local and hosted.
 While the hosted view is shown, the app reads the hosted status endpoint about
 once a minute (read-only; it never wakes the sandbox). The feature is on by
-default; set `OPEN_DOTS_HOSTED_WORKSPACE=0` to turn it off. Single sign-on from
+default; set `SUPARAGENT_HOSTED_WORKSPACE=0` to turn it off. Single sign-on from
 the desktop account is not built. See the
 [plan](https://github.com/Anil-matcha/open-dots-cloud/blob/main/docs/specs/hosted/desktop-hosted-workspace-plan.md).
 
@@ -275,7 +275,7 @@ acts on: `auth_required`, `session_invalid` (sign in or pair again),
 ## Self-hosting checklist
 
 For one server that serves its own pages (`python -m app.server`), follow [SELF-HOSTING.md](SELF-HOSTING.md): set
-`OPEN_DOTS_PUBLIC_URL=https://dots.example.com` and that name is trusted, with no `FRONTEND_ORIGINS` needed because the
+`SUPARAGENT_PUBLIC_URL=https://dots.example.com` and that name is trusted, with no `FRONTEND_ORIGINS` needed because the
 pages and the API share one origin. Forwarded headers (`X-Forwarded-For`, `X-Forwarded-Proto`) are believed only from the
 addresses in `TRUSTED_PROXIES`, which is loopback unless you name more (see "Who is believed to be the proxy" there). The list below is for the older layout where the web UI and the API are
 served separately.
@@ -296,9 +296,14 @@ served separately.
 - One owner. No multiple accounts, no per-user data separation; every
   principal acts as the owner (within its scope). The `user_id` that older
   routes take as a parameter is not cross-checked against the session.
-- Lockout and rate-limit counters are in memory, per process: a restart
-  forgets them, and several worker processes each count separately. Run one
-  backend process, or put a rate limit in the proxy too.
+- Sign-in and pairing lockouts are saved to small files next to the database
+  (desktop profile folder, SQLite folder, or `AUTH_LIMITS_DIR`), so a restart
+  keeps them; with PostgreSQL and no `AUTH_LIMITS_DIR` they stay in memory. The
+  per-minute request limit is always in memory, and several worker processes
+  each count separately. Run one backend process, or put a rate limit in the
+  proxy too.
+- Session length: `AUTH_SESSION_DAYS` (default 30, 1 to 90) sets how long a
+  session lasts without use; each use renews it, up to a 180-day cap.
 - No email sign-in, no passkeys, no second factor.
 - A paired `admin` device is as powerful as the owner. Pair phones with `chat`
   unless they need settings, and revoke a lost device at once.

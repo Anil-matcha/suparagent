@@ -17,7 +17,7 @@ export function useSettingsShortcut(): void {
   const router = useRouter();
 
   useEffect(() => {
-    const desktopBridge = (window as Window & { openDots?: SettingsShortcutBridge }).openDots;
+    const desktopBridge = (window as Window & { suparagent?: SettingsShortcutBridge }).suparagent;
     return bindSettingsShortcut({
       eventTarget: document,
       pathname,

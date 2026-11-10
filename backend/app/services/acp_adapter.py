@@ -341,7 +341,7 @@ def normalize_effort(value: str) -> str | None:
 def _initialize_params() -> dict:
     return {
         "protocolVersion": PROTOCOL_VERSION,
-        "clientInfo": {"name": "zed", "title": "Open Duet", "version": "0.1.0"},
+        "clientInfo": {"name": "zed", "title": "Suparagent", "version": "0.1.0"},
         "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False},
     }
 

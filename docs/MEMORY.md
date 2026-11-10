@@ -23,7 +23,7 @@ has no notes, no recall and no proposals (compaction still applies).
 └── capture-pending.json               ids of turns waiting when the app quit
 ```
 
-The data folder is `~/.open-dots` by default (the desktop app's own data
+The data folder is `~/.suparagent` by default (the desktop app's own data
 folder in the desktop app). The journal and the proposals live outside the
 agent's folder on purpose: an agent with file tools works in its own folder,
 and a record it could rewrite would not be a record.

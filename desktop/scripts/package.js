@@ -15,7 +15,7 @@ const { checkPackageSpace } = require("../src/package-space");
 
 const paths = layout();
 const builder = path.join(paths.desktop, "node_modules", "electron-builder", "cli.js");
-const frozen = path.join(paths.backend, "dist", "open-dots-backend");
+const frozen = path.join(paths.backend, "dist", "suparagent-backend");
 
 function fail(message) {
   console.error(`\n${message}`);

@@ -117,8 +117,22 @@ class Room(Base):
     archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     deleting_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     created_by: Mapped[str] = mapped_column(String, nullable=False, default='person', server_default='person')
+    # SHA-256 hex of the room's webhook secret; null means posting by webhook is off.
+    webhook_secret_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, server_default=func.now())
+
+
+class RoomWebhookReceipt(Base):
+    """A bounded retry window for a webhook post, committed with its message."""
+
+    __tablename__ = "room_webhook_receipt"
+    __table_args__ = (Index("ix_room_webhook_receipt_expires_at", "expires_at"),)
+    room_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("room.id", ondelete="CASCADE"), primary_key=True)
+    key_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
 
 
 class RoomMember(Base):

@@ -1,14 +1,22 @@
 """Failed-attempt lockout for the sign-in and pairing endpoints.
 
-In memory and per process: a restart forgets it, and several worker processes
-each keep their own count (docs/AUTH.md, "Limits"). That is a slow-down for
+Failed-attempt lockouts are written to a small file when one is configured
+(`configure_persistence`), so a restart does not forget them; several worker
+processes still each keep their own count (docs/AUTH.md, "Limits"). That is a slow-down for
 online guessing, not the only defence: pairing codes also die after a few wrong
 guesses in total, and the passphrase hash is slow.
 """
 
+import json
+import logging
+import os
+import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 MAX_TRACKED_SOURCES = 10_000
 
@@ -27,12 +35,55 @@ class Lockout:
         window_seconds: float,
         lock_seconds: float,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
         self.max_failures = max_failures
         self.window_seconds = window_seconds
         self.lock_seconds = lock_seconds
         self.clock = clock
+        self.wall_clock = wall_clock
         self._entries: dict[str, _Entry] = {}
+        self._path: Path | None = None
+
+    # -- persistence ------------------------------------------------------
+    def attach(self, path: Path | None) -> None:
+        """Keep state in `path` (None: memory only) and load what it holds."""
+        self._path = path
+        if path is None:
+            return
+        try:
+            raw = json.loads(path.read_text())
+            now, wall = self.clock(), self.wall_clock()
+            for source, data in raw.items():
+                locked = float(data.get("locked_until", 0)) - wall
+                failures = [now - (wall - float(t)) for t in data.get("failures", [])]
+                failures = [t for t in failures if now - t < self.window_seconds]
+                if locked > 0 or failures:
+                    self._entries[source] = _Entry(failures=failures, locked_until=now + locked if locked > 0 else 0.0)
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError, AttributeError, TypeError):
+            logger.warning("Ignoring unreadable sign-in limit file %s", path)
+
+    def _save(self) -> None:
+        if self._path is None:
+            return
+        now, wall = self.clock(), self.wall_clock()
+        live = {}
+        for source, e in self._entries.items():
+            failures = [wall - (now - t) for t in e.failures if now - t < self.window_seconds]
+            locked = wall + (e.locked_until - now) if e.locked_until > now else 0.0
+            if failures or locked:
+                live[source] = {"failures": failures, "locked_until": locked}
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(prefix=".limits.", dir=self._path.parent)
+            with os.fdopen(fd, "w") as handle:
+                json.dump(live, handle)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, self._path)
+        except OSError:
+            logger.warning("Could not save sign-in limit file %s", self._path)
 
     def retry_after(self, source: str) -> int:
         """Seconds until `source` may try again; 0 when it may now."""
@@ -52,12 +103,15 @@ class Lockout:
         if len(entry.failures) >= self.max_failures:
             entry.locked_until = now + self.lock_seconds
             entry.failures.clear()
+        self._save()
 
     def success(self, source: str) -> None:
-        self._entries.pop(source, None)
+        if self._entries.pop(source, None) is not None:
+            self._save()
 
     def reset(self) -> None:
         self._entries.clear()
+        self._save()
 
     def _prune(self, now: float) -> None:
         for key in [k for k, e in self._entries.items()
@@ -100,6 +154,12 @@ login_lockout = Lockout(max_failures=5, window_seconds=15 * 60, lock_seconds=15 
 pair_lockout = Lockout(max_failures=10, window_seconds=10 * 60, lock_seconds=10 * 60)
 # Any request to an auth endpoint that does work (scrypt, a code lookup).
 auth_requests = RateLimit(limit=30, window_seconds=60)
+
+
+def configure_persistence(directory: Path | None) -> None:
+    """Store the two lockouts as files in `directory`; None keeps them in memory."""
+    login_lockout.attach(None if directory is None else directory / "auth-login-limits.json")
+    pair_lockout.attach(None if directory is None else directory / "auth-pair-limits.json")
 
 
 def reset_all() -> None:

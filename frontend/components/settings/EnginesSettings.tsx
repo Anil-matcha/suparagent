@@ -16,7 +16,7 @@ import { SavedConfirmation, useSavedConfirmation } from "./SavedConfirmation";
 
 declare global {
   interface Window {
-    openDots?: {
+    suparagent?: {
       desktopPermissions?(action: "status" | "accessibility" | "screen_recording"): Promise<{ supported: boolean; accessibility: boolean; screen_recording: boolean }>;
       choosePath(kind: "file" | "folder"): Promise<string | null>;
       openEngineSignIn?(url: string): Promise<void>;
@@ -75,7 +75,7 @@ export function EnginesSettings() {
     }).catch((err: unknown) => {
       if (cancelled) return;
       if (err instanceof ApiError && err.status === 404) { setHeadless(true); setError(null); }
-      else setError(isLaunchTokenMissing(err) ? "Open Settings inside the Open Duet app window." : err instanceof ApiError ? err.message : "Could not reach the backend. Check that the app is running.");
+      else setError(isLaunchTokenMissing(err) ? "Open Settings inside the Suparagent app window." : err instanceof ApiError ? err.message : "Could not reach the backend. Check that the app is running.");
     });
     return () => { cancelled = true; };
   }, [loadTick]);
@@ -116,8 +116,8 @@ export function EnginesSettings() {
   const browse = async (row: ApplicationSetting) => {
     setBusy(row.key); setError(null);
     try {
-      if (!window.openDots) throw new Error("Browse is available inside the desktop app.");
-      const selected = await window.openDots.choosePath(fields[row.key].type === "file" ? "file" : "folder");
+      if (!window.suparagent) throw new Error("Browse is available inside the desktop app.");
+      const selected = await window.suparagent.choosePath(fields[row.key].type === "file" ? "file" : "folder");
       if (selected !== null) {
         setDrafts((previous) => ({ ...previous, [row.key]: selected }));
         setRowErrors((previous) => ({ ...previous, [row.key]: "" }));

@@ -1,6 +1,6 @@
 export type QueuedFollowUp = { id: string; text: string };
 
-const PREFIX = "open-duet:queued-follow-ups:";
+const PREFIX = "suparagent:queued-follow-ups:";
 export const MAX_QUEUED_FOLLOW_UPS = 20;
 export const MAX_FOLLOW_UP_TEXT_CHARS = 100_000;
 export const EMPTY_QUEUED_FOLLOW_UPS: QueuedFollowUp[] = [];

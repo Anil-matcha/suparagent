@@ -84,6 +84,7 @@ export function Conversation({
   remembered = {},
   undoneRules = [],
   onUndo,
+  onBranch,
   threadId = null,
   workspacePath = null,
   emptyHint,
@@ -91,6 +92,8 @@ export function Conversation({
   agent = null,
   loading = false,
 }: {
+  // Edit a past message and resend it in a new branch.
+  onBranch?: (turnId: number, text: string) => Promise<boolean>;
   // The conversation the transcript belongs to: attachments are fetched from it.
   threadId?: number | null;
   // The pinned workspace also scopes download links in assistant replies.
@@ -221,7 +224,7 @@ export function Conversation({
                   node = <ToolRun key={item.key} tools={item.tools as Extract<TranscriptItem, { kind: "tool" }>[]} />;
                   break;
                 case "user":
-                  node = <UserMessage key={item.key} item={item} threadId={threadId} />;
+                  node = <UserMessage key={item.key} item={item} threadId={threadId} onBranch={onBranch} />;
                   break;
                 case "assistant": {
                   const canReplyToMessage = !item.incomplete && isLatestAssistantMessage(item.key, transcript.items);

@@ -1,6 +1,6 @@
 # Architecture
 
-Open Duet is a local-first agent workspace. A web or Electron client talks to
+Suparagent is a local-first agent workspace. A web or Electron client talks to
 one FastAPI backend, which owns conversations, approval decisions, agent data,
 and routine scheduling.
 

@@ -81,7 +81,7 @@ export function UsageView() {
       const url = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
       const link = document.createElement("a");
       link.href = url;
-      link.download = `open-dots-usage-${month}.csv`;
+      link.download = `suparagent-usage-${month}.csv`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
       toast(`Exported ${month} as CSV`);

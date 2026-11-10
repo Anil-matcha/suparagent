@@ -1,6 +1,6 @@
 # Engines
 
-Open Duet runs a conversation's turns on an **engine**: the program or service
+Suparagent runs a conversation's turns on an **engine**: the program or service
 that writes the answer and, for some engines, runs tools. Every engine sits
 behind one adapter contract, so the thread runtime, approvals, events and the
 UI do not know which engine they are talking to.
@@ -80,7 +80,7 @@ expanded size against available free space before unpacking.
 Sign in with an eligible personal Google account. This connection does not use
 Gemini API keys or Enterprise authentication. Google's [authentication guide](https://www.antigravity.google/docs/install?tab=cli)
 describes the available account routes; [model availability](https://www.antigravity.google/docs/models/)
-depends on the account's plan. Open Dots discovers the account's models after
+depends on the account's plan. Suparagent discovers the account's models after
 sign-in. **Refresh models** reloads them; **Check again** reads the saved
 catalog without starting another OAuth flow. Select Antigravity and one of
 these models in the normal chat or agent picker. Unsupported model IDs fail
@@ -106,7 +106,7 @@ removed from the child environment. OAuth URLs stay in pending setup memory;
 native stderr is discarded and callback codes are excluded from request logs.
 
 Every new or resumed session must confirm `mode=default` before a prompt.
-Open Dots handles the resulting permission requests, including plan-mode
+Suparagent handles the resulting permission requests, including plan-mode
 denials and workspace-limited accept-edits. Native sessions resume through
 `session/resume`; Stop sends `session/cancel`. Images, agent computers and
 Enterprise sign-in are not enabled for this engine.
@@ -209,7 +209,7 @@ defaults (no capabilities, any model, a probe derived from `status()`).
 With Claude Code installed on the server, choose **Sign in to Claude** in
 Settings → Engines. Open the provider link, sign in with your own account, and
 paste the code shown by the provider page into Settings. The installed,
-unmodified CLI handles authentication. Open Duet passes the code once over its
+unmodified CLI handles authentication. Suparagent passes the code once over its
 private input pipe; it does not save it. Success requires `claude auth status
 --json` to report a signed-in account, and an existing working account is kept.
 
@@ -334,9 +334,9 @@ differences:
   A free-tier key with no chosen model uses the first available free model.
   Other keys require a chosen model; the app does not select a paid model.
 - Requests to openrouter.ai also carry OpenRouter's optional app-attribution
-  headers, `HTTP-Referer: https://github.com/Anil-matcha/open-duet` and
-  `X-Title: Open Duet`. They tell OpenRouter that this account's traffic comes
-  from Open Duet (OpenRouter uses them for its public app rankings), and they
+  headers, `HTTP-Referer: https://github.com/Anil-matcha/suparagent` and
+  `X-Title: Suparagent`. They tell OpenRouter that this account's traffic comes
+  from Suparagent (OpenRouter uses them for its public app rankings), and they
   are sent only to openrouter.ai.
 - Chat only, like any OpenAI-compatible endpoint: no tools, images or
   computers. HTTP 402 is a credit limit. A `free-models-per-day` refusal is a
@@ -419,11 +419,11 @@ Limits are per backend process (a restart forgets them until the next refusal).
 
 Gemini CLI (`gemini`) and Cursor (`cursor`) use the same ACP transport, approval gate, workspace, transcript replay, resume and Stop handling as the custom ACP engine. Install and sign-in advice appears in Settings → Engines. Program overrides contain the program only (for example `npx -y @google/gemini-cli`); the preset adds the ACP arguments itself. Optional saved keys are encrypted, write-only, and injected only into that engine's process. The engine's own shell commands can read those keys.
 
-- **Gemini CLI:** install `npm install -g @google/gemini-cli`, run `gemini` to sign in or save an API key. Starts with `--acp --approval-mode default`, plus `-m` for a selected model. Existing refreshable Google login files and API keys are detected locally. Vertex configuration must be opted in through `OPEN_DOTS_ENGINE_ENV`; consumer login availability depends on Google's current policy. Static model suggestions accept custom IDs.
+- **Gemini CLI:** install `npm install -g @google/gemini-cli`, run `gemini` to sign in or save an API key. Starts with `--acp --approval-mode default`, plus `-m` for a selected model. Existing refreshable Google login files and API keys are detected locally. Vertex configuration must be opted in through `SUPARAGENT_ENGINE_ENV`; consumer login availability depends on Google's current policy. Static model suggestions accept custom IDs.
 - **Cursor:** install from [Cursor's CLI documentation](https://cursor.com/docs/cli), then `cursor-agent login` or save a key. Starts with `cursor-agent acp`, without automatic approval flags. Credentials suppress ACP browser authentication. Status and model discovery use bounded CLI commands. A selected model must be offered by the session and accepted by `session/set_model`; refusal ends the turn before the prompt. Cursor's `cursor/ask_question` extension is answered as unsupported, so it cannot hang waiting for a question card.
 - **OpenCode (experimental):** install `npm install -g opencode-ai` and run `opencode auth login`. Discovery uses `opencode models` without creating a session. A model must be offered by the session's configuration and confirmed by `session/set_config_option`. Additional saved provider-key maps are not implemented. OpenCode strips ambient foreign API keys and configuration overrides, pins project configuration off, and supplies `OPENCODE_PERMISSION` asking for every tool (edit/bash denied in plan mode, all tools denied when tools are off). This override has **not** been proven against hostile real CLI configuration; OpenCode is disabled by default.
 
-`OPEN_DOTS_PRESET_ENGINES` selects enabled presets by comma-separated ID. Unset enables `gemini,cursor,openrouter,antigravity`. An empty value disables all presets; add `opencode` to also enable experimental OpenCode. Include `antigravity` when setting an explicit list to show Google account setup. Custom ACP and OpenAI-compatible engines are always registered. Preset CLIs are not supported on Windows yet.
+`SUPARAGENT_PRESET_ENGINES` selects enabled presets by comma-separated ID. Unset enables `gemini,cursor,openrouter,antigravity`. An empty value disables all presets; add `opencode` to also enable experimental OpenCode. Include `antigravity` when setting an explicit list to show Google account setup. Custom ACP and OpenAI-compatible engines are always registered. Preset CLIs are not supported on Windows yet.
 
 For ask and accept-edits modes, Gemini always uses `--approval-mode default`, Cursor receives no automatic approval flag, and OpenCode receives ask rules. Every permission request uses the existing approval gate; accept-edits only auto-allows edits whose listed locations all lie inside the workspace. Plan mode and tools-off refuse permission requests. A vendor's own configuration can allow tools without sending a request, especially Cursor allow rules; these presets do not provide a filesystem sandbox. Review CLI configuration before enabling tools.
 

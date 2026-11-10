@@ -9,11 +9,11 @@
     python -m app.server --ui-dir ../frontend/out --port 8000
 
 Settings (bootstrap class, D-008: needed before the database is opened):
-    OPEN_DOTS_HOST   address to listen on, default 127.0.0.1
-    OPEN_DOTS_PORT   port, default 8000
-    OPEN_DOTS_UI_DIR folder holding the exported pages (a build with a relative API path)
-    OPEN_DOTS_BASE_PATH  optional prefix the pages are served under, e.g. /app (build with OD_BASE_PATH)
-    OPEN_DOTS_ALLOW_PUBLIC_BIND=1   needed to listen on anything but this machine's own address
+    SUPARAGENT_HOST   address to listen on, default 127.0.0.1
+    SUPARAGENT_PORT   port, default 8000
+    SUPARAGENT_UI_DIR folder holding the exported pages (a build with a relative API path)
+    SUPARAGENT_BASE_PATH  optional prefix the pages are served under, e.g. /app (build with OD_BASE_PATH)
+    SUPARAGENT_ALLOW_PUBLIC_BIND=1   needed to listen on anything but this machine's own address
     TRUSTED_PROXIES  addresses, besides loopback, whose X-Forwarded-For and X-Forwarded-Proto are
                      believed (a proxy in another container or machine). Name the proxy's own address,
                      for example 172.31.250.10: a network is every container on it. Not *, not /0.
@@ -71,10 +71,10 @@ def _is_loopback(host: str) -> bool:
 
 def read_options(argv: Sequence[str], environ: Mapping[str, str]) -> ServerOptions:
     parser = argparse.ArgumentParser(prog="python -m app.server", description="Run the backend and serve the web pages.")
-    parser.add_argument("--host", default=environ.get("OPEN_DOTS_HOST", "127.0.0.1"))
-    parser.add_argument("--port", default=environ.get("OPEN_DOTS_PORT", "8000"))
-    parser.add_argument("--ui-dir", default=environ.get("OPEN_DOTS_UI_DIR", ""))
-    parser.add_argument("--base-path", default=environ.get("OPEN_DOTS_BASE_PATH", ""))
+    parser.add_argument("--host", default=environ.get("SUPARAGENT_HOST", "127.0.0.1"))
+    parser.add_argument("--port", default=environ.get("SUPARAGENT_PORT", "8000"))
+    parser.add_argument("--ui-dir", default=environ.get("SUPARAGENT_UI_DIR", ""))
+    parser.add_argument("--base-path", default=environ.get("SUPARAGENT_BASE_PATH", ""))
     try:
         args = parser.parse_args(list(argv))
     except SystemExit as exc:  # argparse already printed the usage
@@ -90,21 +90,21 @@ def read_options(argv: Sequence[str], environ: Mapping[str, str]) -> ServerOptio
     host = args.host.strip()
     if not host:
         raise ServerConfigError("The host is empty. Use 127.0.0.1 behind a reverse proxy on this machine.")
-    if not _is_loopback(host) and environ.get("OPEN_DOTS_ALLOW_PUBLIC_BIND") != "1":
+    if not _is_loopback(host) and environ.get("SUPARAGENT_ALLOW_PUBLIC_BIND") != "1":
         raise ServerConfigError(
             f"Refusing to listen on {host}: the server is meant to sit behind a reverse proxy on this machine. "
-            "Use 127.0.0.1, or set OPEN_DOTS_ALLOW_PUBLIC_BIND=1 if a container or a private network needs it."
+            "Use 127.0.0.1, or set SUPARAGENT_ALLOW_PUBLIC_BIND=1 if a container or a private network needs it."
         )
 
     if not args.ui_dir:
         raise ServerConfigError(
-            "No web pages to serve. Set OPEN_DOTS_UI_DIR (or --ui-dir) to the folder made by the web build."
+            "No web pages to serve. Set SUPARAGENT_UI_DIR (or --ui-dir) to the folder made by the web build."
         )
     ui_dir = Path(args.ui_dir).expanduser().resolve()
     if not (ui_dir / "index.html").is_file():
         raise ServerConfigError(
             f"{ui_dir} has no index.html. Build the pages first: set NEXT_PUBLIC_API_BASE_URL=/api/v1 and "
-            "OD_STATIC_EXPORT=1, run `npm run build` in frontend/, and point OPEN_DOTS_UI_DIR at the `out` folder."
+            "OD_STATIC_EXPORT=1, run `npm run build` in frontend/, and point SUPARAGENT_UI_DIR at the `out` folder."
         )
     try:
         trusted = proxies.parse(environ.get(proxies.ENV_NAME))
@@ -140,10 +140,10 @@ def migrate() -> int:
     try:
         report = prepare_database()
     except KeyMismatch as exc:
-        print(f"Open Duet server: {exc}", file=sys.stderr)
+        print(f"Suparagent server: {exc}", file=sys.stderr)
         return EXIT_KEY_MISMATCH
     except DatabaseRefused as exc:
-        print(f"Open Duet server: {exc}", file=sys.stderr)
+        print(f"Suparagent server: {exc}", file=sys.stderr)
         return EXIT_DATABASE
     if report.backup:
         print(f"Copied the database to {report.backup} before updating it.")
@@ -193,12 +193,12 @@ def main(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None = 
     try:
         options = read_options(arguments, os.environ if environ is None else environ)
     except ServerConfigError as exc:
-        print(f"Open Duet server: {exc}", file=sys.stderr)
+        print(f"Suparagent server: {exc}", file=sys.stderr)
         return EXIT_USAGE
 
     problem = check_schema()
     if problem:
-        print(f"Open Duet server: {problem}", file=sys.stderr)
+        print(f"Suparagent server: {problem}", file=sys.stderr)
         return EXIT_DATABASE
 
     import uvicorn

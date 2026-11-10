@@ -10,7 +10,7 @@ def canonical_workspace(root: str = "") -> Path:
     if mine is not None:
         # An account never chooses a folder on the host: its workspace is always its own.
         return (mine / "workspace").resolve()
-    base = Path(root).expanduser() if root else Path.home() / ".open-dots" / "local"
+    base = Path(root).expanduser() if root else Path.home() / ".suparagent" / "local"
     # resolve() uses the filesystem's spelling on Windows. Lowercasing the
     # entire string would change the cwd spelling used by existing CLI sessions.
     return (base / "workspace").resolve()

@@ -13,10 +13,10 @@ const DIGEST = `sha256:${crypto.createHash("sha256").update(BYTES).digest("hex")
 function release(tag, overrides = {}) {
   return {
     tag_name: tag,
-    html_url: `https://github.com/Anil-matcha/open-duet/releases/tag/${tag}`,
+    html_url: `https://github.com/Anil-matcha/suparagent/releases/tag/${tag}`,
     assets: [
-      { name: `Open-Duet-${tag.slice(1)}-arm64.dmg`, browser_download_url: `https://github.com/x/${tag}.dmg`, size: BYTES.length, digest: DIGEST },
-      { name: `Open-Duet-Setup-${tag.slice(1)}.exe`, browser_download_url: `https://github.com/x/${tag}.exe`, size: BYTES.length, digest: DIGEST },
+      { name: `Suparagent-${tag.slice(1)}-arm64.dmg`, browser_download_url: `https://github.com/x/${tag}.dmg`, size: BYTES.length, digest: DIGEST },
+      { name: `Suparagent-Setup-${tag.slice(1)}.exe`, browser_download_url: `https://github.com/x/${tag}.exe`, size: BYTES.length, digest: DIGEST },
     ],
     ...overrides,
   };
@@ -63,11 +63,11 @@ test("newestRelease skips drafts and non-version tags", () => {
 
 test("pickAsset matches the platform installer only", () => {
   const r = release("v0.3.0");
-  assert.equal(pickAsset(r, "darwin", "arm64").name, "Open-Duet-0.3.0-arm64.dmg");
-  assert.equal(pickAsset(r, "win32", "x64").name, "Open-Duet-Setup-0.3.0.exe");
+  assert.equal(pickAsset(r, "darwin", "arm64").name, "Suparagent-0.3.0-arm64.dmg");
+  assert.equal(pickAsset(r, "win32", "x64").name, "Suparagent-Setup-0.3.0.exe");
   assert.equal(pickAsset(r, "darwin", "x64"), null);
   assert.equal(pickAsset(r, "linux", "x64"), null);
-  const odd = release("v0.3.0", { assets: [{ name: "../Open-Duet-0.3.0-arm64.dmg", browser_download_url: "https://github.com/x" }] });
+  const odd = release("v0.3.0", { assets: [{ name: "../Suparagent-0.3.0-arm64.dmg", browser_download_url: "https://github.com/x" }] });
   assert.equal(pickAsset(odd, "darwin", "arm64"), null);
 });
 
@@ -109,9 +109,9 @@ test("download verifies the digest, moves the file to Downloads and install open
   const downloaded = await updater.download();
   assert.equal(downloaded.status, "downloaded");
   assert.equal(downloaded.verified, true);
-  const target = path.join(root, "Downloads", "Open-Duet-0.3.0-arm64.dmg");
+  const target = path.join(root, "Downloads", "Suparagent-0.3.0-arm64.dmg");
   assert.deepEqual(fs.readFileSync(target), BYTES);
-  assert.equal(fs.existsSync(path.join(root, "cache", "Open-Duet-0.3.0-arm64.dmg.part")), false);
+  assert.equal(fs.existsSync(path.join(root, "cache", "Suparagent-0.3.0-arm64.dmg.part")), false);
   const installing = await updater.install();
   assert.equal(installing.status, "installing");
   assert.deepEqual(opened, [target]);
@@ -123,7 +123,7 @@ test("a digest mismatch deletes the download and reports an integrity failure", 
   const state = await updater.download();
   assert.equal(state.status, "error");
   assert.match(state.message, /failed verification/);
-  assert.equal(fs.existsSync(path.join(root, "Downloads", "Open-Duet-0.3.0-arm64.dmg")), false);
+  assert.equal(fs.existsSync(path.join(root, "Downloads", "Suparagent-0.3.0-arm64.dmg")), false);
   assert.equal(fs.readdirSync(path.join(root, "cache")).length, 0);
 });
 

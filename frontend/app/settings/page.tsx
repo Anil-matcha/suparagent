@@ -2,7 +2,7 @@ import { AuthGate } from "@/components/AuthGate";
 import { SettingsShell } from "@/components/settings/SettingsShell";
 import { GeneralSettings } from "@/components/settings/GeneralSettings";
 
-export const metadata = { title: "Settings · Open Duet" };
+export const metadata = { title: "Settings · Suparagent" };
 
 export default function Page() {
   return (

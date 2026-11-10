@@ -20,7 +20,7 @@ import { useT } from "@/lib/use-i18n";
 type View = "board" | "month" | "week" | "list";
 type Editor = { item: WorkItem | null; seedDate?: string; seedColumn?: number };
 const control = "rounded-field border border-line bg-surface px-2 py-1.5 text-sm disabled:opacity-50";
-const dragType = "application/x-open-dots-work-item";
+const dragType = "application/x-suparagent-work-item";
 const priorities = ["low", "normal", "high", "urgent"] as const;
 const errorMessage = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
 

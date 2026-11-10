@@ -54,7 +54,7 @@ export function EngineSettings({ onEnginesChanged }: { onEnginesChanged?: (engin
       setEngines(items);
       engineList.current = items;
       if (!userChangedExpansion.current) setExpandedEngines(initialExpandedEngines(items, preferredEngine.current));
-      setDesktop(!!window.openDots);
+      setDesktop(!!window.suparagent);
       onEnginesChanged?.(items);
       setDrafts((previous) => ({ ...Object.fromEntries(items.map((item) => [item.id, engineDraft(item)])), ...previous }));
       setError(null);

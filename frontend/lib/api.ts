@@ -475,6 +475,8 @@ export type ComputerSettings = {
 
 // A named agent: instructions, model, workspace and how much it asks first.
 // Conversations started with it keep using it.
+export type ClaudeAccount = { id: string; label: string; created_at: string | null };
+
 export type Agent = {
   id: number;
   name: string;
@@ -504,6 +506,8 @@ export type Agent = {
   // refuses it for a limit before starting on it (docs/ENGINES.md).
   fallback_provider?: string | null;
   fallback_model?: string | null;
+  // A named Claude account id; null or missing is the default account.
+  claude_account?: string | null;
   archived_at: string | null;
   created_at?: string;
   updated_at?: string;
@@ -522,7 +526,7 @@ export type AgentMigrationFileProfilePreview = {
 };
 
 export type AgentMigrationFilePreview = {
-  format: "open-dots.agent-migration";
+  format: "suparagent.agent-migration";
   version: number;
   source: "grok" | "hermes";
   profiles: AgentMigrationFileProfilePreview[];
@@ -561,6 +565,8 @@ export type AgentInput = {
   use_helper?: boolean;
   fallback_provider?: string | null;
   fallback_model?: string | null;
+  // A named Claude account id; null or missing is the default account.
+  claude_account?: string | null;
   // Update only: connected apps this agent may read, {app: "read"}; null or {} for none.
   connector_scopes?: Record<string, string> | null;
   // Update only: exact connected account IDs this agent may use, keyed by app.
@@ -719,6 +725,8 @@ export type MemoryUpkeepStatus = {
 // Installation-wide: the same for every agent.
 export type MemorySettings = {
   learn_from_rooms: boolean;
+  // Keep recent Claude and Codex chats cached with a tiny message every few minutes (off by default).
+  keep_cache_warm?: boolean;
   tidy_hour: number;
   helper_models: Record<string, string>;
   // The saved helper, and the one in force (the environment can set or switch it off).
@@ -780,6 +788,8 @@ export type Thread = {
   effort?: string | null;
   // The folder Claude works in; saved command rules can be tied to it.
   workspace_path?: string | null;
+  // The conversation this one was branched from (edit and resend), if any.
+  branched_from_thread_id?: number | null;
   // The computer this conversation's tools run in (its agent's), or null.
   computer?: ComputerSummary | null;
   // new | active | broken | none. "broken": the Claude session cannot be found
@@ -903,6 +913,18 @@ export type RoutineRun = {
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
+};
+
+// A routine run paused on questions, for the agent's own chat. Answer through
+// answerThreadApproval with thread_id.
+export type WaitingRoutineRun = {
+  run_id: number;
+  routine_id: number;
+  routine_name: string;
+  thread_id: number;
+  waiting_since: string | null;
+  approval_timeout_minutes: number;
+  approvals: { id: string; tool: string; summary: string | null; kind: string | null; input: Record<string, unknown>; created_at: string }[];
 };
 
 // Routine connector grants are exact read tools, each bound to one connected account.
@@ -1097,6 +1119,23 @@ export type NotificationPreferences = {
 };
 
 export const api = {
+  listImageProviders: () => request<import("./image-gen").ImageProvider[]>("/images/providers"),
+  generateImage: (body: { prompt: string; provider?: string; size?: string }) =>
+    request<import("./image-gen").GeneratedImage>("/images/generate", { method: "POST", body: JSON.stringify(body) }),
+  generatedImageUrl: (imageId: string) => requestBlobUrl(`/images/${encodeURIComponent(imageId)}`),
+  setAgentAvatar: (agentId: number, imageId: string) =>
+    request<void>(`/agents/${agentId}/avatar`, { method: "PUT", body: JSON.stringify({ image_id: imageId }) }),
+  clearAgentAvatar: (agentId: number) => request<void>(`/agents/${agentId}/avatar`, { method: "DELETE" }),
+  agentAvatarUrl: (agentId: number) => requestBlobUrl(`/agents/${agentId}/avatar`),
+  listAgentRevisions: (agentId: number) => request<import("./agent-history").AgentRevision[]>(`/agents/${agentId}/revisions`),
+  restoreAgentRevision: (agentId: number, number: number, expectedRevision: number | null) =>
+    request<Agent>(`/agents/${agentId}/revisions/${number}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ expected_revision: expectedRevision }),
+    }),
+  listWorkspaceSnapshots: (threadId: number) => request<import("./workspace-undo").WorkspaceSnapshot[]>(`/threads/${threadId}/snapshots`),
+  restoreWorkspaceSnapshot: (threadId: number, snapshotId: string) =>
+    request<import("./workspace-undo").RestoreResult>(`/threads/${threadId}/snapshots/${encodeURIComponent(snapshotId)}/restore`, { method: "POST" }),
   getVersionInfo: (refresh = false) => request<VersionInfo>(`/version${refresh ? "?refresh=true" : ""}`),
   roomExportUrl: (id: number, format: "md" | "json") => requestBlobUrl(`/rooms/${id}/export?format=${format}`),
   getNeedsYou: () => request<import("./needs-you").NeedsYouSnapshot>("/needs-you?refresh=true"),
@@ -1258,6 +1297,14 @@ export const api = {
     request<Thread[]>(`/threads${includeArchived ? "?include_archived=true" : ""}`),
 
   getThread: (threadId: number) => request<ThreadDetail>(`/threads/${threadId}`),
+
+  // Edit a past message and resend it in a new conversation that keeps the
+  // history before it. The original is not changed.
+  branchThread: (threadId: number, turnId: number, promptText: string) =>
+    request<Thread>(`/threads/${threadId}/branch`, {
+      method: "POST",
+      body: JSON.stringify({ turn_id: turnId, prompt_text: promptText }),
+    }),
 
   createThread: (agentId?: number | null, selection?: { provider?: string; model?: string | null; effort?: string | null }) =>
     request<Thread>("/threads", {
@@ -1434,6 +1481,9 @@ export const api = {
     request<SkillDoc>(`/agents/${agentId}/skills/${encodeURIComponent(name)}`),
   saveSkill: (agentId: number, name: string, body: SkillSave) =>
     request<SkillDoc>(`/agents/${agentId}/skills/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(body) }),
+  // Enabled skills whose trigger phrase appears in the text. Suggests only; nothing is picked or run.
+  suggestSkills: (agentId: number, text: string) =>
+    request<SkillSummary[]>(`/agents/${agentId}/skills/suggest`, { method: "POST", body: JSON.stringify({ text }) }),
   deleteSkill: (agentId: number, name: string) =>
     request<void>(`/agents/${agentId}/skills/${encodeURIComponent(name)}`, { method: "DELETE" }),
   learnSkill: (agentId: number, source: SkillLearnSource) =>
@@ -1609,6 +1659,7 @@ export const api = {
   deleteRoutine: (id: number) => request<void>(`/routines/${id}`, { method: "DELETE" }),
   pauseRoutine: (id: number) => request<Routine>(`/routines/${id}/pause`, { method: "POST" }),
   resumeRoutine: (id: number) => request<Routine>(`/routines/${id}/resume`, { method: "POST" }),
+  listWaitingRoutineRuns: (agentId: number) => request<WaitingRoutineRun[]>(`/routines/waiting?agent_id=${agentId}`),
   runRoutineNow: (id: number) => request<RoutineRun>(`/routines/${id}/run`, { method: "POST" }),
   listRoutineRuns: (id: number, limit = 50) => request<RoutineRun[]>(`/routines/${id}/runs?limit=${limit}`),
   listRoutineRunAppActions: (routineId: number, runId: number) =>
@@ -1618,6 +1669,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ schedule_kind: kind, schedule_spec: spec, timezone }),
     }),
+  listClaudeAccounts: () => request<ClaudeAccount[]>("/engines/claude/accounts"),
+  createClaudeAccount: (label: string) => request<ClaudeAccount>("/engines/claude/accounts", { method: "POST", body: JSON.stringify({ label }) }),
+  renameClaudeAccount: (id: string, label: string) => request<ClaudeAccount>(`/engines/claude/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ label }) }),
+  deleteClaudeAccount: (id: string) => request<void>(`/engines/claude/accounts/${id}`, { method: "DELETE" }),
+  startClaudeAccountLogin: (id: string) => request<{ id: string; phase: string; authorization_url?: string }>(`/engines/claude/accounts/${id}/login`, { method: "POST" }),
+  enableRoomWebhook: (id: number) => request<{ secret: string; path: string }>(`/rooms/${id}/webhook`, { method: "POST" }),
+  disableRoomWebhook: (id: number) => request<void>(`/rooms/${id}/webhook`, { method: "DELETE" }),
   enableRoutineWebhook: (id: number) => request<WebhookSecret>(`/routines/${id}/webhook`, { method: "POST" }),
   disableRoutineWebhook: (id: number) => request<Routine>(`/routines/${id}/webhook`, { method: "DELETE" }),
   // --- Multi-step Workflows ---

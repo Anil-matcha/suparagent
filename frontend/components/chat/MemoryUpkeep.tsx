@@ -299,6 +299,25 @@ export function UpkeepCard({
               </span>
             </span>
           </label>
+          <label className="flex cursor-pointer items-start gap-2">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={settings?.keep_cache_warm ?? false}
+              disabled={busy || !settings}
+              onChange={() => settings && void change({ keep_cache_warm: !settings.keep_cache_warm })}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="font-medium">Keep recent chats fast</span>
+              <span className="block text-muted">
+                Off by default. Claude and Codex remember a long chat for only a few minutes, so a chat you left for a
+                while is slow and costs more to continue. When on, up to 3 chats you used in the last 2 hours get one
+                tiny message every few minutes (it shows in the chat, uses your plan, and never runs while the chat is
+                busy). Chats you stop using are left alone after 2 hours.
+              </span>
+            </span>
+          </label>
         </>
       )}
     </div>

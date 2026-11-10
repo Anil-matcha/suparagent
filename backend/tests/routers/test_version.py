@@ -28,10 +28,10 @@ def test_compare_versions():
 
 
 def test_install_kind_and_update_command():
-    assert detect_install_kind({"OPEN_DOTS_DOCKER": "1"}) == "docker"
+    assert detect_install_kind({"SUPARAGENT_DOCKER": "1"}) == "docker"
     assert "docker compose" in get_update_command("docker")
 
-    assert detect_install_kind({"OPEN_DOTS_SERVICE": "1"}) == "service"
+    assert detect_install_kind({"SUPARAGENT_SERVICE": "1"}) == "service"
     assert "systemctl restart" in get_update_command("service")
 
     assert get_update_command("git") == "git pull && uv sync && (cd frontend && npm run build)"
@@ -52,7 +52,7 @@ async def test_read_version_endpoint(api):
 @pytest.mark.asyncio
 async def test_read_version_with_newer_release(api, monkeypatch):
     async def mock_fetch_release(client=None):
-        return "0.9.0", "https://github.com/Anil-matcha/open-duet/releases/tag/v0.9.0"
+        return "0.9.0", "https://github.com/Anil-matcha/suparagent/releases/tag/v0.9.0"
 
     monkeypatch.setattr(version_service, "fetch_latest_release", mock_fetch_release)
 
@@ -61,13 +61,13 @@ async def test_read_version_with_newer_release(api, monkeypatch):
     data = res.json()
     assert data["update_available"] is True
     assert data["latest_version"] == "0.9.0"
-    assert data["release_notes_url"] == "https://github.com/Anil-matcha/open-duet/releases/tag/v0.9.0"
+    assert data["release_notes_url"] == "https://github.com/Anil-matcha/suparagent/releases/tag/v0.9.0"
 
 
 @pytest.mark.asyncio
 async def test_read_version_with_same_release(api, monkeypatch):
     async def mock_fetch_release(client=None):
-        return "0.8.1", "https://github.com/Anil-matcha/open-duet/releases/tag/v0.8.1"
+        return "0.8.1", "https://github.com/Anil-matcha/suparagent/releases/tag/v0.8.1"
 
     monkeypatch.setattr(version_service, "fetch_latest_release", mock_fetch_release)
 

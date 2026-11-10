@@ -60,7 +60,7 @@ async function launchApp({ dataDir, env = {}, mode = "start", viaScript = false,
   const binary = findElectronBinary(paths.desktop);
   if (!binary) throw new Error("Electron is not installed. Run: npm run setup");
   const debugPort = await freePort();
-  const environment = { ...process.env, OPEN_DOTS_DATA_DIR: dataDir, ...env };
+  const environment = { ...process.env, SUPARAGENT_DATA_DIR: dataDir, ...env };
   if (!viaScript) delete environment.ELECTRON_RUN_AS_NODE;
   const flag = `--remote-debugging-port=${debugPort}`;
   const child = viaScript

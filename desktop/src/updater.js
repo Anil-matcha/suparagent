@@ -9,7 +9,7 @@ const path = require("node:path");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 
-const RELEASES_URL = "https://api.github.com/repos/Anil-matcha/open-duet/releases?per_page=30";
+const RELEASES_URL = "https://api.github.com/repos/Anil-matcha/suparagent/releases?per_page=30";
 const ASSET_NAME = /^[A-Za-z0-9._-]{1,120}$/;
 
 function parseVersion(text) {
@@ -51,7 +51,7 @@ function newestRelease(releases) {
 
 // The installer built for this platform by `npm run package` (see package.json artifactName).
 function pickAsset(release, platform, arch) {
-  const wanted = platform === "darwin" && arch === "arm64" ? /^Open-Duet-.+-arm64\.dmg$/ : platform === "win32" && arch === "x64" ? /^Open-Duet-Setup-.+\.exe$/ : null;
+  const wanted = platform === "darwin" && arch === "arm64" ? /^Suparagent-.+-arm64\.dmg$/ : platform === "win32" && arch === "x64" ? /^Suparagent-Setup-.+\.exe$/ : null;
   if (!wanted) return null;
   return (release.assets ?? []).find((asset) => ASSET_NAME.test(asset?.name ?? "") && wanted.test(asset.name) && typeof asset.browser_download_url === "string") ?? null;
 }
@@ -94,7 +94,7 @@ function createUpdater({ currentVersion, platform, arch, fetchImpl = fetch, cach
     // A quiet background check keeps what the window shows until it has an answer.
     if (manual) set({ status: "checking", message: undefined });
     try {
-      const response = await fetchImpl(RELEASES_URL, { headers: { Accept: "application/vnd.github+json", "User-Agent": "open-duet-desktop" } });
+      const response = await fetchImpl(RELEASES_URL, { headers: { Accept: "application/vnd.github+json", "User-Agent": "suparagent-desktop" } });
       if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
       const newest = newestRelease(await response.json());
       if (!newest || compareVersions(newest.tag_name, currentVersion) <= 0) {
@@ -132,7 +132,7 @@ function createUpdater({ currentVersion, platform, arch, fetchImpl = fetch, cach
       if (!githubHost(asset.browser_download_url)) throw new Error("The installer is not hosted on GitHub.");
       set({ status: "downloading", percent: 0, message: undefined });
       fsImpl.mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
-      const response = await fetchImpl(asset.browser_download_url, { headers: { "User-Agent": "open-duet-desktop" } });
+      const response = await fetchImpl(asset.browser_download_url, { headers: { "User-Agent": "suparagent-desktop" } });
       if (!response.ok || !response.body) throw new Error(`GitHub answered ${response.status}`);
       if (response.url && !githubHost(response.url)) throw new Error("The download was redirected away from GitHub.");
       const hash = crypto.createHash("sha256");
@@ -175,7 +175,7 @@ function createUpdater({ currentVersion, platform, arch, fetchImpl = fetch, cach
     try {
       const failure = await openFile(state.file);
       if (failure) throw new Error(failure);
-      set({ status: "installing", message: platform === "darwin" ? "The installer opened. Drag Open Duet to Applications, then reopen the app." : "The installer opened. Follow its steps; Open Duet will need to be closed." });
+      set({ status: "installing", message: platform === "darwin" ? "The installer opened. Drag Suparagent to Applications, then reopen the app." : "The installer opened. Follow its steps; Suparagent will need to be closed." });
     } catch (error) {
       set({ status: "error", message: describeError(error) });
     } finally {

@@ -6,7 +6,7 @@
 export type SeenMap = Record<string, string>;
 type ThreadLike = { id: number; updated_at: string; archived_at: string | null };
 
-const KEY = "open-duet:thread-seen";
+const KEY = "suparagent:thread-seen";
 
 export function loadSeen(): SeenMap {
   try {

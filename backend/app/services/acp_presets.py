@@ -224,7 +224,7 @@ class OpenCodeAdapter(PresetAdapter):
     default_program = "opencode"
     credential_names = ("OPENCODE_API_KEY",)
     state_dirs = ("~/.local/share/opencode", "~/.config/opencode", "~/.cache/opencode")
-    setup = {"install": "npm install -g opencode-ai", "sign_in": "opencode auth login", "docs_url": "https://opencode.ai/docs/", "credential": "either", "notes": ["Experimental: enable with OPEN_DOTS_PRESET_ENGINES=opencode. Permission overrides require a real CLI adversarial configuration check before default enablement.", "Windows presets are not supported yet."]}
+    setup = {"install": "npm install -g opencode-ai", "sign_in": "opencode auth login", "docs_url": "https://opencode.ai/docs/", "credential": "either", "notes": ["Experimental: enable with SUPARAGENT_PRESET_ENGINES=opencode. Permission overrides require a real CLI adversarial configuration check before default enablement.", "Windows presets are not supported yet."]}
 
     def mode_args(self, ctx, config):
         return ["acp"]

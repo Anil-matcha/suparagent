@@ -1,4 +1,4 @@
-"""Version and update detection for Open Duet (BL-64).
+"""Version and update detection for Suparagent (BL-64).
 
 Detects current version, git commit, installation mode (Docker, service/systemd,
 git checkout, or source), checks GitHub releases for newer versions, and formats
@@ -17,7 +17,7 @@ from typing import Mapping
 import httpx
 
 APP_VERSION = "0.8.3"
-RELEASES_URL = "https://api.github.com/repos/Anil-matcha/open-duet/releases?per_page=10"
+RELEASES_URL = "https://api.github.com/repos/Anil-matcha/suparagent/releases?per_page=10"
 CACHE_TTL_SECONDS = 3600  # 1 hour in-memory cache
 
 SEMVER_REGEX = re.compile(
@@ -137,15 +137,15 @@ def get_git_commit(root: Path | None = None) -> str | None:
 
 
 def detect_install_kind(environ: Mapping[str, str] | None = None) -> str:
-    """Detects whether Open Duet is running via Docker, systemd service, git checkout, or source."""
+    """Detects whether Suparagent is running via Docker, systemd service, git checkout, or source."""
     env = os.environ if environ is None else environ
     if (
-        env.get("OPEN_DOTS_DOCKER")
+        env.get("SUPARAGENT_DOCKER")
         or os.path.exists("/.dockerenv")
         or env.get("DOCKER_CONTAINER")
     ):
         return "docker"
-    if env.get("OPEN_DOTS_SERVICE") or env.get("INVOCATION_ID"):
+    if env.get("SUPARAGENT_SERVICE") or env.get("INVOCATION_ID"):
         return "service"
 
     root = find_project_root()
@@ -160,7 +160,7 @@ def get_update_command(install_kind: str) -> str:
     if install_kind == "docker":
         return "git pull && docker compose build && docker compose up -d"
     elif install_kind == "service":
-        return "git pull && uv sync && (cd frontend && npm run build) && sudo systemctl restart open-dots"
+        return "git pull && uv sync && (cd frontend && npm run build) && sudo systemctl restart suparagent"
     elif install_kind == "git":
         return "git pull && uv sync && (cd frontend && npm run build)"
     return "git pull && uv sync && (cd frontend && npm run build)"
@@ -196,7 +196,7 @@ async def fetch_latest_release(
         resp = await client.get(
             RELEASES_URL,
             headers={
-                "User-Agent": "open-duet-version-checker",
+                "User-Agent": "suparagent-version-checker",
                 "Accept": "application/vnd.github.v3+json",
             },
         )
@@ -256,13 +256,13 @@ async def get_version_info(
         latest_version = latest_tag
         notes_url = (
             release_url
-            or f"https://github.com/Anil-matcha/open-duet/releases/tag/v{latest_tag}"
+            or f"https://github.com/Anil-matcha/suparagent/releases/tag/v{latest_tag}"
         )
     else:
         # If GitHub is unreachable, fallback safely
         latest_version = None
         update_available = False
-        notes_url = "https://github.com/Anil-matcha/open-duet/releases"
+        notes_url = "https://github.com/Anil-matcha/suparagent/releases"
 
     info = VersionInfo(
         current_version=current_ver,

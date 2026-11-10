@@ -32,7 +32,7 @@ test("setCachedVersionInfoForTest sets cached version info", () => {
     update_available: true,
     install_kind: "git",
     update_command: "git pull && uv sync",
-    release_notes_url: "https://github.com/Anil-matcha/open-duet/releases",
+    release_notes_url: "https://github.com/Anil-matcha/suparagent/releases",
   };
   setCachedVersionInfoForTest(sample);
   setCachedVersionInfoForTest(null);

@@ -29,7 +29,7 @@ export function HistoryExport() {
       const url = URL.createObjectURL(await res.blob());
       const link = document.createElement("a");
       link.href = url;
-      link.download = `open-dots-history-${new Date().toISOString().slice(0, 10)}.zip`;
+      link.download = `suparagent-history-${new Date().toISOString().slice(0, 10)}.zip`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 0);
       toast("Export saved to your downloads.");

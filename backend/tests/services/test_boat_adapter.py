@@ -114,8 +114,8 @@ async def test_a_turn_runs_in_the_accounts_box_and_streams_events():
     assert sink.events[0][1]["name"] == "Bash" and sink.events[1][1]["output"] == "a.txt"
     box, command = boxes.commands[0]
     assert box == "bx_00000001"
-    assert command.startswith("mkdir -p open-dots-work && cd open-dots-work && claude -p ")
-    assert boxes.files[(box, ".open-dots/prompt-11.txt")] == "say hello"  # the prompt never goes on the command line
+    assert command.startswith("mkdir -p suparagent-work && cd suparagent-work && claude -p ")
+    assert boxes.files[(box, ".suparagent/prompt-11.txt")] == "say hello"  # the prompt never goes on the command line
     assert "say hello" not in command
 
 

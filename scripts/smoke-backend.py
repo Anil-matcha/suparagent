@@ -58,7 +58,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--keep", action="store_true", help="keep the scratch folder")
     args = parser.parse_args()
-    root = Path(tempfile.mkdtemp(prefix="open-dots-smoke-"))
+    root = Path(tempfile.mkdtemp(prefix="suparagent-smoke-"))
     b = Backend(root / "backend")
     owner = None
     try:

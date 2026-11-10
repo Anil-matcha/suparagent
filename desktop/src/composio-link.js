@@ -19,10 +19,10 @@ function validateComposioLinkUrl(raw) {
 }
 
 function registerComposioLink({ ipcMain, openExternal, getWindow, getOrigin }) {
-  ipcMain.handle("open-dots:open-composio-link", async (event, raw) => {
+  ipcMain.handle("suparagent:open-composio-link", async (event, raw) => {
     const window = getWindow();
     if (!window || event.sender !== window.webContents || !sameOrigin(window.webContents.getURL(), getOrigin())) {
-      throw new Error("Connected apps must be opened from the Open Duet Apps page.");
+      throw new Error("Connected apps must be opened from the Suparagent Apps page.");
     }
     await openExternal(validateComposioLinkUrl(raw));
   });

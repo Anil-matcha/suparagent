@@ -24,6 +24,8 @@ from app.schemas.routine import (
     SchedulePreviewRequest,
     SchedulePreviewResponse,
     UnreadCountResponse,
+    WaitingApproval,
+    WaitingRoutineRun,
     WebhookSecretResponse,
 )
 from app.services import notification_feed
@@ -120,9 +122,9 @@ async def _one(db, routine) -> RoutineResponse:
 
 def _hook_path(routine_id: int) -> str:
     """The address to give a sender. In a hosted deployment it names the account (routers/hooks.py).
-    A configured OPEN_DOTS_WEBHOOK_BASE wins and makes the address absolute."""
-    if settings.OPEN_DOTS_WEBHOOK_BASE:
-        return f"{settings.OPEN_DOTS_WEBHOOK_BASE.rstrip('/')}/{routine_id}"
+    A configured SUPARAGENT_WEBHOOK_BASE wins and makes the address absolute."""
+    if settings.SUPARAGENT_WEBHOOK_BASE:
+        return f"{settings.SUPARAGENT_WEBHOOK_BASE.rstrip('/')}/{routine_id}"
     tenant = tenant_schema.current_tenant()
     return f"/hooks/t/{tenant[2:]}/{routine_id}" if tenant else f"/hooks/{routine_id}"
 
@@ -183,6 +185,21 @@ async def import_routines(payload: RoutineImportRequest, sch: service.RoutineSch
 async def recent_runs(limit: int = Query(50, ge=1, le=500), sch: service.RoutineScheduler = Depends(service.get_scheduler)):
     async with sch.session() as db:
         return await service.list_runs(db, sch.owner_id, limit=limit)
+
+
+@router.get("/routines/waiting", response_model=list[WaitingRoutineRun])
+async def waiting_runs(agent_id: int = Query(..., ge=1), sch: service.RoutineScheduler = Depends(service.get_scheduler)):
+    """Routine runs of one agent that are waiting for an answer, so its chat can show the question."""
+    async with sch.session() as db:
+        found = await service.waiting_for_agent(db, sch.owner_id, agent_id)
+    return [
+        WaitingRoutineRun(
+            run_id=run.id, routine_id=routine.id, routine_name=routine.name, thread_id=run.thread_id,
+            waiting_since=run.waiting_since, approval_timeout_minutes=routine.approval_timeout_minutes,
+            approvals=[WaitingApproval(id=a.id, tool=a.tool, summary=a.summary, kind=a.kind, input=a.input or {}, created_at=a.created_at) for a in approvals],
+        )
+        for routine, run, approvals in found
+    ]
 
 
 @router.get("/routines/{routine_id}", response_model=RoutineResponse)

@@ -495,6 +495,39 @@ async def list_runs(
     return list((await db.execute(query)).scalars().all())
 
 
+async def waiting_for_agent(db: AsyncSession, owner_id: str, agent_id: int) -> list[tuple[Routine, RoutineRun, list[Approval]]]:
+    """Runs of this agent's routines that are waiting for the owner, each with
+    the approvals still pending on its turn. Scoped to one owner and one agent."""
+    runs = (
+        await db.execute(
+            select(RoutineRun, Routine)
+            .join(Routine, Routine.id == RoutineRun.routine_id)
+            .where(
+                Routine.owner_id == owner_id,
+                Routine.agent_id == agent_id,
+                RoutineRun.state == "needs_input",
+                RoutineRun.thread_id.is_not(None),
+                RoutineRun.turn_id.is_not(None),
+            )
+            .order_by(RoutineRun.waiting_since, RoutineRun.id)
+        )
+    ).all()
+    found: list[tuple[Routine, RoutineRun, list[Approval]]] = []
+    for run, routine in runs:
+        pending = list(
+            (
+                await db.execute(
+                    select(Approval)
+                    .where(Approval.turn_id == run.turn_id, Approval.status == "pending")
+                    .order_by(Approval.created_at)
+                )
+            ).scalars().all()
+        )
+        if pending:
+            found.append((routine, run, pending))
+    return found
+
+
 async def latest_runs(db: AsyncSession, routine_ids: list[int]) -> dict[int, RoutineRun]:
     """The newest run of each routine (one query per routine is fine at this scale)."""
     latest: dict[int, RoutineRun] = {}
@@ -513,7 +546,7 @@ async def latest_runs(db: AsyncSession, routine_ids: list[int]) -> dict[int, Rou
 
 def export_document(routine: Routine) -> dict:
     return {
-        "kind": "open-dots.routine",
+        "kind": "suparagent.routine",
         "version": 1,
         "name": routine.name,
         "prompt": routine.prompt,
@@ -534,7 +567,7 @@ async def import_document(
 ) -> Routine:
     """An imported routine is always paused and has no webhook, so it never
     runs until a person has looked at it."""
-    if not isinstance(document, dict) or document.get("kind") != "open-dots.routine":
+    if not isinstance(document, dict) or document.get("kind") != "suparagent.routine":
         raise InvalidRoutine("Not a routine document", "invalid_document")
     data = {k: document.get(k) for k in EDITABLE if k in document}
     data["agent_id"] = agent_id

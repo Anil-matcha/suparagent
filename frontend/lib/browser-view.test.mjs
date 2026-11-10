@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buttonName, canDrive, framePoint, keyMessage, modifiers, mouseMessage, navMessage, parseServerText, retryDelayMs, textMessage, viewNote, viewState, wheelMessage } from './browser-view.ts';
+import { buttonName, canDrive, framePoint, keyMessage, modifiers, mouseMessage, navMessage, parseServerText, retryDelayMs, shouldStream, textMessage, viewNote, viewState, wheelMessage } from './browser-view.ts';
 
 const rect = { left: 10, top: 20, width: 640, height: 400 };
 const size = { w: 1280, h: 800 };
@@ -79,4 +79,13 @@ test('the plain notes name the state and only the held session warns about the 2
   assert.match(viewNote('watching'), /keeps working/);
   assert.match(viewNote('lost'), /20 seconds/);
   for (const state of ['waiting', 'starting', 'watching', 'taking', 'driving']) assert.doesNotMatch(viewNote(state), /Connection lost|20 seconds/);
+});
+
+test('watching pauses when the panel or page is hidden; a held session never pauses', () => {
+  assert.equal(shouldStream(true, true, 'watching'), true);
+  assert.equal(shouldStream(false, true, 'watching'), false);
+  assert.equal(shouldStream(true, false, 'starting'), false);
+  assert.equal(shouldStream(false, false, 'waiting'), false);
+  assert.equal(shouldStream(false, false, 'driving'), true);
+  assert.equal(shouldStream(false, true, 'taking'), true);
 });

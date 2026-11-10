@@ -25,7 +25,7 @@ def data_dir(tmp_path, monkeypatch):
 def test_outside_any_account_nothing_changes():
     assert tenant_paths.root() is None
     assert tenant_paths.contains("/anywhere")
-    assert attachments.root_dir() == Path.home() / ".open-dots" / "attachments" or settings.ATTACHMENTS_DIR
+    assert attachments.root_dir() == Path.home() / ".suparagent" / "attachments" or settings.ATTACHMENTS_DIR
 
 
 def test_every_per_account_location_is_under_that_accounts_folder(data_dir):

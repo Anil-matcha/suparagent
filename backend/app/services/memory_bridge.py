@@ -55,7 +55,7 @@ def render_hit(hit: session_search.Hit, *, with_query: bool) -> str:
 class MemoryBridge:
     def __init__(self, runtime, run):
         self.runtime, self.run = runtime, run
-        self.folder = Path(tempfile.mkdtemp(prefix=f"open-dots-memory-{run.turn_id}-"))
+        self.folder = Path(tempfile.mkdtemp(prefix=f"suparagent-memory-{run.turn_id}-"))
         self.task: asyncio.Task | None = None
         self.calls: set[asyncio.Task] = set()
         # Private one-to-one chats this turn's searches surfaced (disclosed to a room).

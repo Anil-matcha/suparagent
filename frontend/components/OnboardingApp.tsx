@@ -110,7 +110,7 @@ export function OnboardingApp() {
 
   const header = (
     <header className="flex flex-wrap items-center justify-between gap-3">
-      <Link href="/chat/" className="text-sm underline">Open Duet</Link>
+      <Link href="/chat/" className="text-sm underline">Suparagent</Link>
       <div className="flex items-center gap-2"><LanguageSelect compact /><ThemeToggle /></div>
     </header>
   );

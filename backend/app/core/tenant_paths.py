@@ -15,7 +15,7 @@ from app.db import tenant_schema
 
 def base() -> Path:
     configured = settings.TENANT_DATA_DIR.strip()
-    return (Path(configured).expanduser() if configured else Path.home() / ".open-dots" / "tenants").resolve()
+    return (Path(configured).expanduser() if configured else Path.home() / ".suparagent" / "tenants").resolve()
 
 
 def root_of(tenant_id: str) -> Path:

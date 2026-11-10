@@ -1,7 +1,7 @@
 /**
  * Desktop and browser OS notification dispatcher (BL-83).
  *
- * Supports both Electron native notifications (via `window.openDots.showNotification`)
+ * Supports both Electron native notifications (via `window.suparagent.showNotification`)
  * and web browser Notification API, respecting user category preferences and sound settings.
  */
 
@@ -17,7 +17,7 @@ type DesktopNotificationBridge = {
 
 function getDesktopBridge(): DesktopNotificationBridge | undefined {
   if (typeof window === "undefined") return undefined;
-  return (window as unknown as { openDots?: DesktopNotificationBridge }).openDots;
+  return (window as unknown as { suparagent?: DesktopNotificationBridge }).suparagent;
 }
 
 export function isDesktopApp(): boolean {
@@ -240,7 +240,7 @@ export function notifyTurnCompletion({
   if (isQuietHours(prefs)) return false;
   if (!isAppBackgrounded()) return false;
 
-  const displayName = agentName?.trim() || "Open Duet";
+  const displayName = agentName?.trim() || "Suparagent";
 
   if (status === "completed") {
     if (prefs.notify_turn_completed === false) return false;
@@ -294,7 +294,7 @@ export function notifyApprovalNeeded({
   if (isQuietHours(prefs)) return false;
   if (!isAppBackgrounded()) return false;
 
-  const displayName = agentName?.trim() || "Open Duet";
+  const displayName = agentName?.trim() || "Suparagent";
   const preview = cleanPreviewText(summary || tool) || "An action requires your approval.";
   if (prefs.sound_enabled) playNotificationSound();
   return showNotificationAlert({

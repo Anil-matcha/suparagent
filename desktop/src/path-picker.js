@@ -10,7 +10,7 @@ function trustedPickerRequest(event, window, origin, kind) {
 
 function registerPathPicker({ ipcMain, dialog, getWindow, getOrigin }) {
   let choosing = false;
-  ipcMain.handle("open-dots:choose-path", async (event, kind) => {
+  ipcMain.handle("suparagent:choose-path", async (event, kind) => {
     const window = getWindow();
     if (!trustedPickerRequest(event, window, getOrigin(), kind)) throw new Error("Path selection is only available in Settings.");
     if (choosing) return null;

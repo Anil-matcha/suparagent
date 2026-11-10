@@ -10,7 +10,7 @@ export function NativeComputer({ agent, supported }: { agent: number; supported:
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let alive = true;
-    const read = () => void window.openDots?.nativeControl({ method: "status", agent }).then(value => { if (alive) setStatus(value as NativeStatus); }).catch(() => {});
+    const read = () => void window.suparagent?.nativeControl({ method: "status", agent }).then(value => { if (alive) setStatus(value as NativeStatus); }).catch(() => {});
     read();
     const timer = setInterval(read, 3000);
     return () => { alive = false; clearInterval(timer); };
@@ -19,8 +19,8 @@ export function NativeComputer({ agent, supported }: { agent: number; supported:
   async function act(method: NativeRequest["method"]) {
     setBusy(true); setError(null);
     try {
-      await window.openDots?.nativeControl({ method, agent });
-      const value = await window.openDots?.nativeControl({ method: "status", agent });
+      await window.suparagent?.nativeControl({ method, agent });
+      const value = await window.suparagent?.nativeControl({ method: "status", agent });
       if (value) setStatus(value as NativeStatus);
     } catch (e) { setError(e instanceof Error ? e.message : "Native desktop unavailable."); }
     finally { setBusy(false); }

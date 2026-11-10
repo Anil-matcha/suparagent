@@ -99,7 +99,7 @@ def log_dir() -> Path:
         return desktop.data_dir / "decisions"
     if settings.DECISION_LOG_DIR.strip():
         return Path(settings.DECISION_LOG_DIR).expanduser()
-    return Path.home() / ".open-dots" / "decisions"
+    return Path.home() / ".suparagent" / "decisions"
 
 
 def _next_id() -> str:

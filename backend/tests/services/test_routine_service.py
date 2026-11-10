@@ -296,6 +296,33 @@ async def test_answering_the_parked_request_resumes_the_run(scheduler, sessions,
     assert finished.waited_seconds >= 30 and finished.waiting_since is None
 
 
+async def test_a_waiting_run_is_listed_for_its_own_agent_only(scheduler, sessions, owner, agent, clock, cli, tools_on):
+    cli.script(BASH, {"type": "chat"})
+    routine = await make_routine(sessions, owner, agent, clock, schedule_kind="manual", schedule_spec={})
+    async with sessions() as db:
+        run = await service.run_now(db, owner, routine.id, now=clock())
+
+    async def parked():
+        await scheduler.tick()
+        current = await reload(sessions, RoutineRun, run.id)
+        return current if current.state == "needs_input" else None
+
+    current = await wait_until(parked)
+    async with sessions() as db:
+        found = await service.waiting_for_agent(db, owner, agent.id)
+        other_agent = await service.waiting_for_agent(db, owner, agent.id + 9999)
+        other_owner = await service.waiting_for_agent(db, owner + "-other", agent.id)
+    assert other_agent == [] and other_owner == []
+    ((found_routine, found_run, approvals),) = found
+    assert found_routine.id == routine.id and found_run.thread_id == current.thread_id
+    assert [a.status for a in approvals] == ["pending"]
+    # Answering through the same route the chat uses clears it from the list.
+    assert await scheduler.runtime.answer_approval(approvals[0].id, "deny")
+    await settled(scheduler, sessions, run.id)
+    async with sessions() as db:
+        assert await service.waiting_for_agent(db, owner, agent.id) == []
+
+
 async def test_the_run_limit_stops_a_run_and_records_it(scheduler, sessions, owner, agent, clock, cli, tmp_path):
     cli.script({"type": "chat", "wait_for": str(tmp_path / "never")})
     routine = await make_routine(sessions, owner, agent, clock, schedule_kind="manual", schedule_spec={},

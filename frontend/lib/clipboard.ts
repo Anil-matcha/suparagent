@@ -1,6 +1,6 @@
 /**
  * Robust cross-platform copy to clipboard.
- * 1. Electron native IPC (openDots.copyText) - guaranteed in desktop app
+ * 1. Electron native IPC (suparagent.copyText) - guaranteed in desktop app
  * 2. Modern navigator.clipboard.writeText
  * 3. Fallback invisible textarea + document.execCommand('copy')
  */
@@ -8,10 +8,10 @@ export async function copyToClipboard(text: string): Promise<boolean> {
   if (typeof window === "undefined" || !text) return false;
 
   // 1. Desktop native Electron IPC (if running in desktop shell)
-  const openDots = (window as unknown as { openDots?: { copyText?: (t: string) => Promise<boolean> } }).openDots;
-  if (typeof openDots?.copyText === "function") {
+  const suparagent = (window as unknown as { suparagent?: { copyText?: (t: string) => Promise<boolean> } }).suparagent;
+  if (typeof suparagent?.copyText === "function") {
     try {
-      const ok = await openDots.copyText(text);
+      const ok = await suparagent.copyText(text);
       if (ok) return true;
     } catch {
       // Fall through to browser methods

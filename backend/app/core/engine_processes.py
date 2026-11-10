@@ -49,7 +49,7 @@ logger = get_logger(__name__)
 
 # The environment variable naming the backend that started an engine:
 # "<pid>-<start time token>".
-MARKER_ENV = "OPEN_DOTS_ENGINE_OF"
+MARKER_ENV = "SUPARAGENT_ENGINE_OF"
 _TOKEN_SAFE = re.compile(r"[^A-Za-z0-9]+")
 _POSIX = sys.platform != "win32"
 _PS_TIMEOUT = 10

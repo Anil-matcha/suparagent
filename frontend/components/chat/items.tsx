@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronRight, Copy, Loader2, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { Check, ChevronRight, Copy, GitBranch, Loader2, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import type { ReactionKind } from "@/lib/reactions";
 import { useState } from "react";
 import { canAlwaysAllow, isScreenInput } from "@/lib/approvals";
@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { Markdown } from "./Markdown";
 import { copyToClipboard } from "@/lib/clipboard";
 import { MessageAttachments } from "./Attachments";
+import { canBranchFrom } from "@/lib/branch-link";
 import { formatDateDivider, formatMessageTime } from "@/lib/relative-time";
 export { formatDateDivider, formatMessageTime };
 
@@ -93,14 +94,66 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
   );
 }
 
-export function UserMessage({ item, threadId = null }: { item: Item<"user">; threadId?: number | null }) {
+export function UserMessage({
+  item,
+  threadId = null,
+  onBranch,
+}: {
+  item: Item<"user">;
+  threadId?: number | null;
+  // Edit this message and resend it in a new branch; resolves false on failure.
+  onBranch?: (turnId: number, text: string) => Promise<boolean>;
+}) {
   const t = useT();
   const timeStr = formatMessageTime(item.ts, t);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(item.text);
+  const [busy, setBusy] = useState(false);
+  const canBranch = onBranch !== undefined && canBranchFrom(item);
+  if (editing && canBranch) {
+    const submit = async () => {
+      if (!draft.trim() || busy) return;
+      setBusy(true);
+      const ok = await onBranch(item.turnId as number, draft);
+      setBusy(false);
+      if (ok) setEditing(false);
+    };
+    return (
+      <div className="flex flex-col items-end gap-2">
+        <textarea
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          rows={Math.min(8, Math.max(2, draft.split("\n").length))}
+          aria-label={t("branch.edit")}
+          className="w-full max-w-[88%] rounded-2xl border border-line bg-surface px-4 py-2.5 text-[15px] leading-relaxed text-ink sm:max-w-[80%]"
+        />
+        <div className="flex gap-2">
+          <Button variant="ghost" onClick={() => { setEditing(false); setDraft(item.text); }} disabled={busy}>
+            {t("branch.cancel")}
+          </Button>
+          <Button onClick={submit} disabled={busy || !draft.trim()}>
+            {t("branch.send")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="group/msg flex flex-col items-end gap-1">
       <MessageAttachments threadId={threadId} items={item.attachments ?? []} />
       <div className="flex max-w-[88%] items-end gap-1.5 sm:max-w-[80%]">
         {item.text && <CopyButton text={item.text} />}
+        {canBranch && (
+          <button
+            type="button"
+            onClick={() => { setDraft(item.text); setEditing(true); }}
+            aria-label={t("branch.edit")}
+            title={t("branch.edit")}
+            className="mb-1 shrink-0 rounded-md p-1 text-muted/60 opacity-0 transition hover:text-ink focus-visible:opacity-100 group-hover/msg:opacity-100"
+          >
+            <GitBranch size={14} aria-hidden="true" />
+          </button>
+        )}
         <p className="min-w-0 whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-bubble px-4 py-2.5 text-[15px] leading-relaxed text-ink">
           {item.text}
         </p>

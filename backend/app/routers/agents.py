@@ -17,6 +17,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from app.auth.middleware import principal_of
@@ -40,7 +41,7 @@ from app.schemas.agent import (
     TopicListResponse,
     TopicWriteRequest,
 )
-from app.services import agent_memory, agent_package, agent_skills, memory_entries, memory_journal, memory_log, memory_proposals, memory_topics, openbot_database_import
+from app.services import agent_history, agent_memory, agent_package, agent_skills, memory_entries, memory_journal, memory_log, memory_proposals, memory_topics, openbot_database_import
 from app.services import agent_migration_archive
 from app.services import agent_store as store
 from app.services.agent_removal import remove_agent
@@ -100,6 +101,8 @@ def _guard_create(request: Request, payload: AgentCreateRequest) -> None:
         return
     if payload.workspace_path is not None:
         raise _admin_only("workspace_path")
+    if payload.claude_account is not None:
+        raise _admin_only("claude_account")
     if payload.make_lead:
         raise _admin_only("make_lead")
     if payload.approval_mode == "accept_edits":
@@ -110,13 +113,23 @@ def _guard_update(request: Request, payload: AgentUpdateRequest, agent) -> None:
     """The same for an edit. Leaving "accept_edits" alone, or moving to "ask" or "plan", is fine."""
     if not _restricted(request):
         return
-    for field in ("workspace_path", "connector_scopes", "connector_account_scopes"):
+    for field in ("workspace_path", "connector_scopes", "connector_account_scopes", "claude_account"):
         if field in payload.model_fields_set:
             raise _admin_only(field)
     if payload.make_lead is not None:
         raise _admin_only("make_lead")
     if payload.approval_mode == "accept_edits" and agent.approval_mode != "accept_edits":
         raise _admin_only("approval_mode accept_edits")
+
+
+def _check_claude_account(account_id: str | None) -> None:
+    """Only a named Claude account that exists, or null for the default account."""
+    if account_id is None:
+        return
+    from app.services import claude_accounts
+
+    if not claude_accounts.exists(account_id):
+        raise _error(422, "account_not_found", "That Claude account does not exist.")
 
 
 def _check_workspace(path: str | None) -> str | None:
@@ -361,6 +374,7 @@ async def create_agent(payload: AgentCreateRequest, request: Request, rt: Thread
             raise _error(409, 'lead_engine', 'A lead needs an engine with team tools (Claude or Codex).')
     _check_engine(rt, payload.provider, payload.model)
     _check_fallback(rt, payload.provider, payload.fallback_provider, payload.fallback_model)
+    _check_claude_account(payload.claude_account)
     workspace = _check_workspace(payload.workspace_path)
     try:
         async with rt.session() as db:
@@ -384,6 +398,7 @@ async def create_agent(payload: AgentCreateRequest, request: Request, rt: Thread
                 use_helper=payload.use_helper,
                 fallback_provider=payload.fallback_provider,
                 fallback_model=payload.fallback_model,
+                claude_account=payload.claude_account,
                 make_lead=payload.make_lead,
             )
     except store.AgentNameTaken:
@@ -418,6 +433,13 @@ async def update_agent(
     started on another engine than the agent's new one keeps its engine and
     uses that engine's default model. An agent with a computer can only move
     to an engine that can use one (409 `engine_without_computers`)."""
+    return await _apply_update(agent_id, payload, request, rt)
+
+
+async def _apply_update(
+    agent_id: int, payload: AgentUpdateRequest, request: Request, rt: ThreadRuntime,
+    *, revision_source: str = "edit", restored_from: int | None = None,
+):
     agent = await _agent_or_404(rt, agent_id)
     _guard_update(request, payload, agent)
     changes = {
@@ -440,11 +462,14 @@ async def update_agent(
             "use_helper",
             "fallback_provider",
             "fallback_model",
+            "claude_account",
             "connector_scopes",
             "connector_account_scopes",
         )
         if field in payload.model_fields_set
     }
+    if "claude_account" in changes:
+        _check_claude_account(changes["claude_account"])
     account_scopes_submitted = "connector_account_scopes" in changes
     if "connector_scopes" in changes:
         changes["connector_scopes"] = await _check_connector_scopes(
@@ -501,7 +526,8 @@ async def update_agent(
     try:
         async with rt.session() as db:
             agent = await store.update_agent(
-                db, agent_id, archived=payload.archived, make_lead=payload.make_lead, **changes
+                db, agent_id, archived=payload.archived, make_lead=payload.make_lead,
+                revision_source=revision_source, restored_from=restored_from, **changes
             )
         if "connector_scopes" in changes or "connector_account_scopes" in changes or payload.archived:
             # What an agent has already run once (generic connected-app actions) is not carried over to new access.
@@ -513,6 +539,73 @@ async def update_agent(
         raise HTTPException(status_code=404, detail="Agent not found") from None
     except store.AgentNameTaken:
         raise _error(409, "agent_name_taken", "An agent with this name already exists.") from None
+
+
+class AgentRevisionOut(BaseModel):
+    number: int
+    source: str
+    actor: str
+    changed_fields: list[str]
+    redacted: list[str]
+    restored_from: int | None = None
+    created_at: datetime
+
+
+class AgentRevisionDetail(AgentRevisionOut):
+    snapshot: dict
+
+
+class RestoreRevisionRequest(BaseModel):
+    # The newest revision number the person was looking at; a different one means the profile changed since.
+    expected_revision: int | None = None
+
+
+@router.get("/{agent_id}/revisions", response_model=list[AgentRevisionOut])
+async def list_revisions(agent_id: int, rt: ThreadRuntime = Depends(get_runtime)):
+    """Stored versions of this agent's profile, newest first (the last 20). Owner only: a paired
+    device has no route here."""
+    await _agent_or_404(rt, agent_id)
+    async with rt.session() as db:
+        return await agent_history.list_revisions(db, agent_id)
+
+
+@router.get("/{agent_id}/revisions/{number}", response_model=AgentRevisionDetail)
+async def read_revision(agent_id: int, number: int, rt: ThreadRuntime = Depends(get_runtime)):
+    await _agent_or_404(rt, agent_id)
+    try:
+        async with rt.session() as db:
+            return await agent_history.get_revision(db, agent_id, number)
+    except agent_history.RevisionNotFound:
+        raise _error(404, "revision_not_found", "That version no longer exists.") from None
+
+
+@router.post("/{agent_id}/revisions/{number}/restore", response_model=AgentResponse)
+async def restore_revision(
+    agent_id: int, number: int, request: Request, payload: RestoreRevisionRequest | None = None,
+    rt: ThreadRuntime = Depends(get_runtime),
+):
+    """Set the profile back to a stored version. It goes through the same checks as an edit, is stored
+    as a new version (the old ones stay), and leaves alone any field whose stored text was redacted.
+    409 `revision_conflict` when `expected_revision` is no longer the newest."""
+    if _restricted(request):
+        raise _error(403, "restore_requires_admin", "Restoring a version can only be done from the web app.")
+    agent = await _agent_or_404(rt, agent_id)
+    try:
+        async with rt.session() as db:
+            revision = await agent_history.get_revision(db, agent_id, number)
+            newest = await agent_history.latest_number(db, agent_id)
+    except agent_history.RevisionNotFound:
+        raise _error(404, "revision_not_found", "That version no longer exists.") from None
+    if payload is not None and payload.expected_revision is not None and payload.expected_revision != newest:
+        raise _error(409, "revision_conflict", "This agent was changed since you opened its history. Reload and try again.")
+    fields = agent_history.restorable(revision, agent)
+    if not fields:
+        return (await _with_computers(rt, [agent]))[0]
+    try:
+        update = AgentUpdateRequest(**fields)
+    except ValueError:
+        raise _error(422, "revision_invalid", "That version can no longer be applied.") from None
+    return await _apply_update(agent_id, update, request, rt, revision_source="restore", restored_from=number)
 
 
 @router.post("/{agent_id}/duplicate", response_model=AgentResponse, status_code=201)
@@ -931,7 +1024,7 @@ async def import_agent(payload: AgentImportRequest, rt: ThreadRuntime = Depends(
 async def preview_migration_archive(request: Request):
     """Preview JSON or a one-manifest ZIP from raw request bytes, without saving it."""
     if settings.HOST_EXECUTION_DISABLED:
-        raise _error(403, "migration_import_unavailable", "Agent migration is available only in the local Open Dots app.")
+        raise _error(403, "migration_import_unavailable", "Agent migration is available only in the local Suparagent app.")
     data = bytearray()
     async for chunk in request.stream():
         if len(data) + len(chunk) > agent_migration_archive.MAX_SOURCE_BYTES:
@@ -947,7 +1040,7 @@ async def preview_migration_archive(request: Request):
 async def preview_openbot_database(file: UploadFile = File(...)):
     """Read the local OpenBot database and return normalized agent fields for review."""
     if settings.HOST_EXECUTION_DISABLED:
-        raise _error(403, "openbot_import_unavailable", "OpenBot migration is available only in the local Open Dots app.")
+        raise _error(403, "openbot_import_unavailable", "OpenBot migration is available only in the local Suparagent app.")
     try:
         data = await file.read(openbot_database_import.MAX_SOURCE_DATABASE_BYTES + 1)
     finally:

@@ -2,7 +2,7 @@
 
 What is in an archive, each under its own top-level folder:
 
-    database/open-dots.db   a consistent copy of the SQLite database (SQLite's own backup API)
+    database/suparagent.db   a consistent copy of the SQLite database (SQLite's own backup API)
     attachments/            files attached to messages
     decisions/              the decision log
     memory-state/           the notes journal and the proposed-notes queue
@@ -22,6 +22,7 @@ it only fills an empty data folder, and checks the archive before it changes any
 
 import hashlib
 import json
+import struct
 import os
 import shutil
 import sqlite3
@@ -34,11 +35,17 @@ from pathlib import Path
 
 FORMAT = 1
 MANIFEST = "manifest.json"
-DATABASE_NAME = "open-dots.db"
+DATABASE_NAME = "suparagent.db"
 PARTS = ("database", "attachments", "decisions", "memory-state", "workspace")
-ARCHIVE_PREFIX = "open-dots-backup-"
+ARCHIVE_PREFIX = "suparagent-backup-"
 WORKSPACE_TABLES = ("agent", "computer", "thread")  # tables with a workspace_path column
 LEASE_SUFFIXES = (".lease", ".lock")  # the data-folder lease sits beside the database; it is not data
+
+
+ENC_MAGIC = b"ODBKENC1"  # first bytes of a password-protected archive
+ENC_SUFFIX = ".enc"
+ENC_CHUNK = 1024 * 1024
+_SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2 ** 15, 8, 1
 
 
 class BackupError(Exception):
@@ -143,7 +150,7 @@ def _check_database(path: Path) -> str | None:
         try:
             row = connection.execute("SELECT version_num FROM alembic_version").fetchone()
         except sqlite3.Error:
-            raise BackupError("This is not an Open Duet database (it has no schema version).") from None
+            raise BackupError("This is not an Suparagent database (it has no schema version).") from None
         return row[0] if row else None
     except sqlite3.DatabaseError as exc:
         raise BackupError(f"The database file cannot be read ({exc}).") from None
@@ -160,11 +167,90 @@ def _tar_filter(info: tarfile.TarInfo, executable: bool = False) -> tarfile.TarI
     return info
 
 
+def _derive_key(passphrase: str, salt: bytes) -> bytes:
+    if not passphrase:
+        raise BackupError("The backup password is empty.")
+    return hashlib.scrypt(passphrase.encode("utf-8"), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P,
+                          maxmem=128 * 1024 * 1024, dklen=32)
+
+
+def is_encrypted(path: Path) -> bool:
+    try:
+        with Path(path).open("rb") as handle:
+            return handle.read(len(ENC_MAGIC)) == ENC_MAGIC
+    except OSError:
+        return False
+
+
+def _chunk_nonce(prefix: bytes, index: int) -> bytes:
+    return prefix + struct.pack(">Q", index)
+
+
+def encrypt_file(source: Path, target: Path, passphrase: str) -> None:
+    """Chunked AES-256-GCM (key from scrypt). Each chunk is authenticated with its position and whether it
+    is the last, so reordering, dropping or truncating chunks is detected."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    salt, prefix = os.urandom(16), os.urandom(4)
+    gcm = AESGCM(_derive_key(passphrase, salt))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    with source.open("rb") as reader, os.fdopen(os.open(target, flags, 0o600), "wb") as out:
+        out.write(ENC_MAGIC + salt + prefix)
+        block = reader.read(ENC_CHUNK)
+        index = 0
+        while True:
+            following = reader.read(ENC_CHUNK)
+            last = not following
+            out.write(gcm.encrypt(_chunk_nonce(prefix, index), block, b"\x01" if last else b"\x00"))
+            if last:
+                break
+            block, index = following, index + 1
+
+
+def decrypt_file(source: Path, target: Path, passphrase: str) -> None:
+    from cryptography.exceptions import InvalidTag
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    wrong = BackupError("The password is wrong, or the backup is damaged. Nothing was restored.")
+    with source.open("rb") as reader:
+        header = reader.read(len(ENC_MAGIC) + 20)
+        if len(header) != len(ENC_MAGIC) + 20 or not header.startswith(ENC_MAGIC):
+            raise BackupError("This is not a password-protected Suparagent backup.")
+        salt, prefix = header[len(ENC_MAGIC):len(ENC_MAGIC) + 16], header[-4:]
+        gcm = AESGCM(_derive_key(passphrase, salt))
+        size = ENC_CHUNK + 16
+        block, index = reader.read(size), 0
+        with target.open("wb") as out:
+            while True:
+                following = reader.read(size)
+                last = not following
+                try:
+                    out.write(gcm.decrypt(_chunk_nonce(prefix, index), block, b"\x01" if last else b"\x00"))
+                except InvalidTag:
+                    raise wrong from None
+                if last:
+                    break
+                block, index = following, index + 1
+
+
+def plan_backup(*, skip_workspaces: bool = False) -> list[dict]:
+    """Exactly what a backup copies: each part, where it lives, and whether it exists now.
+    Use it to copy the same things by hand (and the key, which is never in an archive)."""
+    where = locations()
+    out = []
+    for name in PARTS:
+        if skip_workspaces and name == "workspace":
+            continue
+        path = where[name]
+        out.append({"part": name, "path": str(path), "exists": path.exists(), "kind": "file" if name == "database" else "folder"})
+    return out
+
+
 def default_output_dir(database: Path) -> Path:
     return database.parent / "backups"
 
 
-def create_backup(out_dir: Path | None = None, *, skip_workspaces: bool = False) -> BackupReport:
+def create_backup(out_dir: Path | None = None, *, skip_workspaces: bool = False, passphrase: str | None = None) -> BackupReport:
     from app.server.database import newest_revision
 
     where = locations()
@@ -251,7 +337,19 @@ def create_backup(out_dir: Path | None = None, *, skip_workspaces: bool = False)
             info.size = len(payload)
             info.mtime = int(datetime.now(UTC).timestamp())
             tar.addfile(_tar_filter(info), fileobj=_Bytes(payload))
-        os.replace(partial, archive)
+        if passphrase:
+            archive = archive.with_name(archive.name + ENC_SUFFIX)
+            if archive.exists():
+                raise BackupError(f"{archive} already exists; wait a second and run it again.")
+            sealed = out_dir / (archive.name + ".part")
+            try:
+                encrypt_file(partial, sealed, passphrase)
+                os.replace(sealed, archive)
+            finally:
+                sealed.unlink(missing_ok=True)
+            partial.unlink(missing_ok=True)
+        else:
+            os.replace(partial, archive)
     except BaseException:
         partial.unlink(missing_ok=True)
         raise
@@ -314,7 +412,7 @@ def _read_manifest(tar: tarfile.TarFile) -> dict:
     try:
         member = tar.getmember(MANIFEST)
     except KeyError:
-        raise BackupError("This is not an Open Duet backup (it has no manifest).") from None
+        raise BackupError("This is not an Suparagent backup (it has no manifest).") from None
     handle = tar.extractfile(member)
     try:
         manifest = json.loads(handle.read().decode("utf-8")) if handle else None
@@ -422,7 +520,7 @@ def _check_key(database: Path) -> None:
                          "TOKEN_ENCRYPTION_KEYS. Use the key the backup was made with. Nothing was restored.")
 
 
-def restore_backup(archive: Path) -> RestoreReport:
+def restore_backup(archive: Path, passphrase: str | None = None) -> RestoreReport:
     from alembic.script import ScriptDirectory
 
     from app.core import data_lease
@@ -433,14 +531,29 @@ def restore_backup(archive: Path) -> RestoreReport:
     archive = Path(archive).expanduser()
     if not archive.is_file():
         raise BackupError(f"There is no backup file at {archive}.")
+    encrypted = is_encrypted(archive)
+    if encrypted and not passphrase:
+        raise BackupError("This backup is password-protected. Provide its password.")
     _targets_are_free(where)
     try:
         lease = data_lease.acquire(where["database"])  # a running server holds it; this also stops one starting meanwhile
     except data_lease.DataDirInUse as exc:
         raise BackupError(f"The server is running, and a restore must not happen under it. Stop it first. ({exc})") from None
     staging: Path | None = None
+    staging_root: Path | None = None
     placed: list[tuple[Path, Path]] = []
     try:
+        if encrypted:
+            staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=where["database"].parent))
+            os.chmod(staging, 0o700)
+            plain = staging / "archive.tar.gz"
+            decrypt_file(archive, plain, passphrase)
+            archive = plain
+            staging_root = staging
+            staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=where["database"].parent))
+            os.chmod(staging, 0o700)
+        else:
+            staging_root = None
         try:
             tar = tarfile.open(archive, "r:gz")
         except (tarfile.TarError, OSError) as exc:
@@ -448,8 +561,9 @@ def restore_backup(archive: Path) -> RestoreReport:
         with tar:
             try:
                 manifest = _read_manifest(tar)
-                staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=where["database"].parent))
-                os.chmod(staging, 0o700)
+                if staging is None:
+                    staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=where["database"].parent))
+                    os.chmod(staging, 0o700)
                 parts = _stage(tar, manifest, staging)
             except (tarfile.TarError, EOFError, OSError) as exc:
                 raise BackupError(f"The archive could not be read all the way through ({exc}). Nothing was restored.") from None
@@ -458,7 +572,7 @@ def restore_backup(archive: Path) -> RestoreReport:
         revision = _check_database(staged_db)
         known = {script.revision for script in ScriptDirectory.from_config(_config()).walk_revisions()}
         if revision is not None and revision not in known:
-            raise BackupError("The backup was made by a newer version of Open Duet (its database revision is unknown here). "
+            raise BackupError("The backup was made by a newer version of Suparagent (its database revision is unknown here). "
                               "Update the code first. Nothing was restored.")
         _check_key(staged_db)
 
@@ -493,4 +607,6 @@ def restore_backup(archive: Path) -> RestoreReport:
     finally:
         if staging is not None:
             shutil.rmtree(staging, ignore_errors=True)
+        if staging_root is not None:
+            shutil.rmtree(staging_root, ignore_errors=True)
         lease.release()

@@ -116,3 +116,28 @@ test('learn preview, reviewed save and revision-bound undo use distinct requests
   assert.deepEqual(JSON.parse(calls[0].options.body), { revision: 'revision' });
   assert.equal(sourceLabel('learned:5:7'), 'Learned from a run');
 });
+
+test('parseTriggers normalizes and caps phrases', async () => {
+  const { parseTriggers } = await import('./skills.ts');
+  assert.deepEqual(parseTriggers(' Weekly  Report, status update\nweekly report | ab '), ['weekly report', 'status update']);
+  assert.equal(parseTriggers(Array.from({ length: 12 }, (_, i) => `phrase ${i}`).join(',')).length, 8);
+  assert.deepEqual(parseTriggers(''), []);
+});
+
+test('suggestSkills matches whole phrases for enabled, unpicked skills', async () => {
+  const { suggestSkills } = await import('./skills.ts');
+  const mk = (name, triggers, enabled = true) => ({ name, description: '', enabled, source: 'user', bytes: 0, updated_at: null, triggers });
+  const pool = [mk('weekly', ['weekly report']), mk('expenses', ['expense check']), mk('off', ['weekly report'], false), mk('plain', undefined)];
+  assert.deepEqual(suggestSkills('Write the Weekly   report please', pool).map((s) => s.name), ['weekly']);
+  assert.deepEqual(suggestSkills('weekly report', pool, ['weekly']), []);
+  assert.deepEqual(suggestSkills('weekly reports', pool), []);
+  assert.deepEqual(suggestSkills('', pool), []);
+});
+
+test('suggestSkills calls the suggest route with the text', async () => {
+  const calls = respond(200, []);
+  await api.suggestSkills(4, 'weekly report');
+  assert.match(calls[0].url, /\/agents\/4\/skills\/suggest$/);
+  assert.equal(calls[0].options.method, 'POST');
+  assert.deepEqual(JSON.parse(calls[0].options.body), { text: 'weekly report' });
+});

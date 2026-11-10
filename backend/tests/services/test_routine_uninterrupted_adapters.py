@@ -18,7 +18,7 @@ async def test_codex_requires_full_mode_app_server_and_gets_direct_tool_instruct
     await crt.send_turn(thread.id, "Do the authorized routine")
     await finished(sessions, thread.id)
     started = codex.received("thread/start")[0]["params"]
-    server = started["config"]["mcp_servers"]["open_dots_composio"]
+    server = started["config"]["mcp_servers"]["suparagent_composio"]
     assert server["required"] is True and server["startup_timeout_sec"] == 10
     assert {"app_search_actions", "app_run_action"} <= set(server["enabled_tools"])
     assert "Call matching tools directly without asking for approval in chat text" in started["developerInstructions"]

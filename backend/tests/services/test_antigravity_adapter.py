@@ -28,7 +28,7 @@ def fixture(monkeypatch, tmp_path):
     monkeypatch.setattr(runtime, "data_root", lambda: tmp_path / "data")
     monkeypatch.setattr(runtime, "installed", lambda: True)
     monkeypatch.setenv("FAKE_ACP_DIR", str(tmp_path))
-    monkeypatch.setenv("OPEN_DOTS_ENGINE_ENV", "FAKE_*,GOOGLE_*,AGY_*,ANTIGRAVITY_*,GEMINI_*")
+    monkeypatch.setenv("SUPARAGENT_ENGINE_ENV", "FAKE_*,GOOGLE_*,AGY_*,ANTIGRAVITY_*,GEMINI_*")
     fake = FakeAcp(tmp_path)
     fake.plan(load=True, agent_info={"name": "antigravity-acp", "version": runtime.VERSION}, auth_methods=[{"id": "oauth-personal"}], session=SESSION)
     adapter = AntigravityAdapter()

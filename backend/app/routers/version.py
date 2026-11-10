@@ -1,4 +1,4 @@
-"""Version and updates API router for Open Duet (BL-64).
+"""Version and updates API router for Suparagent (BL-64).
 
 Provides endpoints to inspect running app version, git commit, installation mode,
 and check if newer releases are available on GitHub with the exact update command.

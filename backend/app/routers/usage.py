@@ -54,7 +54,7 @@ async def usage_csv(month: str | None = _MONTH, rt: ThreadRuntime = Depends(get_
         content=body,
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": f'attachment; filename="open-dots-usage-{label}.csv"',
+            "Content-Disposition": f'attachment; filename="suparagent-usage-{label}.csv"',
             "X-Content-Type-Options": "nosniff",
         },
     )

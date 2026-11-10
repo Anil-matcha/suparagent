@@ -24,7 +24,7 @@ DEFAULT_IMAGE = (
     "@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258"
 )
 
-DESKTOP_IMAGE = "open-dots-desktop:local"
+DESKTOP_IMAGE = "suparagent-desktop:local"
 COMPUTER_KINDS = ("shell", "desktop")
 
 GUEST_WORKSPACE = "/workspace"
@@ -33,10 +33,10 @@ GUEST_HOME = "/tmp/home"
 # Every container this app creates carries these labels. Ownership is decided
 # by them, never by a name alone: a container someone else made under the same
 # name is refused, not reused or removed.
-LABEL_MANAGED = "dev.open-dots.computer"
-LABEL_ID = "dev.open-dots.computer.id"
-LABEL_INSTANCE = "dev.open-dots.instance"
-LABEL_CONFIG = "dev.open-dots.config"
+LABEL_MANAGED = "dev.suparagent.computer"
+LABEL_ID = "dev.suparagent.computer.id"
+LABEL_INSTANCE = "dev.suparagent.instance"
+LABEL_CONFIG = "dev.suparagent.config"
 
 NETWORK_MODES = ("none", "default")
 
@@ -100,7 +100,7 @@ def default_user() -> str:
 def container_name(instance: str, computer_id: int) -> str:
     if not _INSTANCE.match(instance) or not isinstance(computer_id, int) or computer_id <= 0:
         raise InvalidSpec("invalid computer identity")
-    return f"open-dots-computer-{instance[:8]}-{computer_id}"
+    return f"suparagent-computer-{instance[:8]}-{computer_id}"
 
 
 def check_name(name: str) -> str:
@@ -297,7 +297,7 @@ _EXTRA_PATHS = (
 
 
 def docker_executable() -> str | None:
-    configured = os.environ.get("OPEN_DOTS_DOCKER", "").strip()
+    configured = os.environ.get("SUPARAGENT_DOCKER", "").strip()
     if configured:
         return configured if Path(configured).is_file() else None
     found = shutil.which("docker")

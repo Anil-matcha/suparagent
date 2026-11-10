@@ -10,6 +10,6 @@
   "privacy_url": "https://www.pixeltable.com/privacy",
   "terms_url": "https://www.pixeltable.com/terms",
   "license": "Apache-2.0",
-  "setup_instructions": "Connect this listing in Open Dots. No authentication is required. The server exposes search_pixeltable_documentation (search the docs), query_docs_filesystem_pixeltable_documentation (read documentation pages), and submit_feedback (send feedback about a docs page). Grant only the tools each agent needs; search and read are enough for answering Pixeltable questions. Documentation: https://docs.pixeltable.com",
+  "setup_instructions": "Connect this listing in Suparagent. No authentication is required. The server exposes search_pixeltable_documentation (search the docs), query_docs_filesystem_pixeltable_documentation (read documentation pages), and submit_feedback (send feedback about a docs page). Grant only the tools each agent needs; search and read are enough for answering Pixeltable questions. Documentation: https://docs.pixeltable.com",
   "test_instructions": "Grant search_pixeltable_documentation to an agent and call it once with a short query such as \"create a table with an embedding index\". A successful call returns matching documentation pages with titles, URLs, and excerpts. Remove the grant if the agent does not need the search tool."
 }

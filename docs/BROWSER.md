@@ -93,7 +93,7 @@ DATABASE_BACKEND=sqlite uv run pytest tests/computers/test_browser.py -q
 Build the desktop image locally, then opt in to real Chromium/CDP tests:
 
 ```sh
-OPEN_DUET_BROWSER_IMAGE=open-dots-desktop:local DATABASE_BACKEND=sqlite uv run pytest tests/computers/test_browser_real.py -q
+SUPARAGENT_BROWSER_IMAGE=suparagent-desktop:local DATABASE_BACKEND=sqlite uv run pytest tests/computers/test_browser_real.py -q
 ```
 
 These tests create disposable, non-root, no-network computers, serve local

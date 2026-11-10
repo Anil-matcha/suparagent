@@ -33,6 +33,19 @@ configure_logging()
 logger = get_logger(__name__)
 
 
+_keep_warm = None
+
+
+async def _keep_warm_tick() -> None:
+    """Off unless the person turned it on (app/services/cache_keep_warm.py)."""
+    global _keep_warm
+    if _keep_warm is None:
+        from app.services import cache_keep_warm
+
+        _keep_warm = cache_keep_warm.build(thread_runtime)
+    await _keep_warm.tick()
+
+
 def _desktop_account_job(job):
     async def run():
         if await desktop_signed_in():
@@ -57,6 +70,23 @@ async def lifespan(app: FastAPI):
             lease.release()
 
 
+def _configure_auth_limits() -> None:
+    """Keep sign-in lockouts across restarts, next to the data they protect."""
+    from pathlib import Path
+
+    from app.auth import limiter
+
+    if settings.AUTH_LIMITS_DIR.strip():
+        folder = Path(settings.AUTH_LIMITS_DIR).expanduser()
+    elif profile.active():
+        folder = profile.current().data_dir
+    elif settings.DATABASE_KIND == "sqlite":
+        folder = settings.SQLITE_FILE.parent
+    else:
+        return
+    limiter.configure_persistence(folder)
+
+
 @asynccontextmanager
 async def _serving(app: FastAPI):
     # Event streams end as soon as a stop signal arrives, so the server's wait
@@ -64,6 +94,7 @@ async def _serving(app: FastAPI):
     shutdown.reset()
     shutdown.install_signal_hooks()
     thread_runtime.reopen()
+    _configure_auth_limits()
     if profile.active():
         from app.db.session import AsyncSessionLocal
         try:
@@ -107,6 +138,8 @@ async def _serving(app: FastAPI):
         # The Needs you card: refreshed once a minute, started only for something
         # that needs the person (app/team/needs_you.py).
         asyncio.create_task(run_every(60, per_tenant(_desktop_account_job(_needs_you_tick)))),
+        # Optional: keep the prompt cache of recently used chats warm (off by default).
+        asyncio.create_task(run_every(60, per_tenant(_desktop_account_job(_keep_warm_tick)))),
         # Local routines: due occurrences, starts, approvals, run limits, endings.
         asyncio.create_task(run_every(settings.ROUTINE_POLL_SECONDS, per_tenant(routines.tick))),
     ]

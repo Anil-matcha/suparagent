@@ -9,12 +9,13 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import credentials
+from app.core.config import settings
 from app.db.models.auth import SCOPES, AuthSession, OwnerAccount, PairingCode
 from app.db.transactions import begin_write
 
-SESSION_TTL = timedelta(days=30)
+SESSION_TTL = timedelta(days=settings.AUTH_SESSION_DAYS)
 SESSION_MAX_AGE = timedelta(days=180)
-SESSION_RENEW_WHEN_LEFT = timedelta(days=15)
+SESSION_RENEW_WHEN_LEFT = SESSION_TTL / 2
 LAST_SEEN_WRITE_INTERVAL = timedelta(seconds=60)
 
 PAIRING_TTL = timedelta(minutes=5)

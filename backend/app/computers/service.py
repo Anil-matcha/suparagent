@@ -156,7 +156,7 @@ def state_root() -> Path:
     desktop = profile.current()
     if desktop is not None:
         return desktop.data_dir / "computers"
-    return Path.home() / ".open-dots" / "computers"
+    return Path.home() / ".suparagent" / "computers"
 
 
 def _utcnow() -> datetime:
@@ -493,7 +493,7 @@ class ComputerService:
             await self._require_provider(computer)
             provider = self.provider(computer.provider)
             if computer.provider == "docker" and computer.kind == "desktop" and computer.image == docker_cli.DESKTOP_IMAGE:
-                raise ComputerError("Build the desktop image locally first: docker build -t open-dots-desktop:local desktop-image. See docs/DESKTOP-IMAGE.md.", "image_missing")
+                raise ComputerError("Build the desktop image locally first: docker build -t suparagent-desktop:local desktop-image. See docs/DESKTOP-IMAGE.md.", "image_missing")
             await self._call(provider.pull, computer.image)
             return await self._save(computer_id, last_error=None)
 
@@ -777,8 +777,8 @@ class ComputerService:
         if settings.HOSTED_SANDBOX:
             tail.append("--hosted")
         env = {"PYTHONPATH": str(Path(__file__).resolve().parents[2]), "PYTHONDONTWRITEBYTECODE": "1"}
-        if os.environ.get("OPEN_DOTS_SANDBOX_SIZE"):
-            env["OPEN_DOTS_SANDBOX_SIZE"] = os.environ["OPEN_DOTS_SANDBOX_SIZE"]
+        if os.environ.get("SUPARAGENT_SANDBOX_SIZE"):
+            env["SUPARAGENT_SANDBOX_SIZE"] = os.environ["SUPARAGENT_SANDBOX_SIZE"]
         launch = McpLaunch(sys.executable, ["-m", "app.computers.local_browser_server", *tail], env)
         return TurnComputer(computer_id=-agent_id, name="Browser", image="local", provider="local-browser", kind="browser",
                             browser_enabled=True, launch=launch, grants_dir=grants_dir)

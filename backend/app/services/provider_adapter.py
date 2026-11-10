@@ -170,6 +170,8 @@ class TurnContext:
     # runtime from the thread's agent; an adapter maps it onto its own provider.
     approval_mode: str | None = None
     effort: str | None = None
+    # A named Claude account (claude_accounts.py) for this turn; None is the default account.
+    claude_account: str | None = None
     # Confined turns cannot act through alternate tools.
     draft_only: bool = False
     media_review_only: bool = False

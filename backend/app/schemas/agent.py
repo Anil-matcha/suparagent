@@ -67,6 +67,8 @@ class AgentCreateRequest(BaseModel):
     # before starting on it (docs/ENGINES.md). It must differ from `provider`.
     fallback_provider: str | None = Field(default=None, min_length=1, max_length=64)
     fallback_model: str | None = Field(default=None, max_length=200)
+    # A named Claude account id; null is the default account.
+    claude_account: str | None = Field(default=None, max_length=64)
     # Optional first contents of the agent's notes (MEMORY.md).
     starter_notes: str | None = Field(default=None, max_length=256 * 1024)
 
@@ -115,6 +117,8 @@ class AgentUpdateRequest(BaseModel):
     # An explicit null removes the fallback engine (and its model).
     fallback_provider: str | None = Field(default=None, min_length=1, max_length=64)
     fallback_model: str | None = Field(default=None, max_length=200)
+    # A named Claude account id; null is the default account.
+    claude_account: str | None = Field(default=None, max_length=64)
     archived: bool | None = None
 
     @field_validator("name")
@@ -165,6 +169,7 @@ class AgentResponse(BaseModel):
     use_helper: bool = True
     fallback_provider: str | None = None
     fallback_model: str | None = None
+    claude_account: str | None = None
     connector_scopes: dict | None = None
     connector_account_scopes: dict[str, list[str]] = Field(default_factory=dict)
     archived_at: datetime | None
@@ -239,7 +244,7 @@ class AgentMigrationProfilePreview(BaseModel):
 
 
 class AgentMigrationPreviewResponse(BaseModel):
-    format: Literal["open-dots.agent-migration"]
+    format: Literal["suparagent.agent-migration"]
     version: Literal[1]
     source: Literal["grok", "hermes"]
     profiles: list[AgentMigrationProfilePreview]

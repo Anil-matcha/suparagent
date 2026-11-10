@@ -52,9 +52,9 @@ def running_server(tmp_path, **extra):
         "ATTACHMENTS_DIR": str(tmp_path / "attachments"),
         "ENGINE_PROCESS_DIR": str(tmp_path / "engines"),
         "LOCAL_WORKSPACE_ROOT": str(tmp_path / "workspace"),
-        "OPEN_DOTS_UI_DIR": str(pages),
-        "OPEN_DOTS_PORT": str(port),
-        "OPEN_DOTS_PUBLIC_URL": f"https://{HOST}",
+        "SUPARAGENT_UI_DIR": str(pages),
+        "SUPARAGENT_PORT": str(port),
+        "SUPARAGENT_PUBLIC_URL": f"https://{HOST}",
         "LOOPBACK_TRUST": "off",
         "PYTHONUTF8": "1",
         **extra,
@@ -157,7 +157,7 @@ def test_the_environment_cannot_widen_the_list(tmp_path):
 
 def test_a_bad_list_stops_the_real_server(tmp_path):
     (tmp_path / "index.html").write_text("<html></html>")
-    environment = {**os.environ, "OPEN_DOTS_UI_DIR": str(tmp_path), "TRUSTED_PROXIES": "*", "PYTHONUTF8": "1"}
+    environment = {**os.environ, "SUPARAGENT_UI_DIR": str(tmp_path), "TRUSTED_PROXIES": "*", "PYTHONUTF8": "1"}
     result = subprocess.run([sys.executable, "-m", "app.server"], cwd=BACKEND_DIR, env=environment,
                             capture_output=True, text=True, timeout=60)
     assert result.returncode == 2 and "TRUSTED_PROXIES" in result.stderr

@@ -10,7 +10,7 @@ const { launchApp, alive, waitUntil, paths } = require("./app");
 async function main() {
   const args = process.argv.slice(2);
   if (args.some((arg) => arg !== "--keep")) throw new Error("Usage: npm run e2e:smoke -- [--keep]");
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "open-dots-source-smoke-"));
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "suparagent-source-smoke-"));
   const result = {
     kind: "source-desktop-smoke", platform: process.platform, arch: process.arch,
     date: new Date().toISOString(), dataDir,
@@ -24,7 +24,7 @@ async function main() {
   try {
     let encryptedKey;
     for (let attempt = 0; attempt < 2; attempt++) {
-      app = await launchApp({ dataDir, env: { OPEN_DOTS_DISABLE_UPDATE_CHECK: "1" } });
+      app = await launchApp({ dataDir, env: { SUPARAGENT_DISABLE_UPDATE_CHECK: "1" } });
       page = await app.page();
       await page.waitFor("document.body && document.body.innerText.trim().length > 0", "rendered app");
       assert.match(page.origin, /^http:\/\/127\.0\.0\.1:\d+$/);
@@ -40,7 +40,7 @@ async function main() {
       const keyFile = path.join(dataDir, "secrets", "encryption-key.v1");
       const keyNow = fs.readFileSync(keyFile);
       assert.ok(keyNow.length > 0);
-      assert.ok(fs.existsSync(path.join(dataDir, "data", "open-dots.db")));
+      assert.ok(fs.existsSync(path.join(dataDir, "data", "suparagent.db")));
       if (encryptedKey) assert.deepEqual(keyNow, encryptedKey, "restart must preserve the stored encrypted key");
       encryptedKey = keyNow;
       check("isolated SQLite database and encrypted key persist");

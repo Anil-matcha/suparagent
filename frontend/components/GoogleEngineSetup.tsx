@@ -82,8 +82,8 @@ export function GoogleEngineSetup({ engine, onChanged }: { engine: Engine; onCha
     )}
     {running && operation.authorization_url && <div className="space-y-2">
       <Button type="button"  disabled={busy} onClick={() => void act(async () => {
-        if (!window.openDots?.openGoogleSignIn) throw new Error("Open this setup in the Open Duet desktop app to continue.");
-        await window.openDots.openGoogleSignIn(operation.authorization_url!);
+        if (!window.suparagent?.openGoogleSignIn) throw new Error("Open this setup in the Suparagent desktop app to continue.");
+        await window.suparagent.openGoogleSignIn(operation.authorization_url!);
       })}>Continue to Google sign-in</Button>
       <details><summary className="cursor-pointer text-xs">Signing in from another computer?</summary>
         <p className="mt-2 text-xs text-muted">After signing in, copy the complete localhost redirect URL from your browser and paste it below.</p>

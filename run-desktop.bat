@@ -1,5 +1,5 @@
 @echo off
-title Open Duet Desktop
+title Suparagent Desktop
 cd /d "%~dp0desktop"
 npm run start
 

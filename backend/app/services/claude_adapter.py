@@ -205,7 +205,7 @@ class ClaudeAdapter:
         control = local_claude_runner.RunControl()
 
         def call() -> local_claude_runner.RunOutput:
-            with tempfile.TemporaryDirectory(prefix="open-dots-helper-") as empty:
+            with tempfile.TemporaryDirectory(prefix="suparagent-helper-") as empty:
                 return local_claude_runner.run_blocking(
                     args, stdin_text=prompt, cwd=Path(empty), timeout_seconds=timeout,
                     max_output_bytes=256 * 1024, control=control, keep_stdin_open=False,
@@ -453,6 +453,8 @@ class ClaudeAdapter:
             # tools only on this app's supported path.
             approval_mode = "ask"
         try:
+            from app.services import claude_accounts
+
             attempt.output = await local_claude_runner.run_prompt(
                 ctx.prompt,
                 ctx.provider_session_id,
@@ -462,6 +464,8 @@ class ClaudeAdapter:
                 tools=tools,
                 workspace=ctx.workspace,
                 approval_mode=approval_mode,
+                # A removed account raises here; a turn never falls back to another login.
+                config_dir=claude_accounts.config_dir(ctx.claude_account),
                 **extra,
             )
         except Exception as exc:  # noqa: BLE001

@@ -6,9 +6,9 @@ const path = require("node:path");
 const { cleanEnvironment, defaultExecutable, runSmoke } = require("../scripts/smoke-packaged");
 
 test("packaged smoke locates the configured product, and strips Python and launch overrides", () => {
-  assert.match(defaultExecutable("win32"), /Open Duet\.exe$/);
-  assert.match(defaultExecutable("darwin"), /Open Duet\.app\/Contents\/MacOS\/Open Duet$/);
-  const env = cleanEnvironment({ PATH: ["/a/.venv/bin", "/tools/python/bin", "/synthetic-tools"].join(path.delimiter), PYTHONPATH: "secret", OPEN_DOTS_DATA_DIR: "real-profile", OPEN_DOTS_API_TOKEN: "secret", ELECTRON_RUN_AS_NODE: "1", NORMAL: "yes" });
+  assert.match(defaultExecutable("win32"), /Suparagent\.exe$/);
+  assert.match(defaultExecutable("darwin"), /Suparagent\.app\/Contents\/MacOS\/Suparagent$/);
+  const env = cleanEnvironment({ PATH: ["/a/.venv/bin", "/tools/python/bin", "/synthetic-tools"].join(path.delimiter), PYTHONPATH: "secret", SUPARAGENT_DATA_DIR: "real-profile", SUPARAGENT_API_TOKEN: "secret", ELECTRON_RUN_AS_NODE: "1", NORMAL: "yes" });
   assert.equal(env.PATH, "/synthetic-tools");
   assert.deepEqual(Object.keys(env).sort(), ["NORMAL", "PATH"]);
 });
@@ -20,12 +20,12 @@ async function fixture(t, behavior) {
   const pidFile = path.join(root, "pid");
   fs.writeFileSync(script, `
     const fs = require('node:fs'); const path = require('node:path');
-    const data = process.env.OPEN_DOTS_DATA_DIR;
+    const data = process.env.SUPARAGENT_DATA_DIR;
     fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
     fs.writeFileSync(${JSON.stringify(path.join(root, "profile"))}, data);
     fs.mkdirSync(path.join(data, 'logs'), {recursive:true});
     fs.mkdirSync(path.join(data, 'data'), {recursive:true});
-    fs.writeFileSync(path.join(data, 'data', 'open-dots.db'), 'fixture');
+    fs.writeFileSync(path.join(data, 'data', 'suparagent.db'), 'fixture');
     ${behavior}
   `);
   return { root, script, pidFile };

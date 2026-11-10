@@ -51,7 +51,7 @@ step(
 console.log(
   "\nSetup is done. Next:\n" +
     "  npm run build    build the page the app shows (again after the page's code changes)\n" +
-    "  npm run start    open Open Duet\n" +
+    "  npm run start    open Suparagent\n" +
     "Chat needs a ready engine. For Claude Code or Codex CLI, install it and sign in on this computer.\n" +
     "You can also configure an ACP or API engine in Settings → Engines. See docs/ENGINES.md for setup and capabilities.",
 );

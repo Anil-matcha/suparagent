@@ -48,7 +48,7 @@ async def test_about_me_is_read_saved_and_a_learned_fact_removed(api):
 async def test_settings_are_read_and_changed(api):
     first = await api.get("/api/v1/memory/settings")
     assert first.status_code == 200 and first.json() == {
-        "learn_from_rooms": False, "tidy_hour": 3, "helper_models": {}, "helper": None, "helper_active": None
+        "learn_from_rooms": False, "keep_cache_warm": False, "tidy_hour": 3, "helper_models": {}, "helper": None, "helper_active": None
     }
     body = {"learn_from_rooms": True, "tidy_hour": 5, "helper_models": {"claude": "sonnet"}}
     saved = await api.put("/api/v1/memory/settings", json=body)

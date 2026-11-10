@@ -24,7 +24,7 @@ import httpcore
 import httpx
 from httpcore._backends.anyio import AnyIOBackend
 
-GITHUB_RAW = "https://raw.githubusercontent.com/Anil-matcha/open-duet/main/marketplace/"
+GITHUB_RAW = "https://raw.githubusercontent.com/Anil-matcha/suparagent/main/marketplace/"
 MAX_CATALOG_BYTES = 128_000
 MAX_MANIFEST_BYTES = 32_000
 MAX_SCHEMA_BYTES = 64_000
@@ -135,7 +135,7 @@ def _validate_manifest(value: object, *, section: str, path: str) -> dict:
     for field in ("source_repo", "endpoint", "privacy_url", "terms_url"):
         _validate_public_url(value.get(field), field, require_standard_port=(field == "endpoint"), max_length=300)
     if section == "community" and any(key.startswith("tested_") for key in value):
-        raise McpError("invalid_catalog", "A community listing cannot claim Open Dots testing.", 502)
+        raise McpError("invalid_catalog", "A community listing cannot claim Suparagent testing.", 502)
     return dict(value)
 
 
@@ -305,7 +305,7 @@ def safe_schema(value: object, depth: int = 0) -> dict:
         raise McpError("unsupported_schema", "This tool's input schema is too large or complex.", 422)
     allowed = {"$schema", "type", "title", "description", "properties", "required", "additionalProperties", "items", "enum", "minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems", "format", "default"}
     if set(value) - allowed:
-        raise McpError("unsupported_schema", "This tool uses a schema feature Open Dots cannot validate safely.", 422)
+        raise McpError("unsupported_schema", "This tool uses a schema feature Suparagent cannot validate safely.", 422)
     kind = value.get("type", "object")
     if kind not in ("object", "array", "string", "number", "integer", "boolean", "null"):
         raise McpError("unsupported_schema", "This tool uses an unsupported input type.", 422)
@@ -647,7 +647,7 @@ class RemoteMcpSession:
             "params": {
                 "protocolVersion": "2025-11-25",
                 "capabilities": {},
-                "clientInfo": {"name": "open-dots", "version": "1"},
+                "clientInfo": {"name": "suparagent", "version": "1"},
             },
         }, expect_result=True)
         protocol = response.get("protocolVersion")
@@ -682,7 +682,7 @@ class RemoteMcpSession:
                 try:
                     tool = _normalize_tool(raw)
                 except McpError:
-                    continue  # one tool Open Dots cannot validate must not hide the rest
+                    continue  # one tool Suparagent cannot validate must not hide the rest
                 total_bytes += len(canonical(tool).encode("utf-8"))
                 if total_bytes > MAX_TOOLSET_BYTES:
                     raise McpError("toolset_too_large", "This remote server exposes too much tool metadata.", 502)
@@ -711,7 +711,7 @@ class RemoteMcpSession:
                 if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str):
                     safe_content.append({"type": "text", "text": item["text"][:200_000]})
                 elif isinstance(item, dict) and item.get("type") == "resource_link":
-                    safe_content.append({"type": "text", "text": "[A remote resource link was returned and is not opened by Open Dots.]"})
+                    safe_content.append({"type": "text", "text": "[A remote resource link was returned and is not opened by Suparagent.]"})
         output = {"content": safe_content, "isError": result.get("isError") is True}
         structured = result.get("structuredContent")
         if structured is not None:

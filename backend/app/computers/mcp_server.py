@@ -31,7 +31,7 @@ from app.computers.provider import CLOUD_PROVIDERS
 PROTOCOL_VERSION = "2025-06-18"
 LAST_COMMAND_FILE = "last-command.json"
 NOT_APPROVED = (
-    "This call was not approved in open-dots, so it was not run. "
+    "This call was not approved in suparagent, so it was not run. "
     "Ask again; every computer call needs an approval."
 )
 
@@ -118,7 +118,7 @@ class Server:
                 result = {
                     "protocolVersion": params.get("protocolVersion") or PROTOCOL_VERSION,
                     "capabilities": {"tools": {"listChanged": False}},
-                    "serverInfo": {"name": "open-dots-computer", "version": "1"},
+                    "serverInfo": {"name": "suparagent-computer", "version": "1"},
                 }
             elif method == "ping":
                 result = {}
@@ -226,7 +226,7 @@ class Server:
         request = urllib.request.Request(
             f"{self.api_origin}/api/v1/computers/{self.computer_id}/provider-tool",
             data=body,
-            headers={"Content-Type": "application/json", "X-Open-Dots-Computer-Capability": self.capability},
+            headers={"Content-Type": "application/json", "X-Suparagent-Computer-Capability": self.capability},
             method="POST",
         )
         try:
@@ -328,7 +328,7 @@ def _read_capability(path: str | None) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="open-dots-computer-mcp")
+    parser = argparse.ArgumentParser(prog="suparagent-computer-mcp")
     parser.add_argument("--container", required=True)
     parser.add_argument("--user", required=True)
     parser.add_argument("--grants", required=True)

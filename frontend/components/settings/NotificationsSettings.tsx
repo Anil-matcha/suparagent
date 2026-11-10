@@ -74,7 +74,7 @@ export function NotificationsSettings() {
       playNotificationSound();
     }
     const success = showNotificationAlert({
-      title: "Open Duet Notification",
+      title: "Suparagent Notification",
       body: "Desktop notifications are working! You will be alerted when agents need you or routines fail.",
       silent: !prefs.sound_enabled,
     });
@@ -101,7 +101,7 @@ export function NotificationsSettings() {
           <div className="space-y-3">
             <Switch
               label="Enable desktop notifications"
-              description="Show OS notifications when Open Duet is running in the background."
+              description="Show OS notifications when Suparagent is running in the background."
               checked={prefs.desktop_enabled}
               onChange={(e) => saveOption("desktop_enabled", e.target.checked)}
             />
@@ -157,7 +157,7 @@ export function NotificationsSettings() {
 
             <Switch
               label="Agent responses & completions"
-              description="Notify when an agent completes a reply while Open Duet is in the background or minimized."
+              description="Notify when an agent completes a reply while Suparagent is in the background or minimized."
               disabled={!prefs.desktop_enabled}
               checked={prefs.notify_turn_completed ?? true}
               onChange={(e) => saveOption("notify_turn_completed", e.target.checked)}

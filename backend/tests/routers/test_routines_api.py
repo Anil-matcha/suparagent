@@ -127,6 +127,16 @@ async def test_create_list_edit_pause_resume_delete(api, agent):
     assert (await api.get(f"/api/v1/routines/{created['id']}")).status_code == 404
 
 
+async def test_waiting_route_is_scoped_to_an_agent_and_needs_local_access(api, agent, scheduler):
+    created = await make(api, agent)
+    empty = await api.get(f"/api/v1/routines/waiting?agent_id={agent.id}")
+    assert empty.status_code == 200 and empty.json() == []
+    assert (await api.get("/api/v1/routines/waiting")).status_code == 422
+    assert created["id"]
+    async with client_for(app_for(scheduler), client=("203.0.113.9", 4000)) as remote:
+        assert (await remote.get(f"/api/v1/routines/waiting?agent_id={agent.id}")).status_code == 403
+
+
 async def test_bad_definitions_answer_422_with_a_code(api, agent):
     response = await api.post("/api/v1/routines", json={
         "agent_id": agent.id, "name": "x", "prompt": "y", "schedule_kind": "cron",
@@ -206,7 +216,7 @@ async def test_webhook_secret_is_returned_once_and_rotation_replaces_it(api, age
 
 
 async def test_webhook_base_makes_the_shown_address_absolute(api, agent, monkeypatch):
-    monkeypatch.setattr(settings, "OPEN_DOTS_WEBHOOK_BASE", "https://dots.example.com/hooks/a/abc/")
+    monkeypatch.setattr(settings, "SUPARAGENT_WEBHOOK_BASE", "https://dots.example.com/hooks/a/abc/")
     created = await make(api, agent)
     first = (await api.post(f"/api/v1/routines/{created['id']}/webhook")).json()
     assert first["path"] == f"https://dots.example.com/hooks/a/abc/{created['id']}"

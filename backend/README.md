@@ -1,6 +1,6 @@
-# Open Duet — Backend
+# Suparagent — Backend
 
-FastAPI service behind Open Duet's AI coworkers: named agents, durable
+FastAPI service behind Suparagent's AI coworkers: named agents, durable
 conversations on several engines, routines, approvals, memory and agent
 computers, plus an optional Telegram bot and the original task flow in
 disposable sandboxes provided by [Boat](https://docs.boat.dev).

@@ -279,7 +279,7 @@ class DockerProvider:
         if current.state == "missing":
             return
         if current.state == "foreign":
-            raise ComputerError(current.problem or "That container was not made by open-dots.", "computer_foreign")
+            raise ComputerError(current.problem or "That container was not made by suparagent.", "computer_foreign")
         self._must(["rm", "-f", spec.name], "remove the computer")
 
     def update_limits(self, spec: Spec) -> None:
@@ -337,7 +337,7 @@ def _status_of(detail: dict, spec: Spec) -> Status:
     ):
         return Status(
             "foreign",
-            problem=f"A container named {spec.name} exists but was not made by open-dots for this agent. "
+            problem=f"A container named {spec.name} exists but was not made by suparagent for this agent. "
             "Remove or rename it in Docker.",
             **common,
         )

@@ -18,7 +18,7 @@ from sqlalchemy.engine import Engine
 
 _SCHEMA = re.compile(r"^t_[0-9a-f]{32}$")
 
-_current: ContextVar[str | None] = ContextVar("open_dots_tenant_schema", default=None)
+_current: ContextVar[str | None] = ContextVar("suparagent_tenant_schema", default=None)
 
 
 def schema_for(tenant_id: str) -> str:
@@ -97,5 +97,5 @@ def migrate_schema(tenant_id: str) -> None:
     from pathlib import Path
 
     backend = Path(__file__).resolve().parents[2]
-    env = {**os.environ, "OPEN_DOTS_MIGRATE_TENANT": tenant_id}
+    env = {**os.environ, "SUPARAGENT_MIGRATE_TENANT": tenant_id}
     subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=backend, env=env, check=True)

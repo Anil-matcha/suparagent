@@ -52,16 +52,19 @@ class ClaudeLogin:
         self.lifetime = 300
         self.prompt_timeout = 30
 
-    async def start(self, owner: str, executable: Path):
+    async def start(self, owner: str, executable: Path, config_dir: Path | None = None):
         if self.task and not self.task.done():
             raise LoginError("A Claude sign-in is already running.")
         env = child_env()
+        if config_dir is not None:
+            from app.services.local_claude_runner import account_env
+            env = account_env(env, config_dir)
         home = Path(env.get("CLAUDE_CONFIG_DIR") or str(Path.home() / ".claude"))
         if not home.is_absolute():
             raise LoginError("Use an absolute CLAUDE_CONFIG_DIR before signing in.")
         home = home.resolve()
         home.mkdir(parents=True, exist_ok=True)
-        fd = os.open(home / ".open-dots-login.lock", os.O_RDWR | os.O_CREAT, 0o600)
+        fd = os.open(home / ".suparagent-login.lock", os.O_RDWR | os.O_CREAT, 0o600)
         if not data_lease._try_lock(fd):
             os.close(fd)
             raise LoginError("Another Claude sign-in is running for this account.")

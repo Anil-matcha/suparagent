@@ -54,8 +54,8 @@ export function DesktopSetup({ settings, onSaved, onFinished }: {
   const browse = async () => {
     setError(null); setBusy(true);
     try {
-      if (!window.openDots) throw new Error("Folder selection is available in the desktop app.");
-      const selected = await window.openDots.choosePath("folder");
+      if (!window.suparagent) throw new Error("Folder selection is available in the desktop app.");
+      const selected = await window.suparagent.choosePath("folder");
       if (selected !== null) setWorkspace(selected);
     } catch (err) { setError(err instanceof Error ? err.message : "Could not choose a folder."); }
     finally { setBusy(false); }
@@ -100,7 +100,7 @@ export function DesktopSetup({ settings, onSaved, onFinished }: {
   return (
     <section aria-label="First-run setup" className="space-y-5 rounded-card border border-line bg-raised p-5">
       <div>
-        <h2 className="text-heading font-semibold">Welcome to Open Duet</h2>
+        <h2 className="text-heading font-semibold">Welcome to Suparagent</h2>
         <p className="mt-2 text-sm text-muted">Choose how your agents work on this computer. You can change these choices in Settings and Agents.</p>
       </div>
       <Stepper steps={STEPS} current={step} />

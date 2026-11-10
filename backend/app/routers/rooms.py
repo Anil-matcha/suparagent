@@ -10,6 +10,7 @@ from app.db.transactions import begin_write
 from app.routers.threads import get_runtime
 from app.services.local_access_policy import require_local_access
 from app.services.agent_memory import redact_secrets
+from app.services import room_webhook
 from app.team.service import TeamError, now
 from app.routers.team import error
 from app.schemas.thread import ApprovalResponse
@@ -109,6 +110,35 @@ async def post(room_id: int, payload: Message, request: Request, rt=Depends(get_
         return {'seq': seq}
     except TeamError as exc:
         raise error(exc) from None
+
+
+def _require_owner(request: Request) -> None:
+    from app.auth.middleware import principal_of
+    principal = principal_of(request.scope)
+    if principal is not None and not principal.is_admin:
+        raise HTTPException(status_code=403, detail='Only the owner can change a room webhook.')
+
+
+@router.post('/{room_id}/webhook')
+async def enable_webhook(room_id: int, request: Request, rt=Depends(get_runtime)):
+    """Turn on posting by webhook (or replace the secret). The secret is shown once."""
+    _require_owner(request)
+    try:
+        async with rt.session() as db:
+            secret = await room_webhook.enable(db, rt.owner_id, room_id)
+    except room_webhook.RoomWebhookRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from None
+    return {'secret': secret, 'path': f'/hooks/room/{room_id}'}
+
+
+@router.delete('/{room_id}/webhook', status_code=204)
+async def disable_webhook(room_id: int, request: Request, rt=Depends(get_runtime)):
+    _require_owner(request)
+    try:
+        async with rt.session() as db:
+            await room_webhook.disable(db, rt.owner_id, room_id)
+    except room_webhook.RoomWebhookRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from None
 
 
 @router.post('/{room_id}/read')

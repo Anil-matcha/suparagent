@@ -36,9 +36,9 @@ function diagnose({ layout, nodeVersion = process.version, env = process.env, pl
   if (!nodeIsNewEnough(nodeVersion)) {
     problems.unshift({ what: `Node.js ${NODE_MAJOR_NEEDED} or newer is required.`, fix: `Install Node.js ${NODE_MAJOR_NEEDED} or newer, then rerun npm run doctor.` });
   }
-  const enabledPresets = new Set(env.OPEN_DOTS_PRESET_ENGINES === undefined
+  const enabledPresets = new Set(env.SUPARAGENT_PRESET_ENGINES === undefined
     ? ["cursor", "gemini", "openrouter"]
-    : String(env.OPEN_DOTS_PRESET_ENGINES).split(",").map((name) => name.trim()));
+    : String(env.SUPARAGENT_PRESET_ENGINES).split(",").map((name) => name.trim()));
   const commands = [["claude", "claude"], ["codex", "codex"],
     ...[["cursor", "cursor-agent"], ["gemini", "gemini"], ["opencode", "opencode"]].filter(([id]) => enabledPresets.has(id))];
   const engines = commands.map(([id, command]) => {

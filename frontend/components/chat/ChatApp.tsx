@@ -29,6 +29,7 @@ import { ApprovalsPanel } from "@/components/approvals/ApprovalsPanel";
 import type { Remembered } from "./items";
 import { Composer } from "./Composer";
 import { Conversation } from "./Conversation";
+import { WaitingRoutineQuestions } from "./WaitingRoutineQuestions";
 import { NeedsYouCard } from "./NeedsYouCard";
 import { ChatHeader } from "./ChatHeader";
 import { CommandPalette } from "@/components/shell/CommandPalette";
@@ -48,6 +49,12 @@ import { useSession } from "@/components/AuthGate";
 import { onboarding } from "@/lib/onboarding";
 import { TeamPanel } from "./TeamPanel";
 import { parseRoom, roomHref } from "@/lib/rooms";
+import { chatAppLink, chatWebLink, type ChatTarget } from "@/lib/chat-link";
+import { copyToClipboard } from "@/lib/clipboard";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useToast } from "@/components/ui/Toast";
+import { canUndo, latestTaskSnapshot, undoImpact } from "@/lib/workspace-undo";
+import { BASE_PATH } from "@/lib/paths";
 import { useThreadStream } from "./useThreadStream";
 import type { NeedsYouSnapshot } from "@/lib/needs-you";
 
@@ -179,6 +186,10 @@ export function ChatApp() {
   const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>({});
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const toast = useToast();
+  const [undoOpen, setUndoOpen] = useState(false);
+  const [undoBusy, setUndoBusy] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [manageError, setManageError] = useState<string | null>(null);
   // The turn Stop was pressed for; cleared by the turn ending, which is what
@@ -453,8 +464,8 @@ export function ChatApp() {
         setNewAgentId(detail.id); setNewModel(null); setNewEffort(null); router.push(`/chat?agent=${detail.id}`); setFocusComposer(true);
       }
     };
-    window.addEventListener("open-dots:open-agent", openAgent);
-    return () => window.removeEventListener("open-dots:open-agent", openAgent);
+    window.addEventListener("suparagent:open-agent", openAgent);
+    return () => window.removeEventListener("suparagent:open-agent", openAgent);
   }, [agents, router, setAgentsOpen]);
 
   useEffect(() => {
@@ -548,7 +559,7 @@ export function ChatApp() {
           .find((item) => item.kind === "assistant" && item.turnId === finishedTurnId);
         const textContent = (assistantItem as { text?: string })?.text ?? null;
 
-        const agentName = threadAgent?.name || "Open Duet";
+        const agentName = threadAgent?.name || "Suparagent";
 
         notifyTurnCompletion({
           agentName,
@@ -570,7 +581,7 @@ export function ChatApp() {
       if (item.kind === "approval" && item.status === "pending") {
         if (!alertedApprovalIds.current.has(item.approvalId)) {
           alertedApprovalIds.current.add(item.approvalId);
-          const agentName = threadAgent?.name || "Open Duet";
+          const agentName = threadAgent?.name || "Suparagent";
           notifyApprovalNeeded({
             agentName,
             summary: item.summary,
@@ -805,6 +816,20 @@ export function ChatApp() {
     }
   };
 
+  // Edit a past message and resend it in a new conversation; the original stays.
+  const branchFromMessage = async (turnId: number, text: string): Promise<boolean> => {
+    if (threadId === null) return false;
+    try {
+      const branch = await api.branchThread(threadId, turnId, text);
+      setListTick((n) => n + 1);
+      router.push(`/chat?thread=${branch.id}`);
+      return true;
+    } catch (err) {
+      toast(`${t("branch.failed")}${err instanceof Error && err.message ? `: ${err.message}` : ""}`, "danger");
+      return false;
+    }
+  };
+
   const sendReactionReply = async (message: string): Promise<boolean> => {
     if (sendingReactionReplyDisabled || sending) return false;
     setSendError(null);
@@ -989,6 +1014,37 @@ export function ChatApp() {
   } : null;
 
   const computerText = threadComputer ? computerChip(threadComputer, liveComputerState) : null;
+  // The desktop app hands out its own link (the page's address is a private local one); the web app its page address.
+  const linkTarget: ChatTarget | null = roomId !== null && roomId !== "new" ? { kind: "room", id: roomId } : roomId === null && threadId !== null ? { kind: "thread", id: threadId } : null;
+  const copyLink = linkTarget ? async () => {
+    const isDesktop = typeof window !== "undefined" && "suparagent" in window;
+    const link = isDesktop ? chatAppLink(linkTarget) : chatWebLink(window.location.origin, linkTarget, BASE_PATH);
+    if (await copyToClipboard(link)) {
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2000);
+    }
+  } : undefined;
+  // Rewinds the workspace to just before the latest task. The server refuses while a turn runs and
+  // takes a snapshot first, so an undo can itself be undone.
+  const undoOffered = roomId === null && ready && canUndo({ threadId, turnRunning: transcript.runningTurnId !== null, busy: undoBusy });
+  const runUndo = async () => {
+    if (threadId === null) return;
+    setUndoBusy(true);
+    try {
+      const point = latestTaskSnapshot(await api.listWorkspaceSnapshots(threadId));
+      if (!point) {
+        toast(t("undo.none"), "info");
+      } else {
+        const result = await api.restoreWorkspaceSnapshot(threadId, point.id);
+        toast(t("undo.done").replace("{n}", String(undoImpact(result))));
+      }
+      setUndoOpen(false);
+    } catch (err) {
+      toast(`${t("undo.failed")}${err instanceof Error && err.message ? `: ${err.message}` : ""}`, "danger");
+    } finally {
+      setUndoBusy(false);
+    }
+  };
   const buildHeader = (withSidebar: boolean) => (
     <ChatHeader
       title={roomId !== null
@@ -1047,6 +1103,8 @@ export function ChatApp() {
       onFiles={ready && threadId !== null && thread !== null ? () => setFilesOpen(true) : undefined}
       onUsage={ready ? () => setPanel("usage") : undefined}
       onToday={ready ? () => void refreshToday() : undefined}
+      onCopyLink={copyLink}
+      onUndo={undoOffered ? () => setUndoOpen(true) : undefined}
       usageHint={conversationTotal}
       trailing={
         <>
@@ -1063,7 +1121,7 @@ export function ChatApp() {
         </>
       }
       status={
-        roomId !== null ? null : stream.connection === "reconnecting"
+        linkCopied ? { text: t("header.linkCopied") } : roomId !== null ? null : stream.connection === "reconnecting"
           ? { text: t("header.reconnecting"), warn: true }
           : ready && selectedEngine
             ? { text: `${selectedEngine.available ? selectedEngine.version ?? t("header.ready") : t("header.unavailable")}${selectedEngine.capabilities.tools ? "" : ` · ${t("header.chatOnly")}`}` }
@@ -1123,8 +1181,8 @@ export function ChatApp() {
     return (
       <div className="flex h-dvh flex-col">
         {header}
-        <Notice title="Open this from the Open Duet app">
-          This address only works inside the Open Duet window, which keeps your conversations
+        <Notice title="Open this from the Suparagent app">
+          This address only works inside the Suparagent window, which keeps your conversations
           private to it. Use that window instead of a browser tab.
         </Notice>
       </div>
@@ -1182,7 +1240,7 @@ export function ChatApp() {
           <div className="inline-flex max-w-full flex-wrap items-center justify-center gap-2.5 rounded-full border border-accent/30 bg-accent/10 px-4 py-1.5 text-xs text-ink shadow-xs">
             <div className="flex items-center gap-1.5">
               <span className="font-semibold text-accent">Update available:</span>
-              <span>Open Duet {latestVersion} is available.</span>
+              <span>Suparagent {latestVersion} is available.</span>
             </div>
             <span className="hidden text-muted/60 sm:inline" aria-hidden="true">•</span>
             <Link
@@ -1232,6 +1290,17 @@ export function ChatApp() {
           </form>
         </Dialog>
       )}
+      <ConfirmDialog
+        open={undoOpen}
+        onOpenChange={(open) => { if (!undoBusy) setUndoOpen(open); }}
+        title={t("undo.title")}
+        description={t("undo.body")}
+        confirmLabel={t("undo.confirm")}
+        cancelLabel={t("common.cancel")}
+        danger
+        loading={undoBusy}
+        onConfirm={() => void runUndo()}
+      />
       {filesOpen && threadId !== null && (
         <FilesPanel threadId={threadId} workspace={thread?.workspace_path ?? null} onClose={() => setFilesOpen(false)} />
       )}
@@ -1281,6 +1350,18 @@ export function ChatApp() {
             />
           )}
           {(roomId === null || agents === null) && <>
+          {thread?.branched_from_thread_id != null && (
+            <p className="px-4 pt-2 text-xs text-muted">
+              <a
+                href={`/chat?thread=${thread.branched_from_thread_id}`}
+                onClick={(event) => { event.preventDefault(); router.push(`/chat?thread=${thread.branched_from_thread_id}`); }}
+                className="underline underline-offset-2 hover:text-ink"
+              >
+                {t("branch.from")}
+              </a>
+            </p>
+          )}
+          <WaitingRoutineQuestions agentId={threadAgent?.id ?? startingAgent?.id ?? null} openThreadId={threadId} />
           {stream.connection === "failed" ? (
             <Notice title="Cannot open this conversation">{stream.error}</Notice>
           ) : (
@@ -1304,6 +1385,7 @@ export function ChatApp() {
               remembered={remembered}
               undoneRules={undoneRules}
               onUndo={undoRule}
+              onBranch={roomId === null && ready && transcript.runningTurnId === null && !sending ? branchFromMessage : undefined}
             />
           )}
 

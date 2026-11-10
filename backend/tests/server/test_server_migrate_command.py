@@ -17,7 +17,7 @@ pytestmark = pytest.mark.skipif(not using_sqlite(), reason="these checks use the
 
 @pytest.fixture
 def target(tmp_path, monkeypatch) -> Path:
-    file = tmp_path / "data" / "open-dots.db"
+    file = tmp_path / "data" / "suparagent.db"
     monkeypatch.setattr(settings, "SQLITE_PATH", str(file))
     return file
 

@@ -2,7 +2,7 @@
 
 A team has a lead and specialists. Existing agents keep their settings until you choose a lead or add them to the team. A team can contain an agent on any engine; team tools are available through Claude and Codex. Choose the lead and coordinated agents in the new-agent form or existing agent settings. See [chat management](CHAT_MANAGEMENT.md) for conversational setup, supported controls and verification limits.
 
-As of Open Duet `a2e6404` (2026-11-03), Team coordination opens a full-screen
+As of Suparagent `a2e6404` (2026-11-03), Team coordination opens a full-screen
 workspace with **Agents**, **Work** and **Rooms** views. Agents shows the lead
 and specialists, their configured engine and current idle, working or waiting
 state, along with the existing membership controls. Work groups delegated jobs

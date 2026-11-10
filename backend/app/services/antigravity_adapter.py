@@ -22,7 +22,7 @@ from app.services.provider_adapter import EngineProbe, ModelOption, TurnOutcome
 from app.services.stdio_rpc import StdioRpc
 
 AUTH_PREFIX = "Open the following link to authenticate the ACP server: "
-BROWSER_MARKER = "__OPEN_DOTS_GOOGLE_AUTH__"
+BROWSER_MARKER = "__SUPARAGENT_GOOGLE_AUTH__"
 AUTH_SECONDS = 300
 STARTUP_SECONDS = 90
 

@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 540" role="img" aria-labelledby="title description">
+  <title id="title">How a team works in Open Duet</title>
+  <desc id="description">A request goes to a Claude or Codex team lead, who delegates work to specialists. The team can share a project workspace, and you review actions that need approval.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M0 0 8 4 0 8Z" fill="#81958a"/>
+    </marker>
+    <style>
+      .sans { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .eyebrow { font: 700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 1.5px; }
+      .title { font: 700 28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .body { font: 600 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .small { font: 500 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    </style>
+  </defs>
+
+  <rect width="1120" height="540" rx="28" fill="#f3f6f1"/>
+  <circle cx="1050" cy="60" r="110" fill="#e6efdf"/>
+  <circle cx="1050" cy="60" r="66" fill="#edf4e8"/>
+
+  <text x="52" y="48" class="eyebrow" fill="#53705c">OPEN DUET · TEAM WORKFLOW</text>
+  <text x="52" y="86" class="title" fill="#1e3528">From one request to a team result</text>
+  <text x="52" y="113" class="small" fill="#5c6d61">Delegate focused work, share context, and keep approvals in your hands.</text>
+
+  <!-- Request -->
+  <rect x="48" y="158" width="246" height="166" rx="18" fill="#ffffff" stroke="#dce5da" stroke-width="1.5"/>
+  <rect x="68" y="178" width="30" height="30" rx="10" fill="#eaf2e5"/>
+  <path d="M77 188h12M77 194h8" stroke="#4e7357" stroke-width="2" stroke-linecap="round"/>
+  <text x="108" y="197" class="eyebrow" fill="#6a7b6d">YOUR REQUEST</text>
+  <text x="68" y="244" class="body" fill="#24382b">Prepare the weekly</text>
+  <text x="68" y="269" class="body" fill="#24382b">project briefing</text>
+  <text x="68" y="300" class="small" fill="#7a887d">Start in a conversation</text>
+
+  <!-- Request to lead -->
+  <path d="M302 240h45" fill="none" stroke="#81958a" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- Team lead -->
+  <rect x="358" y="158" width="292" height="166" rx="18" fill="#263d2e"/>
+  <circle cx="391" cy="194" r="16" fill="#d4edba"/>
+  <path d="M383 194h16M391 186v16" stroke="#263d2e" stroke-width="2.5" stroke-linecap="round"/>
+  <text x="418" y="190" class="eyebrow" fill="#cce7b5">TEAM LEAD</text>
+  <text x="418" y="211" class="small" fill="#e3eedb">Claude or Codex</text>
+  <text x="382" y="256" class="body" fill="#ffffff">Plans and coordinates</text>
+  <text x="382" y="281" class="body" fill="#ffffff">the work</text>
+  <text x="382" y="307" class="small" fill="#c9d8ca">Then gathers each result</text>
+
+  <!-- Lead to specialists -->
+  <path d="M658 240h34v-48h28M692 240v52h28" fill="none" stroke="#81958a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M718 192h10M718 292h10" fill="none" stroke="#81958a" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- Specialists -->
+  <rect x="738" y="148" width="334" height="92" rx="16" fill="#ffffff" stroke="#dce5da" stroke-width="1.5"/>
+  <circle cx="770" cy="194" r="18" fill="#e6f1dd"/>
+  <path d="m762 194 6 6 11-13" fill="none" stroke="#4e7357" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="802" y="185" class="eyebrow" fill="#6a7b6d">RESEARCHER</text>
+  <text x="802" y="210" class="small" fill="#34483a">Collects key updates</text>
+
+  <rect x="738" y="256" width="334" height="92" rx="16" fill="#ffffff" stroke="#dce5da" stroke-width="1.5"/>
+  <circle cx="770" cy="302" r="18" fill="#f6ebd6"/>
+  <path d="M762 302h16M762 296h12M762 308h9" fill="none" stroke="#a87938" stroke-width="2" stroke-linecap="round"/>
+  <text x="802" y="293" class="eyebrow" fill="#6a7b6d">EDITOR</text>
+  <text x="802" y="318" class="small" fill="#34483a">Shapes findings into a brief</text>
+
+  <!-- Shared controls -->
+  <rect x="48" y="382" width="1024" height="112" rx="18" fill="#e8eee4"/>
+  <path d="M390 404v68M730 404v68" stroke="#cbd7c8" stroke-width="1.5"/>
+
+  <rect x="72" y="408" width="36" height="36" rx="11" fill="#ffffff"/>
+  <path d="M80 420h8l3 3h9v12H80z" fill="none" stroke="#4e7357" stroke-width="2" stroke-linejoin="round"/>
+  <text x="122" y="423" class="eyebrow" fill="#53705c">SHARED WORKSPACE</text>
+  <text x="122" y="451" class="small" fill="#34483a">Give teammates the same project folder.</text>
+
+  <rect x="414" y="408" width="36" height="36" rx="11" fill="#ffffff"/>
+  <path d="M432 416v9l6 4M432 412a13 13 0 1 0 13 13" fill="none" stroke="#a87938" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="464" y="423" class="eyebrow" fill="#53705c">YOU SET THE APPROVALS</text>
+  <text x="464" y="451" class="small" fill="#34483a">Review actions when your mode asks.</text>
+
+  <rect x="754" y="408" width="36" height="36" rx="11" fill="#ffffff"/>
+  <path d="m764 429 5 5 11-13" fill="none" stroke="#4e7357" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="804" y="423" class="eyebrow" fill="#53705c">TEAM RESULT</text>
+  <text x="804" y="451" class="small" fill="#34483a">Collected in the lead's conversation.</text>
+</svg>

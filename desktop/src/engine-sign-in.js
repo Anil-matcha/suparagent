@@ -14,7 +14,7 @@ function validateEngineSignIn(raw) {
 }
 
 function registerEngineSignIn({ ipcMain, openExternal, getWindow, getOrigin }) {
-  ipcMain.handle("open-dots:engine-sign-in", async (event, raw) => {
+  ipcMain.handle("suparagent:engine-sign-in", async (event, raw) => {
     const window = getWindow();
     if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !sameOrigin(event.senderFrame?.url, getOrigin())) throw new Error("Start engine sign-in from the app window.");
     if (!["/settings/engines", "/onboarding"].includes(new URL(event.senderFrame.url).pathname.replace(/\/$/, ""))) throw new Error("Start engine sign-in from Settings or setup.");

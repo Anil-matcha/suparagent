@@ -1,8 +1,8 @@
 {
-  "name": "open-dots-desktop",
-  "version": "0.8.4",
+  "name": "suparagent-desktop",
+  "version": "0.8.5",
   "private": true,
-  "description": "Open Duet desktop app: an Electron window around the local backend. Runs from a source checkout or installed.",
+  "description": "Suparagent desktop app: an Electron window around the local backend. Runs from a source checkout or installed.",
   "main": "main.js",
   "engines": {
     "node": ">=22"
@@ -27,11 +27,11 @@
     "electron": "^43.0.0",
     "electron-builder": "^26.15.3"
   },
-  "author": "Open Duet",
+  "author": "Suparagent",
   "build": {
-    "appId": "app.opendots.desktop",
-    "productName": "Open Duet",
-    "executableName": "Open Duet",
+    "appId": "app.suparagent.desktop",
+    "productName": "Suparagent",
+    "executableName": "Suparagent",
     "directories": {
       "output": "release"
     },
@@ -44,12 +44,20 @@
     ],
     "extraResources": [
       {
-        "from": "../backend/dist/open-dots-backend",
+        "from": "../backend/dist/suparagent-backend",
         "to": "backend"
       },
       {
         "from": "../frontend/out",
         "to": "ui"
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Suparagent chat link",
+        "schemes": [
+          "suparagent"
+        ]
       }
     ],
     "asar": true,
@@ -63,7 +71,7 @@
           ]
         }
       ],
-      "artifactName": "Open-Duet-Setup-${version}.${ext}"
+      "artifactName": "Suparagent-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -82,7 +90,7 @@
         }
       ],
       "category": "public.app-category.productivity",
-      "artifactName": "Open-Duet-${version}-arm64.${ext}"
+      "artifactName": "Suparagent-${version}-arm64.${ext}"
     }
   }
 }

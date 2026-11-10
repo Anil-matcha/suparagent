@@ -26,7 +26,7 @@ from test_dev import dev_env
 class CertificateTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.temp = tempfile.TemporaryDirectory(prefix="open-dots-tls-test-")
+        cls.temp = tempfile.TemporaryDirectory(prefix="suparagent-tls-test-")
         cls.addClassCleanup(cls.temp.cleanup)
         cls.root = Path(cls.temp.name)
         cls.ca_file = cls.root / "system-ca.pem"

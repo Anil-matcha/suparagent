@@ -2,7 +2,7 @@
 // Browser storage can be missing or throw (private windows), so every call is guarded and the
 // box works the same without it.
 
-const PREFIX = "open-duet:draft:";
+const PREFIX = "suparagent:draft:";
 const MAX_CHARS = 20000;
 
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;

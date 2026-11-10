@@ -13,6 +13,7 @@ export type SkillSummary = {
   source: SkillSource;
   bytes: number;
   updated_at: string | null;
+  triggers?: string[];
 };
 
 export type SkillDoc = {
@@ -24,9 +25,11 @@ export type SkillDoc = {
   revision: string;
   redacted: number;
   warnings: string[];
+  triggers?: string[];
 };
 
-export type SkillSave = { description: string; body: string; enabled: boolean; source: SkillSource };
+// `triggers` omitted keeps the skill's current phrases; a list replaces them.
+export type SkillSave = { description: string; body: string; enabled: boolean; source: SkillSource; triggers?: string[] };
 
 export type SkillLearnSource = { thread_id: number; turn_id: number };
 export type SkillLearnPreview = SkillPreview & SkillLearnSource & { redacted: number };
@@ -76,6 +79,41 @@ export function skillSkeleton(seed = ""): { name: string; description: string; b
     "",
   ].join("\n");
   return { name: slugSkillName(description.split(/\s+/).slice(0, 5).join(" ")), description, body };
+}
+
+export const SKILL_TRIGGERS_MAX = 8;
+export const SKILL_TRIGGER_MIN = 3;
+export const SKILL_TRIGGER_MAX = 60;
+
+// Trigger phrases typed as text (commas, new lines or `|`): lowercase, one line, 3-60 characters,
+// no repeats, at most SKILL_TRIGGERS_MAX. Same rules as the backend, which has the last word.
+export function parseTriggers(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.split(/[,\n|]/)) {
+    const phrase = raw.trim().replace(/\s+/g, " ").toLowerCase();
+    if (phrase.length >= SKILL_TRIGGER_MIN && phrase.length <= SKILL_TRIGGER_MAX && !out.includes(phrase)) out.push(phrase);
+    if (out.length >= SKILL_TRIGGERS_MAX) break;
+  }
+  return out;
+}
+
+// Enabled skills whose trigger phrase appears in the text (whole words), best match first. This only
+// suggests: nothing is picked or sent, and a skill never starts on its own.
+export function suggestSkills(text: string, available: readonly SkillSummary[], chosen: readonly string[] = []): SkillSummary[] {
+  const haystack = ` ${text.trim().replace(/\s+/g, " ").toLowerCase()} `;
+  if (haystack.trim() === "") return [];
+  const scored: { score: number; skill: SkillSummary }[] = [];
+  for (const skill of available) {
+    if (!skill.enabled || chosen.includes(skill.name)) continue;
+    let score = 0;
+    for (const phrase of skill.triggers ?? []) {
+      const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, "u").test(haystack)) score = Math.max(score, phrase.length);
+    }
+    if (score > 0) scored.push({ score, skill });
+  }
+  scored.sort((a, b) => b.score - a.score || a.skill.name.localeCompare(b.skill.name));
+  return scored.slice(0, MAX_SKILLS_PER_MESSAGE).map((s) => s.skill);
 }
 
 // `/name rest of the message`: the skill the person typed and what is left to send.

@@ -66,7 +66,7 @@ class LocalServer:
                 result = {
                     "protocolVersion": params.get("protocolVersion") or PROTOCOL_VERSION,
                     "capabilities": {"tools": {"listChanged": False}},
-                    "serverInfo": {"name": "open-dots-browser", "version": "1"},
+                    "serverInfo": {"name": "suparagent-browser", "version": "1"},
                 }
             elif method == "ping":
                 result = {}
@@ -173,7 +173,7 @@ def _load_check(spec: str) -> Callable[[str], str | None]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="open-dots-browser-mcp")
+    parser = argparse.ArgumentParser(prog="suparagent-browser-mcp")
     parser.add_argument("--grants", required=True)
     parser.add_argument("--state", required=True)
     parser.add_argument("--profiles", required=True)

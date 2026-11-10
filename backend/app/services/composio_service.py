@@ -3,7 +3,7 @@
 One encrypted row in the credential table (`user_credential`, provider
 `integration:composio`, like `engine:<id>`; no migration):
 
-    {"api_key": "ak_...", "user_id": "opendots_<hex>", "session_id": "..." | null}
+    {"api_key": "ak_...", "user_id": "suparagent_<hex>", "session_id": "..." | null}
 
 `user_id` is this installation's one Composio user. Connections belong to that
 user, not to a session, so a lost session is replaced without losing them.
@@ -23,6 +23,7 @@ from app import composio_catalog, composio_generic, composio_tools
 from app.db.models.user_credential import UserCredential
 from app.db.transactions import begin_write
 from app.services import user_credential_service
+from app.core import tool_timeout
 from app.services.composio_client import Account, ComposioClient, ComposioError, Link
 
 PROVIDER = "integration:composio"
@@ -88,7 +89,7 @@ async def set_key(db: AsyncSession, owner_id: str, key: str, make_client) -> Non
         raise UserError(422, "invalid_composio_key", "A Composio project key starts with ak_ and has no spaces.")
     async with lock:
         previous = await load(db, owner_id)
-        user_id = previous["user_id"] if previous else "opendots_" + uuid.uuid4().hex
+        user_id = previous["user_id"] if previous else "suparagent_" + uuid.uuid4().hex
         try:
             await make_client(key).accounts(user_id)
         except ComposioError as exc:
@@ -277,6 +278,16 @@ DONE_UNREADABLE = {
 }
 
 
+async def _execute(client, session_id, slug, arguments, account_id):
+    """client.execute under the single tool timeout; a timeout reads as 'unavailable',
+    so a change is reported as unknown and never retried."""
+    try:
+        async with asyncio.timeout(tool_timeout.seconds()):
+            return await client.execute(session_id, slug, arguments, account_id)
+    except TimeoutError:
+        raise ComposioError("unavailable", "The app did not answer in time.") from None
+
+
 async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments: dict, alias: str | None, *,
                    account_id: str | None = None, allowed_account_ids: list[str] | None = None,
                    before_execute=None) -> dict:
@@ -318,7 +329,7 @@ async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments
     except ComposioError as exc:  # nothing was sent for the tool yet
         return _agent_error(exc)
     try:
-        done = await client.execute(session_id, tool.slug, arguments, account.id)
+        done = await _execute(client, session_id, tool.slug, arguments, account.id)
     except ComposioError as exc:
         if write and exc.kind in ("unavailable", "bad_response"):
             return dict(OUTCOME_UNKNOWN)
@@ -329,7 +340,7 @@ async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments
             session_id, record = await _session(db, owner_id, client, record, replace=session_id)
             if write:
                 return dict(SESSION_EXPIRED)
-            done = await client.execute(session_id, tool.slug, arguments, account.id)
+            done = await _execute(client, session_id, tool.slug, arguments, account.id)
         except ComposioError as again:
             return _agent_error(again)
     if done.result_type == "completed":

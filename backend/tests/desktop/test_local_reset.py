@@ -137,11 +137,11 @@ def test_wipe_files_clears_workspace_and_backups_only(tmp_path):
         (tmp_path / "local" / "agent-1" / "a.txt").write_text("x")
         (tmp_path / "backups").mkdir()
         (tmp_path / "backups" / "b.db").write_text("x")
-        (tmp_path / "open-dots.db").write_text("db")
+        (tmp_path / "suparagent.db").write_text("db")
         local_data.wipe_files()
         assert (tmp_path / "local").is_dir() and not any((tmp_path / "local").iterdir())
         assert (tmp_path / "backups").is_dir() and not any((tmp_path / "backups").iterdir())
-        assert (tmp_path / "open-dots.db").exists()
+        assert (tmp_path / "suparagent.db").exists()
     finally:
         profile._current = None
 

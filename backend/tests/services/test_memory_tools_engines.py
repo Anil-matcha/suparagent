@@ -52,7 +52,7 @@ async def test_codex_gets_the_memory_server_for_the_thread_only(crt, sessions, o
     await finished(sessions, thread.id)
     params = codex.received("thread/start")[0]["params"]
     server = params["config"]["mcp_servers"]["memory"]
-    assert server["args"][-2] == "--mailbox" and "open-dots-memory-" in server["args"][-1]
+    assert server["args"][-2] == "--mailbox" and "suparagent-memory-" in server["args"][-1]
     assert server["enabled_tools"] == ["session_search", "session_read"]
     assert server["default_tools_approval_mode"] == "approve"  # read-only: no card
     assert params["developerInstructions"].startswith("Be brief.") and memory_bridge.TOOL_NOTE in params["developerInstructions"]

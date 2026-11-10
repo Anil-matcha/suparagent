@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://open-dots.dev/schemas/community-mcp-plugin.schema.json",
-  "title": "Open Dots community MCP listing",
+  "$id": "https://suparagent.dev/schemas/community-mcp-plugin.schema.json",
+  "title": "Suparagent community MCP listing",
   "type": "object",
   "additionalProperties": false,
   "required": [

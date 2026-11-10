@@ -46,7 +46,7 @@ export function findPendingApproval(
 }
 
 export function getReactionsStorageKey(threadId: number | null | undefined): string {
-  return `open-duet:reactions:${threadId ?? "global"}`;
+  return `suparagent:reactions:${threadId ?? "global"}`;
 }
 
 export function loadThreadReactions(threadId: number | null | undefined): ReactionsMap {

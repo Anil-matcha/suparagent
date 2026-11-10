@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Open Duet behind a real reverse proxy: nginx and Caddy, in containers, with TLS.
+"""Suparagent behind a real reverse proxy: nginx and Caddy, in containers, with TLS.
 
 The server relies on its proxy for a few things: HTTPS (so the sign-in cookie is Secure), the
 visitor's address (so a lockout is per visitor), the Host name, streams that are not buffered,
@@ -37,8 +37,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 REPO = Path(__file__).resolve().parents[1]
-PROJECT = "open-dots-proxy"
-IMAGE = "open-dots:smoke"
+PROJECT = "suparagent-proxy"
+IMAGE = "suparagent:smoke"
 DOMAIN = "dots.example.com"
 PASSPHRASE = "a long passphrase for the proxy smoke"
 PROXY_IP = "172.31.250.10"
@@ -133,12 +133,12 @@ class Stack:
         self.scratch = scratch
         self.ports = {"app": free_port(), "http": free_port(), "https": free_port()}
         self.tls_dir = scratch / "tls"
-        self.env_file = scratch / "open-dots.env"
+        self.env_file = scratch / "suparagent.env"
         self.env_file.write_text("\n".join([
             f"TOKEN_ENCRYPTION_KEYS={Fernet.generate_key().decode()}",
             "LOCAL_EXECUTION_ENABLED=true",
             "LOOPBACK_TRUST=off",
-            f"OPEN_DOTS_PUBLIC_URL=https://{DOMAIN}",
+            f"SUPARAGENT_PUBLIC_URL=https://{DOMAIN}",
             "",
         ]), encoding="utf-8")
         self.ca: Path | None = None
@@ -147,13 +147,13 @@ class Stack:
 
     def environment(self) -> dict:
         env = {
-            "OPEN_DOTS_ENV_FILE": str(self.env_file), "OPEN_DOTS_IMAGE": IMAGE, "OPEN_DOTS_DOMAIN": DOMAIN,
-            "OPEN_DOTS_PORT": str(self.ports["app"]), "OPEN_DOTS_HTTP_PORT": str(self.ports["http"]),
-            "OPEN_DOTS_HTTPS_PORT": str(self.ports["https"]), "OPEN_DOTS_HTTP_BIND": "127.0.0.1",
-            "OPEN_DOTS_TLS_DIR": str(self.tls_dir),
+            "SUPARAGENT_ENV_FILE": str(self.env_file), "SUPARAGENT_IMAGE": IMAGE, "SUPARAGENT_DOMAIN": DOMAIN,
+            "SUPARAGENT_PORT": str(self.ports["app"]), "SUPARAGENT_HTTP_PORT": str(self.ports["http"]),
+            "SUPARAGENT_HTTPS_PORT": str(self.ports["https"]), "SUPARAGENT_HTTP_BIND": "127.0.0.1",
+            "SUPARAGENT_TLS_DIR": str(self.tls_dir),
         }
         if self.kind == "caddy":
-            env["OPEN_DOTS_CADDY_TLS"] = "tls internal"
+            env["SUPARAGENT_CADDY_TLS"] = "tls internal"
         env.update(self.overrides)
         return {**os.environ, **env}
 
@@ -167,25 +167,25 @@ class Stack:
     def wait_healthy(self, timeout: float = 120) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            container = self.container("open-dots")
+            container = self.container("suparagent")
             if container:
                 state = json.loads(run(["docker", "inspect", container]).stdout)[0]["State"]
                 if state.get("Status") == "exited":
-                    raise AssertionError(f"the app exited ({state.get('ExitCode')}):\n{self.compose('logs', '--no-color', 'open-dots', check_exit=False).stdout[-2500:]}")
+                    raise AssertionError(f"the app exited ({state.get('ExitCode')}):\n{self.compose('logs', '--no-color', 'suparagent', check_exit=False).stdout[-2500:]}")
                 if (state.get("Health") or {}).get("Status") == "healthy":
                     return
             time.sleep(2)
         raise AssertionError("the app did not become healthy")
 
     def app_logs(self) -> str:
-        result = self.compose("logs", "--no-color", "open-dots", check_exit=False)
+        result = self.compose("logs", "--no-color", "suparagent", check_exit=False)
         return result.stdout + result.stderr
 
     def app_exec(self, *command: str, stdin: str | None = None) -> subprocess.CompletedProcess:
-        return run(["docker", "exec", "-i", self.container("open-dots"), *command], check_exit=False, input=stdin)
+        return run(["docker", "exec", "-i", self.container("suparagent"), *command], check_exit=False, input=stdin)
 
     def app_address(self) -> str:
-        info = json.loads(run(["docker", "inspect", self.container("open-dots")]).stdout)[0]
+        info = json.loads(run(["docker", "inspect", self.container("suparagent")]).stdout)[0]
         return info["NetworkSettings"]["Networks"][self.network]["IPAddress"]
 
     # -- clients on the network ------------------------------------------------------------------
@@ -244,7 +244,7 @@ def prepare(stack: Stack, image_ready: bool) -> None:
 
 
 def matrix(kind: str, args) -> None:
-    scratch = Path(tempfile.mkdtemp(prefix=f"open-dots-smoke-proxy-{kind}-"))
+    scratch = Path(tempfile.mkdtemp(prefix=f"suparagent-smoke-proxy-{kind}-"))
     stack = Stack(kind, scratch)
     names = [f"{kind}-c1", f"{kind}-c2", f"{kind}-c3", f"{kind}-rogue"]
     try:
@@ -433,14 +433,14 @@ def matrix(kind: str, args) -> None:
 
         @check(f"{label} trust boundary, for contrast: trusting the whole network WOULD believe a stray container; back to the proxy only, it does not")
         def contrast():
-            stack.overrides["OPEN_DOTS_TRUSTED_PROXIES"] = SUBNET
-            stack.compose("up", "-d", "--no-build", "open-dots")
+            stack.overrides["SUPARAGENT_TRUSTED_PROXIES"] = SUBNET
+            stack.compose("up", "-d", "--no-build", "suparagent")
             stack.wait_healthy()
             new_direct = f"http://{stack.app_address()}:8000"
             believed = stack.login(rogue, PASSPHRASE, headers={**forged, "X-Forwarded-For": "203.0.113.150"}, base=new_direct)
             assert believed.status == 200 and believed.secure_cookie, "the whole-network trust did not behave as expected"
-            stack.overrides.pop("OPEN_DOTS_TRUSTED_PROXIES")
-            stack.compose("up", "-d", "--no-build", "open-dots")
+            stack.overrides.pop("SUPARAGENT_TRUSTED_PROXIES")
+            stack.compose("up", "-d", "--no-build", "suparagent")
             stack.wait_healthy()
             back = f"http://{stack.app_address()}:8000"
             again = stack.login(rogue, PASSPHRASE, headers={**forged, "X-Forwarded-For": "203.0.113.151"}, base=back)

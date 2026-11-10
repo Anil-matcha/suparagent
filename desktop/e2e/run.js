@@ -38,7 +38,7 @@ if (process.platform !== "win32") {
   process.exit(2);
 }
 
-const BASE = path.join(os.tmpdir(), "open-dots-e2e");
+const BASE = path.join(os.tmpdir(), "suparagent-e2e");
 const wanted = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
 const keep = process.argv.includes("--keep");
 const selected = (name) => wanted.length === 0 || wanted.includes("all") || wanted.includes(name);
@@ -139,7 +139,7 @@ async function lifecycle() {
     keyBefore = fs.readFileSync(keyFile);
     assert.ok(keyBefore.length > 40);
     assert.ok(!/^[A-Za-z0-9_-]{43}=$/.test(keyBefore.toString("latin1")), "the key must not be stored as plain text");
-    assert.ok(fs.existsSync(path.join(data, "data", "open-dots.db")));
+    assert.ok(fs.existsSync(path.join(data, "data", "suparagent.db")));
     assert.ok(!fs.existsSync(path.join(data, "data", "backups")), "a fresh database needs no backup");
     assert.ok(fs.existsSync(path.join(data, "logs", "backend.log")));
   });
@@ -149,7 +149,7 @@ async function lifecycle() {
     for (const [pathName, headers] of [
       ["/api/v1/threads", {}],
       ["/api/v1/local/status", {}],
-      ["/api/v1/threads", { "X-Open-Dots-Token": "x".repeat(43) }],
+      ["/api/v1/threads", { "X-Suparagent-Token": "x".repeat(43) }],
       ["/api/v1/threads", { Origin: "http://evil.example" }],
       ["/chat/", {}],
       ["/", {}],
@@ -160,13 +160,13 @@ async function lifecycle() {
     }
     const tab = await fetch(`${page.origin}/`, { headers: asPage });
     assert.equal(tab.status, 401);
-    assert.match(await tab.text(), /Open this from the Open Duet app/);
+    assert.match(await tab.text(), /Open this from the Suparagent app/);
   });
 
   await check("inside the window the page is authenticated, sees no Node, and cannot leave", async () => {
     assert.equal(await page.evaluate(`fetch('/api/v1/threads').then(r => r.status)`), 200);
     // The page cannot override the token (the session sets it on the way out), nor read it.
-    assert.equal(await page.evaluate(`fetch('/api/v1/threads', { headers: { 'X-Open-Dots-Token': 'forged' } }).then(r => r.status)`), 200);
+    assert.equal(await page.evaluate(`fetch('/api/v1/threads', { headers: { 'X-Suparagent-Token': 'forged' } }).then(r => r.status)`), 200);
     assert.equal(await page.evaluate(`typeof require + ' ' + typeof process + ' ' + typeof module`), "undefined undefined undefined");
     assert.equal(await page.evaluate(`document.cookie`), "");
     // New windows are refused and navigation stays on the app's own address.
@@ -261,7 +261,7 @@ async function failures() {
   console.log("\nfailures");
 
   await check("without Claude the page says so, names the setting, and offers Check again", async () => {
-    const app = await start({ dataDir: fresh("noclaude"), env: { OPEN_DOTS_CLAUDE_PATH: "C:\\no\\such\\claude.exe" } });
+    const app = await start({ dataDir: fresh("noclaude"), env: { SUPARAGENT_CLAUDE_PATH: "C:\\no\\such\\claude.exe" } });
     const page = await app.page();
     const text = await page.waitFor(
       `document.body.innerText.includes('Local Claude is not available') && document.body.innerText`,
@@ -296,8 +296,8 @@ async function failures() {
     assert.equal(await app.quit(page), 0);
   });
 
-  await check("a relative OPEN_DOTS_CLAUDE_PATH is refused with a message, not used", async () => {
-    const app = await start({ dataDir: fresh("relative"), env: { OPEN_DOTS_CLAUDE_PATH: "claude" } });
+  await check("a relative SUPARAGENT_CLAUDE_PATH is refused with a message, not used", async () => {
+    const app = await start({ dataDir: fresh("relative"), env: { SUPARAGENT_CLAUDE_PATH: "claude" } });
     await sleep(8000);
     assert.equal(app.backendPid(), null, "no backend was started");
     app.destroy();
@@ -312,7 +312,7 @@ async function failures() {
     await sleep(10_000); // the app is showing its error box; nothing may have been started
     assert.equal(app.backendPid(), null);
     assert.deepEqual(fs.readFileSync(path.join(data, "secrets", "encryption-key.v1")), junk);
-    assert.ok(!fs.existsSync(path.join(data, "data", "open-dots.db")));
+    assert.ok(!fs.existsSync(path.join(data, "data", "suparagent.db")));
     app.destroy();
   });
 
@@ -321,7 +321,7 @@ async function failures() {
     let app = await start({ dataDir: data });
     let page = await app.page();
     assert.equal(await app.quit(page), 0);
-    const database = path.join(data, "data", "open-dots.db");
+    const database = path.join(data, "data", "suparagent.db");
     const insert = python(
       "import sqlite3, sys\nfrom cryptography.fernet import Fernet\n" +
         "c = sqlite3.connect(sys.argv[1])\n" +
@@ -437,7 +437,7 @@ async function settings() {
   const rootB = path.join(dataDir, "workspace-b");
   fs.mkdirSync(rootA);
   fs.mkdirSync(rootB);
-  let app = await start({ dataDir, entry: path.join(__dirname, "picker-app.js"), env: { OPEN_DOTS_E2E_PICKER_PATH: rootA } });
+  let app = await start({ dataDir, entry: path.join(__dirname, "picker-app.js"), env: { SUPARAGENT_E2E_PICKER_PATH: rootA } });
   let page = await app.page();
   const json = (url, options = {}) => page.evaluate(`fetch(${JSON.stringify(url)}, ${JSON.stringify(options)}).then(async r => ({ status: r.status, data: await r.json() }))`);
   const read = async () => (await json("/api/v1/settings")).data;
@@ -454,7 +454,7 @@ async function settings() {
   await check("native Browse selects a workspace through the narrow sandboxed bridge", async () => {
     await openSettings();
     // picker-app.js stubs only the dialog; renderer -> IPC -> main is real.
-    assert.deepEqual(await page.evaluate(`({ node: typeof require, process: typeof process, bridge: Object.keys(window.openDots) })`), { node: "undefined", process: "undefined", bridge: ["choosePath"] });
+    assert.deepEqual(await page.evaluate(`({ node: typeof require, process: typeof process, bridge: Object.keys(window.suparagent) })`), { node: "undefined", process: "undefined", bridge: ["choosePath"] });
     await page.evaluate(`document.querySelector('button[aria-label="Browse Workspace root"]').click()`);
     await page.waitFor(`document.getElementById('LOCAL_WORKSPACE_ROOT').value === ${JSON.stringify(rootA)}`, "selected folder");
     await page.evaluate(`document.querySelector('button[aria-label="Save Workspace root"]').click()`);
@@ -700,7 +700,7 @@ async function upgrade() {
 
   const data = fresh("upgrade");
   const newDefault = path.join(data, "new-default");
-  const database = path.join(data, "data", "open-dots.db");
+  const database = path.join(data, "data", "suparagent.db");
   const oldWorkspace = path.join(data, "data", "local", "workspace");
   const open = async (entry) => {
     const app = await start({ dataDir: data, entry });

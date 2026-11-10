@@ -89,7 +89,7 @@ COMMAND_REQUESTS = ("item/commandExecution/requestApproval", "execCommandApprova
 FILE_REQUESTS = ("item/fileChange/requestApproval", "applyPatchApproval")
 LEGACY_REQUESTS = ("execCommandApproval", "applyPatchApproval")
 COMPUTER_SERVER = local_claude_runner.COMPUTER_SERVER
-CODEX_COMPOSIO_SERVER = "open_dots_composio"
+CODEX_COMPOSIO_SERVER = "suparagent_composio"
 # A computer turn runs only the computer's tools: Codex's own shell, unified
 # exec, image read and web search are switched off for the thread (checked
 # against codex-cli 0.164.0), and `environments: []` on every turn removes the
@@ -297,7 +297,7 @@ class CodexAdapter:
             rpc = await StdioRpc.spawn([str(exe), "app-server"], cwd=os.path.expanduser("~"), max_bytes=4_000_000)
 
             async def ask():
-                await rpc.request("initialize", {"clientInfo": {"name": "open-dots", "version": "0"}})
+                await rpc.request("initialize", {"clientInfo": {"name": "suparagent", "version": "0"}})
                 rpc.notify("initialized", {})
                 return await rpc.request("model/list", {})
 
@@ -514,7 +514,7 @@ class _CodexTurn:
 
     async def _start(self) -> TurnOutcome | None:
         try:
-            info = {"clientInfo": {"name": "open-dots", "title": "Open Duet", "version": "0"}}
+            info = {"clientInfo": {"name": "suparagent", "title": "Suparagent", "version": "0"}}
             if self.computer is not None:
                 # `environments` on turn/start is an experimental field; without this it is rejected.
                 info["capabilities"] = {"experimentalApi": True}

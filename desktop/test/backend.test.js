@@ -228,7 +228,7 @@ test("what the backend says on stdout is kept in the log", async () => {
 test("parseReadyLine accepts exactly what the backend prints", () => {
   assert.deepEqual(parseReadyLine(readyLine(8080), TOKEN), { port: 8080, pid: 99 });
   assert.equal(parseReadyLine(readyLine(8080), "x".repeat(43)), null);
-  assert.equal(parseReadyLine("OPEN_DOTS_READY", TOKEN), null);
+  assert.equal(parseReadyLine("SUPARAGENT_READY", TOKEN), null);
 });
 
 test("the backend's environment drops what could change its Python and the launcher's own settings", () => {
@@ -240,8 +240,8 @@ test("the backend's environment drops what could change its Python and the launc
     PYTHONHOME: "/elsewhere",
     PYTHONPATH: "/elsewhere",
     PYTHONSTARTUP: "/elsewhere/x.py",
-    OPEN_DOTS_CLAUDE_PATH: "/x/claude",
-    open_dots_data_dir: "/x",
+    SUPARAGENT_CLAUDE_PATH: "/x/claude",
+    suparagent_data_dir: "/x",
     UNSET: undefined,
   };
   const before = { ...base };

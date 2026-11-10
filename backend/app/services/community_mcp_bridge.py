@@ -23,6 +23,7 @@ from urllib.parse import quote
 from sqlalchemy import delete, select
 
 from app import community_mcp
+from app.core import tool_timeout
 from app.core.logging import get_logger
 from app.db.models import Agent, Approval, CommunityMcpConnection, CommunityMcpToolGrant, Thread, Turn
 from app.services import user_credential_service
@@ -30,7 +31,7 @@ from app.services import user_credential_service
 logger = get_logger(__name__)
 
 PREFIX = "mcp__community__"
-SERVER = "open_dots_community"
+SERVER = "suparagent_community"
 MAX_REQUEST_BYTES = 64_000
 MAX_TOOL_DESCRIPTION = 4_000
 REQUEST_FILE = re.compile(r"^req-([0-9a-f]{32})\.json$")
@@ -109,7 +110,7 @@ class CommunityMcpBridge:
                 "alias": alias,
             }
         self.tools = tools
-        self.folder = Path(tempfile.mkdtemp(prefix=f"open-dots-community-{run.turn_id}-"))
+        self.folder = Path(tempfile.mkdtemp(prefix=f"suparagent-community-{run.turn_id}-"))
         try:
             self.folder.chmod(0o700)
         except OSError:
@@ -471,7 +472,11 @@ class CommunityMcpBridge:
             if self.run.ctx.aborted:
                 return None
             try:
-                result = await session.call_tool(item["remote_name"], arguments)
+                try:
+                    async with asyncio.timeout(tool_timeout.seconds()):
+                        result = await session.call_tool(item["remote_name"], arguments)
+                except TimeoutError:
+                    raise community_mcp.McpError("timeout", "The tool timed out.", 504) from None
             except community_mcp.McpError:
                 logger.info("marketplace tool result was not confirmed", slug=item["manifest"]["slug"],
                             schema=item["schema_digest"][:12])

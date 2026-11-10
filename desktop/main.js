@@ -1,4 +1,4 @@
-// The Open Duet desktop shell, run from a source checkout (D-012) or installed.
+// The Suparagent desktop shell, run from a source checkout (D-012) or installed.
 //
 // Order of events: take the single-instance lock, show a window straight away,
 // get the encryption key from the operating system's secret storage, start the
@@ -19,6 +19,7 @@ const { createKeyStore, KeyStoreError } = require("./src/keystore");
 const { startBackend, backendEnvironment, newToken } = require("./src/backend");
 const { attachTokenTo, lockDown, sameOrigin } = require("./src/origin");
 const { registerExternalLinks } = require("./src/external-links");
+const { SCHEME: DEEP_LINK_SCHEME, deepLinkFromArgv, createDeepLinkHandler } = require("./src/deep-link");
 const { registerPathPicker } = require("./src/path-picker");
 const { registerDesktopPermissions } = require("./src/desktop-permissions");
 const { registerGoogleSignIn } = require("./src/google-sign-in");
@@ -42,20 +43,21 @@ const hasIcon = fs.existsSync(iconPath);
 const paths = app.isPackaged ? packagedLayout(process.resourcesPath) : layout();
 
 // Where this launch keeps its data. `dev` has its own, so developing never touches
-// the data of the app that is used for real. OPEN_DOTS_DATA_DIR is a launcher
+// the data of the app that is used for real. SUPARAGENT_DATA_DIR is a launcher
 // variable (not a backend setting) for tests and for keeping a second copy apart.
 function chooseUserData() {
-  const given = (process.env.OPEN_DOTS_DATA_DIR ?? "").trim();
+  const given = (process.env.SUPARAGENT_DATA_DIR ?? "").trim();
   if (given) {
-    if (!path.isAbsolute(given)) throw new Error("OPEN_DOTS_DATA_DIR must be a full path.");
+    if (!path.isAbsolute(given)) throw new Error("SUPARAGENT_DATA_DIR must be a full path.");
     return given;
   }
-  // The folder keeps the name from before the rename to Open Duet: it holds the
+  // The folder keeps the name from before the rename to Suparagent: it holds the
   // database and the encrypted key, and the key store is tied to the app name.
-  return path.join(app.getPath("appData"), mode === "dev" ? "Open Dots (dev)" : "Open Dots");
+  return path.join(app.getPath("appData"), mode === "dev" ? "Suparagent (dev)" : "Suparagent");
 }
 
 let window = null;
+let deepLinkReady = () => {};
 let backend = null;
 let quitting = false;
 let backendStopped = false;
@@ -107,7 +109,7 @@ function createWindow() {
     height: 800,
     minWidth: 480,
     minHeight: 480,
-    title: mode === "dev" ? "Open Duet (dev)" : "Open Duet",
+    title: mode === "dev" ? "Suparagent (dev)" : "Suparagent",
     backgroundColor: "#ffffff",
     ...(hasIcon ? { icon: iconPath } : {}),
     webPreferences: {
@@ -125,32 +127,55 @@ function createWindow() {
 }
 
 function claudePathFromEnvironment() {
-  const given = (process.env.OPEN_DOTS_CLAUDE_PATH ?? "").trim();
+  const given = (process.env.SUPARAGENT_CLAUDE_PATH ?? "").trim();
   if (given && !path.isAbsolute(given)) {
-    throw new Error("OPEN_DOTS_CLAUDE_PATH must be the full path of the claude executable.");
+    throw new Error("SUPARAGENT_CLAUDE_PATH must be the full path of the claude executable.");
   }
   return given;
 }
 
 async function main() {
   const userData = chooseUserData();
-  // Same stored identity as the data folder above; the window title says Open Duet.
-  app.setName(mode === "dev" ? "Open Dots (dev)" : "Open Dots");
+  // Same stored identity as the data folder above; the window title says Suparagent.
+  app.setName(mode === "dev" ? "Suparagent (dev)" : "Suparagent");
   app.setPath("userData", userData);
 
   if (process.platform === "win32") {
-    app.setAppUserModelId(app.isPackaged ? "app.opendots.desktop" : process.execPath);
+    app.setAppUserModelId(app.isPackaged ? "app.suparagent.desktop" : process.execPath);
   }
 
   if (!app.requestSingleInstanceLock()) {
     app.exit(0);
     return;
   }
-  app.on("second-instance", () => {
+  // suparagent://chat?thread=<id> opens one chat or room (BL-118). Links that arrive before the app is up wait for it.
+  const deepLinks = createDeepLinkHandler({
+    navigate: (pagePath) => (window && backendOrigin ? window.loadURL(`${backendOrigin}${pagePath}`) : undefined),
+    focus: () => {
+      if (!window) return;
+      if (window.isMinimized()) window.restore();
+      window.focus();
+    },
+  });
+  deepLinkReady = () => deepLinks.ready();
+  try {
+    app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
+  } catch {
+    // Registration can fail in a sandbox or a development run; links then just do not open the app.
+  }
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    deepLinks.open(url);
+  });
+  app.on("second-instance", (_event, argv) => {
+    const link = deepLinkFromArgv(argv);
+    if (link) deepLinks.open(link);
     if (!window) return;
     if (window.isMinimized()) window.restore();
     window.focus();
   });
+  const startupLink = deepLinkFromArgv(process.argv);
+  if (startupLink) deepLinks.open(startupLink);
 
   await app.whenReady();
   registerApplicationMenu({
@@ -177,14 +202,14 @@ async function main() {
   registerGoogleSignIn({ ipcMain, openExternal: (url) => shell.openExternal(url), getWindow: () => window, getOrigin: () => backendOrigin });
   registerHostedWorkspace({ ipcMain, getController: () => workspaceController, getWindow: () => window, getOrigin: () => backendOrigin });
   registerComposioLink({ ipcMain, openExternal: (url) => shell.openExternal(url), getWindow: () => window, getOrigin: () => backendOrigin });
-  ipcMain.handle("open-dots:copy-text", (_event, text) => {
+  ipcMain.handle("suparagent:copy-text", (_event, text) => {
     if (typeof text === "string") {
       clipboard.writeText(text);
       return true;
     }
     return false;
   });
-  ipcMain.handle("open-dots:show-notification", (_event, payload) => {
+  ipcMain.handle("suparagent:show-notification", (_event, payload) => {
     if (!payload || typeof payload.title !== "string") return false;
     if (Notification.isSupported()) {
       const notif = new Notification({
@@ -199,7 +224,7 @@ async function main() {
           window.show();
           window.focus();
           if (payload.thread_id != null) {
-            window.webContents.send("open-dots:notification-clicked", { thread_id: payload.thread_id });
+            window.webContents.send("suparagent:notification-clicked", { thread_id: payload.thread_id });
           }
         }
       });
@@ -221,7 +246,7 @@ async function main() {
     downloadsDir: app.getPath("downloads"),
     openFile: (file) => shell.openPath(file),
     onState: (state) => {
-      if (window && !window.isDestroyed()) window.webContents.send("open-dots:update-state", state);
+      if (window && !window.isDestroyed()) window.webContents.send("suparagent:update-state", state);
     },
   });
   registerUpdates({
@@ -244,7 +269,7 @@ async function main() {
     key = createKeyStore({ dir: path.join(userData, "secrets"), safeStorage }).ensure().key;
   } catch (error) {
     if (error instanceof KeyStoreError) {
-      return fatal({ title: "Open Duet cannot keep its encryption key", body: error.message });
+      return fatal({ title: "Suparagent cannot keep its encryption key", body: error.message });
     }
     throw error;
   }
@@ -253,7 +278,7 @@ async function main() {
   try {
     claudePath = claudePathFromEnvironment();
   } catch (error) {
-    return fatal({ title: "Open Duet cannot start", body: error.message });
+    return fatal({ title: "Suparagent cannot start", body: error.message });
   }
 
   fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -317,6 +342,7 @@ async function main() {
     const replaced = error?.code === "ERR_ABORTED" && window && sameOrigin(window.webContents.getURL(), started.origin);
     if (!quitting && !replaced) throw error;
   }
+  deepLinkReady();
   setUpWorkspaces(token);
   startUpdateChecks();
 }
@@ -324,8 +350,8 @@ async function main() {
 // Local and hosted workspaces share this one window (BL-143). The local page stays the window's own
 // contents; the hosted page is a separate sandboxed view with no preload, no token and its own session.
 function setUpWorkspaces(token) {
-  // On by default (owner decision 2026-11-06). OPEN_DOTS_HOSTED_WORKSPACE=0 turns it off: no hosted view, no menu, no Settings card.
-  if (process.env.OPEN_DOTS_HOSTED_WORKSPACE === "0") return;
+  // On by default (owner decision 2026-11-06). SUPARAGENT_HOSTED_WORKSPACE=0 turns it off: no hosted view, no menu, no Settings card.
+  if (process.env.SUPARAGENT_HOSTED_WORKSPACE === "0") return;
   const win = window;
   const store = createWorkspaceStore(path.join(app.getPath("userData"), "workspace.json"));
   const state = { signedIn: false, email: null, status: "" };
@@ -363,7 +389,7 @@ function setUpWorkspaces(token) {
     store,
     // The title says which data is on screen: native chrome the hosted page cannot read or draw.
     onChange: (which) => {
-      win.setTitle(which === "hosted" ? "Open Duet \u2014 Hosted workspace (cloud data; local agents are not shown here)" : mode === "dev" ? "Open Duet (dev)" : "Open Duet");
+      win.setTitle(which === "hosted" ? "Suparagent \u2014 Hosted workspace (cloud data; local agents are not shown here)" : mode === "dev" ? "Suparagent (dev)" : "Suparagent");
       renderMenu();
     },
     onStatus: (status) => {
@@ -413,7 +439,7 @@ function setUpWorkspaces(token) {
 
 // Background checks only run in an installed app, and can be switched off.
 function startUpdateChecks() {
-  if (!app.isPackaged || process.env.OPEN_DOTS_DISABLE_UPDATE_CHECK === "1") return;
+  if (!app.isPackaged || process.env.SUPARAGENT_DISABLE_UPDATE_CHECK === "1") return;
   setTimeout(() => void updater?.check(), 15_000).unref();
   setInterval(() => void updater?.check(), 6 * 60 * 60 * 1000).unref();
 }
@@ -432,5 +458,5 @@ app.on("before-quit", (event) => {
 });
 
 main().catch((error) => {
-  if (!quitting) fatal({ title: "Open Duet could not start", body: String(error?.stack ?? error) });
+  if (!quitting) fatal({ title: "Suparagent could not start", body: String(error?.stack ?? error) });
 });

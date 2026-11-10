@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, browserViewerUrl } from "@/lib/api";
-import { canDrive, framePoint, keyMessage, mouseMessage, navMessage, parseServerText, retryDelayMs, textMessage, viewNote, viewState, wheelMessage, type FrameSize, type ViewEvent, type ViewState } from "@/lib/browser-view";
+import { canDrive, framePoint, keyMessage, mouseMessage, navMessage, parseServerText, retryDelayMs, shouldStream, textMessage, PAUSED_NOTE, viewNote, viewState, wheelMessage, type FrameSize, type ViewEvent, type ViewState } from "@/lib/browser-view";
 
 const BUTTON = "cursor-pointer rounded border border-line px-2 py-1 text-xs disabled:opacity-50";
 
@@ -15,6 +15,9 @@ export function LiveBrowser({ agentId }: { agentId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [address, setAddress] = useState("");
+  const [paused, setPaused] = useState(false);
+  const section = useRef<HTMLElement>(null);
+  const panelShown = useRef(true);
   const canvas = useRef<HTMLCanvasElement>(null);
   const current = useRef<ViewState>("starting");
   const lease = useRef<string | null>(null);
@@ -24,6 +27,7 @@ export function LiveBrowser({ agentId }: { agentId: number }) {
   const attempt = useRef(0);
   const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
   const alive = useRef(false);
+  const paused_ = useRef(false);
   const watching = useRef<() => Promise<void>>(async () => {}); // the retry timers start watching again through this
 
   const dispatch = useCallback((event: ViewEvent) => { current.current = viewState(current.current, event); setState(current.current); }, []);
@@ -128,14 +132,38 @@ export function LiveBrowser({ agentId }: { agentId: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, agentId]);
 
+  // Pause watching while the panel is hidden (collapsed, another tab, scrolled away) or the page is in the
+  // background: close the stream, which also stops the server sending frames. Resume straight away when shown.
+  useEffect(() => {
+    const apply = () => {
+      const pageVisible = document.visibilityState !== "hidden";
+      const stream = shouldStream(panelShown.current, pageVisible, current.current);
+      if (!stream && !paused_.current) {
+        paused_.current = true; setPaused(true);
+        generation.current++; stopRetry(); closeSocket(); dispatch("drop");
+      } else if (stream && paused_.current) {
+        paused_.current = false; setPaused(false);
+        if (alive.current && !canDrive(current.current) && current.current !== "taking") void watching.current();
+      }
+    };
+    const el = section.current;
+    const observer = typeof IntersectionObserver !== "undefined" && el ? new IntersectionObserver((entries) => {
+      panelShown.current = entries.some((entry) => entry.isIntersecting); apply();
+    }) : null;
+    if (el) observer?.observe(el);
+    document.addEventListener("visibilitychange", apply);
+    return () => { observer?.disconnect(); document.removeEventListener("visibilitychange", apply); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatch]);
+
   const pointer = (event: React.PointerEvent<HTMLCanvasElement>, action: "move" | "down" | "up") => {
     const point = framePoint(event.currentTarget.getBoundingClientRect(), size.current, event.clientX, event.clientY);
     if (point) send(mouseMessage(action, point, event.button));
   };
   const driving = canDrive(state);
-  return <section className="space-y-2">
+  return <section ref={section} className="space-y-2">
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs" data-testid="live-browser-note">{viewNote(state)}</span>
+      <span className="text-xs" data-testid="live-browser-note">{paused && !driving ? PAUSED_NOTE : viewNote(state)}</span>
       {state === "watching" && <button className={BUTTON} onClick={() => void take()}>Take control</button>}
       {state === "taking" && <button className={BUTTON} disabled>Taking control…</button>}
       {state === "lost" && <button className={BUTTON} onClick={() => void take()}>Reconnect</button>}

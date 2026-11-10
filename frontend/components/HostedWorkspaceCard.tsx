@@ -13,7 +13,7 @@ export function HostedWorkspaceCard() {
   const [state, setState] = useState<HostedState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const bridge = (typeof window === "undefined" ? undefined : (window.openDots as Bridge | undefined));
+  const bridge = (typeof window === "undefined" ? undefined : (window.suparagent as Bridge | undefined));
 
   useEffect(() => {
     let live = true;

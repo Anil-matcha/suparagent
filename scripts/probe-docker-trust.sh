@@ -14,8 +14,8 @@
 # --strict exits 1 when another network can reach the app or arrives looking like the host side
 # (do not trust the gateway address on such a machine; trust the proxy container's own address).
 
-PROBE_NET=open-dots-probe-net
-PROBE_NAME=open-dots-probe
+PROBE_NET=suparagent-probe-net
+PROBE_NAME=suparagent-probe
 SUBNET=172.31.251.0/24
 GATEWAY=172.31.251.1
 PROBE_IP=172.31.251.5

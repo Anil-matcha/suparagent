@@ -5,7 +5,7 @@ A skill is a saved set of instructions for one agent, such as "how I want the we
 ## What a skill is
 
 - One Markdown file per skill, `skills/<name>/SKILL.md`, in the agent's own folder (next to its notes).
-- A short header (`name`, `description`, `enabled`, `source`) and then the instructions.
+- A short header (`name`, `description`, `enabled`, `source`, optional `triggers`) and then the instructions. `triggers` is up to 8 short phrases (3-60 characters) separated by `|`; a message containing one makes the skill a suggestion only, never chosen, turned on or run.
 - Names use lowercase letters, digits and dashes, up to 48 characters. Instructions are at most 32 KB, a description at most 300 characters, and an agent can have 30 skills.
 - Text only. Nothing in a skill is run, and files next to `SKILL.md` are never read. A link (symlink) in the skills folder is refused.
 - Anything that looks like a secret is replaced when a skill is saved and again when it is read.
@@ -48,7 +48,8 @@ All routes are local-access only, like the agents routes. Errors are `{"detail":
 |---|---|
 | `GET /agents/{id}/skills` | `name, description, enabled, source, bytes, updated_at` for each skill |
 | `GET /agents/{id}/skills/{name}` | the skill with `body`, `redacted` (count) and `warnings` |
-| `PUT /agents/{id}/skills/{name}` | create or replace: `{description, body, enabled, source}` |
+| `PUT /agents/{id}/skills/{name}` | create or replace: `{description, body, enabled, source, triggers?}` (`triggers` omitted keeps the current phrases) |
+| `POST /agents/{id}/skills/suggest` | `{text}` returns the enabled skills whose trigger phrase appears in it; suggests only |
 | `DELETE /agents/{id}/skills/{name}` | remove it |
 | `POST /agents/{id}/skills/learn` | `{thread_id, turn_id}` prepares a bounded editable draft without saving |
 | `POST /agents/{id}/skills/learn/{name}` | `{thread_id, turn_id, description, body, reviewed: true}` creates the reviewed skill switched off; existing names return `409 skill_exists` |

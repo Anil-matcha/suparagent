@@ -70,3 +70,9 @@ class Thread(Base):
     @property
     def effort(self) -> str | None:
         return (self.provider_state or {}).get('effort') if isinstance(self.provider_state, dict) else None
+
+    @property
+    def branched_from_thread_id(self) -> int | None:
+        origin = (self.provider_state or {}).get("branched_from") if isinstance(self.provider_state, dict) else None
+        value = origin.get("thread_id") if isinstance(origin, dict) else None
+        return value if isinstance(value, int) else None

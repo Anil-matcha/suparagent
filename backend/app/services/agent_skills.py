@@ -9,7 +9,8 @@ approve a tool call or change an approval mode: approvals work exactly as they
 do without it.
 
 The file starts with a small header between `---` lines (`name`, `description`,
-`enabled`, `source`), then the instructions. Everything written or loaded passes
+`enabled`, `source`, and optional `triggers`: short phrases separated by `|`
+that make the skill a suggestion when a message contains one), then the instructions. Everything written or loaded passes
 through the notes' secret redaction. Files are written atomically, readable by
 this account only, and a symlink anywhere on the path is refused.
 """
@@ -34,6 +35,9 @@ MAX_SKILLS = 30
 # A file larger than this is never read, whatever it claims.
 FILE_MAX_BYTES = BODY_MAX_BYTES + 4096
 MAX_PER_MESSAGE = 3
+TRIGGERS_MAX = 8
+TRIGGER_MAX_CHARS = 60
+TRIGGER_MIN_CHARS = 3
 
 _WARNINGS = (
     (
@@ -69,6 +73,7 @@ class Skill:
     updated_at: datetime | None = None
     bytes: int = 0
     revision: str = ""
+    triggers: list[str] = field(default_factory=list)
 
 
 def check_name(name: str) -> str:
@@ -81,6 +86,38 @@ def check_name(name: str) -> str:
 
 def _one_line(value: str) -> str:
     return " ".join(value.split())
+
+
+def normalize_triggers(triggers) -> list[str]:
+    """Trigger phrases made safe: lowercase, one line, 3-60 characters, no
+    repeats, at most TRIGGERS_MAX. A list or a `|` separated string is accepted.
+    Anything that looks like a secret is dropped."""
+    if triggers is None:
+        return []
+    if isinstance(triggers, str):
+        triggers = triggers.split("|")
+    if not isinstance(triggers, (list, tuple)):
+        raise SkillError(422, "invalid_triggers", "Trigger phrases must be a list of short phrases.")
+    out: list[str] = []
+    for raw in triggers:
+        if not isinstance(raw, str):
+            raise SkillError(422, "invalid_triggers", "Trigger phrases must be text.")
+        phrase = _one_line(raw).casefold().replace("|", " ")
+        phrase = _one_line(phrase)
+        if not phrase:
+            continue
+        if len(phrase) < TRIGGER_MIN_CHARS or len(phrase) > TRIGGER_MAX_CHARS:
+            raise SkillError(
+                422, "invalid_triggers",
+                f"A trigger phrase must be {TRIGGER_MIN_CHARS} to {TRIGGER_MAX_CHARS} characters.",
+            )
+        if redact_secrets(phrase)[1]:
+            continue
+        if phrase not in out:
+            out.append(phrase)
+    if len(out) > TRIGGERS_MAX:
+        raise SkillError(422, "invalid_triggers", f"A skill can have at most {TRIGGERS_MAX} trigger phrases.")
+    return out
 
 
 def warnings_for(text: str) -> list[str]:
@@ -114,7 +151,8 @@ def render(skill: Skill) -> str:
         f"description: {_one_line(skill.description)}\n"
         f"enabled: {'true' if skill.enabled else 'false'}\n"
         f"source: {_one_line(skill.source)}\n"
-        "---\n\n"
+        + (f"triggers: {' | '.join(skill.triggers)}\n" if skill.triggers else "")
+        + "---\n\n"
         f"{skill.body.rstrip()}\n"
     )
 
@@ -135,7 +173,7 @@ def parse_markdown(text: str) -> dict:
             for line in text[4:end].split("\n"):
                 key, sep, value = line.partition(":")
                 key = key.strip().lower()
-                if sep and key in ("name", "description", "enabled", "source"):
+                if sep and key in ("name", "description", "enabled", "source", "triggers"):
                     value = value.strip()
                     if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
                         value = value[1:-1]
@@ -148,6 +186,7 @@ def parse_markdown(text: str) -> dict:
         "body": body.strip("\n") if body.strip() else "",
         "enabled": None if enabled is None else enabled.strip().lower() != "false",
         "source": fields.get("source"),
+        "triggers": fields.get("triggers"),
     }
 
 
@@ -200,6 +239,19 @@ def _skill_dir(agent_id: int, name: str, *, create: bool = False):
     return directory
 
 
+def _lenient_triggers(value) -> list[str]:
+    """Triggers from a file we did not write: bad entries are skipped, not fatal."""
+    out: list[str] = []
+    for part in (value or "").split("|"):
+        try:
+            for phrase in normalize_triggers([part]):
+                if phrase not in out:
+                    out.append(phrase)
+        except SkillError:
+            continue
+    return out[:TRIGGERS_MAX]
+
+
 def _read_file(agent_id: int, name: str) -> Skill | None:
     directory = _skill_dir(agent_id, name)
     path = directory / SKILL_FILE
@@ -221,6 +273,7 @@ def _read_file(agent_id: int, name: str) -> Skill | None:
         body=body,
         enabled=True if parsed["enabled"] is None else parsed["enabled"],
         source=_one_line(parsed["source"] or "user")[:SOURCE_MAX] or "user",
+        triggers=_lenient_triggers(parsed.get("triggers")),
         redacted=n + n2,
         warnings=warnings_for(body),
         updated_at=datetime.fromtimestamp(stat.st_mtime, UTC),
@@ -289,17 +342,26 @@ def _mutation_lock(agent_id: int):
 
 def write_skill(
     agent_id: int, name: str, description: str, body: str, *, enabled: bool = True,
-    source: str = "user", create_only: bool = False,
+    source: str = "user", create_only: bool = False, triggers: list[str] | None = None,
 ) -> Skill:
+    """`triggers=None` keeps an existing skill's trigger phrases."""
     check_name(name)
+    wanted = None if triggers is None else normalize_triggers(triggers)
     with _mutation_lock(agent_id):
         if create_only and (_skill_dir(agent_id, name) / SKILL_FILE).exists():
             raise SkillError(409, "skill_exists", "A skill with this name already exists. Choose another name.")
-        return _write_skill(agent_id, name, description, body, enabled=enabled, source=source)
+        if wanted is None:
+            try:
+                previous = _read_file(agent_id, name)
+            except SkillError:
+                previous = None
+            wanted = previous.triggers if previous else []
+        return _write_skill(agent_id, name, description, body, enabled=enabled, source=source, triggers=wanted)
 
 
 def _write_skill(
-    agent_id: int, name: str, description: str, body: str, *, enabled: bool = True, source: str = "user"
+    agent_id: int, name: str, description: str, body: str, *, enabled: bool = True, source: str = "user",
+    triggers: list[str] | None = None,
 ) -> Skill:
     check_name(name)
     description, body, source, redacted = _clean(description, body, source)
@@ -310,7 +372,10 @@ def _write_skill(
     path = directory / SKILL_FILE
     if path.is_symlink():
         raise SkillError(409, "skill_path_unsafe", "This skill is a link, so it is not used.")
-    skill = Skill(name=name, description=description, body=body, enabled=enabled, source=source)
+    skill = Skill(
+        name=name, description=description, body=body, enabled=enabled, source=source,
+        triggers=normalize_triggers(triggers),
+    )
     fd, tmp = tempfile.mkstemp(dir=directory, prefix=".skill-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -398,6 +463,28 @@ def resolve(agent_id: int | None, names: list[str]) -> list[Skill]:
     return chosen
 
 
+def suggest(skills: list[Skill], text: str, limit: int = MAX_PER_MESSAGE) -> list[Skill]:
+    """Enabled skills whose trigger phrase appears in `text`, best first (the
+    longest matching phrase, then name). A phrase matches whole words only,
+    ignoring case and spacing. This only suggests: nothing is chosen, turned
+    on or run, and a skill still applies only when the person picks it."""
+    if not isinstance(text, str) or not text.strip():
+        return []
+    haystack = f" {_one_line(text).casefold()} "
+    scored: list[tuple[int, str, Skill]] = []
+    for skill in skills:
+        if not skill.enabled:
+            continue
+        best = 0
+        for phrase in skill.triggers:
+            if re.search(r"(?<!\w)" + re.escape(phrase) + r"(?!\w)", haystack):
+                best = max(best, len(phrase))
+        if best:
+            scored.append((best, skill.name, skill))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [item[2] for item in scored[: max(0, limit)]]
+
+
 def prompt_block(skills: list[Skill]) -> str:
     """The text put before one message. Delimited, and marked as guidance with
     no authority over permissions."""
@@ -419,4 +506,7 @@ def prompt_block(skills: list[Skill]) -> str:
 def export_items(agent_id: int) -> list[dict]:
     """Skills as text for an agent file: name, description, body. The enabled
     flag does not travel: an import always starts them off."""
-    return [{"name": s.name, "description": s.description, "body": s.body} for s in list_skills(agent_id)]
+    return [
+        {"name": s.name, "description": s.description, "body": s.body, **({"triggers": s.triggers} if s.triggers else {})}
+        for s in list_skills(agent_id)
+    ]

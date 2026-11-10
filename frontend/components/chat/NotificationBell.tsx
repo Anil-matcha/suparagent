@@ -40,7 +40,7 @@ export function NotificationBell({
   }, []);
 
   useEffect(() => {
-    const bridge = (window as unknown as { openDots?: { onNotificationClicked?: (cb: (data: { thread_id?: number }) => void) => () => void } }).openDots;
+    const bridge = (window as unknown as { suparagent?: { onNotificationClicked?: (cb: (data: { thread_id?: number }) => void) => () => void } }).suparagent;
     if (!bridge?.onNotificationClicked) return;
     return bridge.onNotificationClicked((data) => {
       if (data?.thread_id != null) {

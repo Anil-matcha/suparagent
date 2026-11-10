@@ -19,11 +19,11 @@ function findItem(items, predicate) {
 
 test("macOS menu puts Settings in the application menu with the Command accelerator", () => {
   const onOpenSettings = () => {};
-  const template = createApplicationMenuTemplate({ platform: "darwin", appName: "Open Dots", onOpenSettings });
+  const template = createApplicationMenuTemplate({ platform: "darwin", appName: "Suparagent", onOpenSettings });
   const settings = findItem(template, (item) => item.label === "Settings...");
   const appMenu = template[0];
 
-  assert.equal(appMenu.label, "Open Dots");
+  assert.equal(appMenu.label, "Suparagent");
   assert.deepEqual(appMenu.submenu.map((item) => item.role ?? item.label ?? item.type), [
     "about", "separator", "Settings...", "separator", "services", "separator",
     "hide", "hideOthers", "unhide", "separator", "quit",

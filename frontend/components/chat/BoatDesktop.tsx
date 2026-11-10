@@ -88,7 +88,7 @@ export function BoatDesktop({ computerId }: { computerId: number }) {
             className="aspect-[16/10] min-h-[320px] w-full rounded border border-line bg-black"
           />
           <p className="text-xs text-muted">
-            This provider-issued desktop link is secret. Open Dots clears it from this view when you hand control back, but the provider does not expose a link revocation control.
+            This provider-issued desktop link is secret. Suparagent clears it from this view when you hand control back, but the provider does not expose a link revocation control.
           </p>
         </>
       )}

@@ -81,7 +81,7 @@ async def _refuse(send: Send, status: int, code: str, message: str, *, clear_coo
     body = json.dumps({"detail": {"error_code": code, "message": message}}).encode()
     headers = [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]
     if status == 401:
-        headers.append((b"www-authenticate", b'Bearer realm="open-dots"'))
+        headers.append((b"www-authenticate", b'Bearer realm="suparagent"'))
     if clear_cookie:
         headers.append((b"set-cookie", f"{COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0".encode()))
     await send({"type": "http.response.start", "status": status, "headers": headers})
