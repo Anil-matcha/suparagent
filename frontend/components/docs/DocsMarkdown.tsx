@@ -96,34 +96,6 @@ function CalloutBox({ type, title, children }: { type: string; title?: string; c
   );
 }
 
-function ProductScreenshotView({
-  name,
-  alt,
-  caption,
-}: {
-  name: string;
-  alt: string;
-  caption?: string;
-}) {
-  return (
-    <figure className="my-8">
-      <div className="overflow-hidden rounded-2xl border border-line/80 bg-[#0a0a0b] shadow-2xl transition hover:border-line">
-        <img
-          src={`/screenshots/${name}.png`}
-          alt={alt}
-          loading="lazy"
-          className="w-full object-cover max-h-[38rem]"
-        />
-      </div>
-      {caption && (
-        <figcaption className="mt-3 text-center text-xs text-muted leading-relaxed">
-          {caption}
-        </figcaption>
-      )}
-    </figure>
-  );
-}
-
 function CardView({
   title,
   href,
@@ -362,27 +334,7 @@ export function DocsMarkdown({ content, onNavigateDoc, onHeadingsExtracted }: Do
       continue;
     }
 
-    // 3. ProductScreenshot: <ProductScreenshot name="..." alt="..." caption="..." />
-    if (trimmed.startsWith("<ProductScreenshot")) {
-      const nameMatch = trimmed.match(/name=["']([^"']+)["']/);
-      const altMatch = trimmed.match(/alt=["']([^"']+)["']/);
-      const capMatch = trimmed.match(/caption=["']([^"']+)["']/);
-
-      if (nameMatch) {
-        elements.push(
-          <ProductScreenshotView
-            key={`screenshot-${index}`}
-            name={nameMatch[1]}
-            alt={altMatch ? altMatch[1] : nameMatch[1]}
-            caption={capMatch ? capMatch[1] : undefined}
-          />
-        );
-      }
-      index++;
-      continue;
-    }
-
-    // 4. Cards container: <Cards>
+    // 3. Cards container: <Cards>
     if (trimmed.startsWith("<Cards>")) {
       const cardItems: { title: string; href: string; description: string }[] = [];
       index++;

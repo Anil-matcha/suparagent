@@ -26,9 +26,6 @@ import {
   Check,
   ArrowLeft,
   ArrowRight,
-  ArrowUpRight,
-  Globe,
-  Download,
   FileText,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -324,33 +321,39 @@ function DocsView() {
               </kbd>
             </button>
 
-            {/* Benchmark Quick Links */}
+            {/* Quick Links */}
             <div className="flex items-center justify-between px-1 text-[11px] font-medium text-muted">
               <Link
                 href="/chat/"
                 className="flex items-center gap-1 transition hover:text-ink"
               >
-                <Globe size={11} />
-                <span>Website</span>
-                <ArrowUpRight size={10} className="opacity-70" />
+                <ArrowLeft size={11} />
+                <span>Chat</span>
               </Link>
               <button
                 type="button"
-                onClick={() => navigateToDoc("changelog-overview")}
+                onClick={() => navigateToDoc("features")}
+                className="flex items-center gap-1 transition hover:text-ink cursor-pointer"
+              >
+                <Sparkles size={11} />
+                <span>Features</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => navigateToDoc("setup")}
+                className="flex items-center gap-1 transition hover:text-ink cursor-pointer"
+              >
+                <Rocket size={11} />
+                <span>Setup</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => navigateToDoc("roadmap")}
                 className="flex items-center gap-1 transition hover:text-ink cursor-pointer"
               >
                 <Clock size={11} />
-                <span>Changelog</span>
+                <span>Roadmap</span>
               </button>
-              <a
-                href="https://github.com/Anil-matcha/open-duet/releases"
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1 transition hover:text-ink"
-              >
-                <Download size={11} />
-                <span>Download</span>
-              </a>
             </div>
           </div>
 
