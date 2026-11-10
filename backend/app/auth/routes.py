@@ -13,13 +13,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import credentials, limiter, request_info, store
+from app.auth import credentials, limiter, people, request_info, store
 from app.auth.middleware import (
     COOKIE_NAME,
     principal_of,
     session_cookie,
 )
 from app.auth.policy import Principal
+from app.db.models.people import Person
 from app.db.session import get_db
 from app.desktop import profile
 from app.services import link_service
@@ -87,6 +88,10 @@ class SessionInfo(BaseModel):
     user_id: str | None = None
     csrf_token: str | None = None
     owner_configured: bool
+    # Set when a signed-in member (not a paired device) is acting.
+    person_id: int | None = None
+    role: str | None = None
+    display_name: str | None = None
 
 
 class StatusResponse(BaseModel):
@@ -110,20 +115,31 @@ async def _session_info(db: AsyncSession, principal: Principal, cookie: str | No
         user_id=await store.get_identity(db),
         csrf_token=credentials.csrf_token_for(cookie) if cookie and principal.kind == "browser" else None,
         owner_configured=await store.owner_configured(db),
+        person_id=principal.person_id,
+        role=principal.role,
+        display_name=principal.label if principal.person_id is not None else None,
     )
 
 
 async def _browser_session(
-    request: Request, response: Response, db: AsyncSession, *, label: str, scopes: str
+    request: Request, response: Response, db: AsyncSession, *, label: str, scopes: str,
+    person: Person | None = None,
 ) -> SessionInfo:
     # Signing in again replaces this browser's previous session rather than piling them up.
     previous = session_cookie(request.scope)
     if previous:
         await store.revoke_token(db, previous)
-    token, record = await store.create_session(db, kind="browser", label=label, scopes=scopes)
+    token, record = await store.create_session(
+        db, kind="browser", label=label, scopes=scopes, person_id=person.id if person else None
+    )
     _set_session_cookie(request, response, token)
-    principal = Principal(kind="browser", scopes=store.parse_scopes(record.scopes),
-                          session_id=record.id, label=record.label)
+    if person is not None:
+        principal = Principal(kind="browser", scopes=people.scopes_for_role(person.role), session_id=record.id,
+                              label=person.display_name, person_id=person.id, role=person.role,
+                              read_only=person.role == "viewer")
+    else:
+        principal = Principal(kind="browser", scopes=store.parse_scopes(record.scopes),
+                              session_id=record.id, label=record.label)
     return await _session_info(db, principal, token)
 
 
@@ -160,7 +176,8 @@ async def setup_owner(
     except store.OwnerAlreadyConfigured as exc:
         raise _error(409, "owner_exists", "An owner passphrase is already set. Sign in instead.") from exc
     label = request_info.label_from_user_agent(request.headers.get("user-agent"))
-    return await _browser_session(request, response, db, label=label, scopes=store.scopes_for("admin"))
+    owner = await people.ensure_owner_person(db)
+    return await _browser_session(request, response, db, label=label, scopes=store.scopes_for("admin"), person=owner)
 
 
 @router.post("/login", response_model=SessionInfo, dependencies=[Depends(require_json)])
@@ -179,7 +196,8 @@ async def login(
         raise _error(401, "wrong_passphrase", "That passphrase is not right.")
     limiter.login_lockout.success(source)
     label = request_info.label_from_user_agent(request.headers.get("user-agent"))
-    return await _browser_session(request, response, db, label=label, scopes=store.scopes_for("admin"))
+    owner = await people.ensure_owner_person(db)
+    return await _browser_session(request, response, db, label=label, scopes=store.scopes_for("admin"), person=owner)
 
 
 @router.post("/logout", status_code=204)

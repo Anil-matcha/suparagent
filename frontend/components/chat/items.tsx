@@ -158,13 +158,13 @@ export function UserMessage({
           {item.text}
         </p>
       </div>
-      {timeStr && (
+      {(timeStr || item.person) && (
         <time
           dateTime={item.ts ?? undefined}
           title={item.ts ? new Date(item.ts).toLocaleString() : undefined}
           className="select-none px-1 text-[11px] text-muted/70 font-normal"
         >
-          {timeStr}
+          {[item.person, timeStr].filter(Boolean).join(" · ")}
         </time>
       )}
       {item.skills && item.skills.length > 0 && (

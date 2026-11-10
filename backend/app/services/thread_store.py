@@ -13,7 +13,7 @@ UPDATE; the caller learns whether it won from the return value.
 
 Event payloads, so adapters and readers agree:
 
-    turn.started        {"prompt_text", "attachments"?: [{"id", "name", "mime", "bytes", "kind"}]}
+    turn.started        {"prompt_text", "attachments"?: [...], "person"?: {"id", "label"} (the member who sent it)}
     turn.steered        {"text"}
     assistant.message   {"text", "incomplete"?}
     tool.started        {"call_id", "name", "input"}
@@ -501,6 +501,8 @@ async def start_turn(
     owner_instance: str | None = None,
     attachments: list[dict] | None = None,
     origin: str | None = None,
+    person_id: int | None = None,
+    person_label: str | None = None,
 ) -> Turn:
     """Start the thread's next turn and store its `turn.started` event.
 
@@ -527,6 +529,8 @@ async def start_turn(
         owner_instance=owner_instance,
         engine_phase="preparing",
         origin=origin,
+        person_id=person_id,
+        person_label=person_label,
         heartbeat_at=now,
         started_at=now,
     )
@@ -541,6 +545,8 @@ async def start_turn(
     started = {"prompt_text": prompt_text}
     if attachments:
         started["attachments"] = attachments
+    if person_label:
+        started["person"] = {"id": person_id, "label": person_label}
     await _add_event(db, thread_id, "turn.started", started, turn.id)
     await db.commit()
     return turn

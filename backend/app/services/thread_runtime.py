@@ -714,6 +714,8 @@ class ThreadRuntime:
         routine_run_id: int | None = None,
         configuration_allowed: bool = True,
         internal: bool = False,
+        person_id: int | None = None,
+        person_label: str | None = None,
     ) -> store.Turn:
         """Start a turn and run it in the background. Raises ThreadNotFound,
         UnknownProvider, SessionBroken, ProviderUnavailable, ThreadBusy (a
@@ -800,6 +802,8 @@ class ThreadRuntime:
                 owner_instance=self.instance_id,
                 attachments=[a.public() for a, _ in attached] or None,
                 origin=team_origin,
+                person_id=person_id,
+                person_label=person_label,
             )
         if chosen_skills:
             async with self.session() as db:

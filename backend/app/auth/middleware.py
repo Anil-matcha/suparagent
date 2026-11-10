@@ -23,7 +23,7 @@ import json
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.auth import credentials, request_info, store, tenancy
+from app.auth import credentials, people, request_info, store, tenancy
 from app.db import tenant_schema
 from app.auth.policy import Principal, allows, is_public, required_scope
 from app.core.config import settings
@@ -163,6 +163,12 @@ class AuthMiddleware:
                 session = await store.authenticate(
                     db, bearer if bearer is not None else cookie, kind="device" if bearer is not None else "browser"
                 )
+                person = None
+                if session is not None and session.person_id is not None:
+                    # A member's rights are their role today, not what the session was made with.
+                    person = await people.get_active_person(db, session.person_id)
+                    if person is None:
+                        session = None
             if session is None:
                 return (401, "session_invalid",
                         "This sign-in has expired or was revoked. Sign in or pair this device again.",
@@ -172,11 +178,19 @@ class AuthMiddleware:
                 expected = credentials.csrf_token_for(cookie)
                 if len(presented) != 1 or not hmac.compare_digest(presented[0].encode(), expected.encode()):
                     return (403, "csrf_failed", "Missing or wrong CSRF token. Reload the page.", False)
+            scopes = people.scopes_for_role(person.role) if person is not None else session.scopes
             needed = required_scope(method, path)
-            if not allows(session.scopes, needed):
+            if not allows(scopes, needed):
                 return (403, "scope_denied", f"This device needs the {needed} scope for that.", False)
-            set_principal(scope, Principal(kind=session.kind, scopes=session.scopes,
-                                           session_id=session.id, label=session.label))
+            if person is not None and person.role == "viewer" and method not in SAFE_METHODS:
+                return (403, "read_only", "Viewers can read but not change anything.", False)
+            if person is not None:
+                set_principal(scope, Principal(
+                    kind=session.kind, scopes=scopes, session_id=session.id, label=person.display_name,
+                    person_id=person.id, role=person.role, read_only=person.role == "viewer"))
+            else:
+                set_principal(scope, Principal(kind=session.kind, scopes=session.scopes,
+                                               session_id=session.id, label=session.label))
             return None
 
         if loopback_trusted(scope):

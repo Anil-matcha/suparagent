@@ -5,6 +5,7 @@ import { HostedWorkspaceCard } from "@/components/HostedWorkspaceCard";
 import { DesktopPermissions } from "@/components/DesktopPermissions";
 import { DevicesSection } from "@/components/DevicesSection";
 import { HistoryExport } from "@/components/HistoryExport";
+import { PeopleSection } from "@/components/PeopleSection";
 import { Applies } from "./Applies";
 
 export function AccountSettings() {
@@ -21,6 +22,9 @@ export function AccountSettings() {
       <span id="setting-account-device-access" className="sr-only" />
       <span id="setting-account-device-name" className="sr-only" />
       <DevicesSection />
+    </div>
+    <div id="setting-account-people">
+      <PeopleSection />
     </div>
     <div id="setting-account-history" data-setting-id="setting-account-history" data-setting-container tabIndex={-1}>
       <HistoryExport />

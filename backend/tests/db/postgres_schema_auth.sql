@@ -31,7 +31,10 @@ CREATE TABLE auth_session (
 	last_seen_at TIMESTAMP WITH TIME ZONE NOT NULL, 
 	expires_at TIMESTAMP WITH TIME ZONE NOT NULL, 
 	revoked_at TIMESTAMP WITH TIME ZONE, 
+	person_id BIGINT, 
 	PRIMARY KEY (id)
 );
+
+CREATE INDEX ix_auth_session_person_id ON auth_session (person_id);
 
 CREATE UNIQUE INDEX uq_auth_session_token_hash ON auth_session (token_hash);

@@ -1,0 +1,64 @@
+// Members of this workspace: roster, invitations, roles and the audit log.
+import { request } from "./api";
+import type { PersonRole } from "./session";
+
+export type Person = {
+  id: number;
+  display_name: string;
+  role: PersonRole;
+  // Only admins get addresses and sign-in times.
+  email: string | null;
+  joined_at: string;
+  last_login_at: string | null;
+  is_you: boolean;
+};
+
+export type InviteRole = Exclude<PersonRole, "owner">;
+
+export type Invite = {
+  id: number;
+  email: string;
+  role: InviteRole;
+  invited_by: string;
+  created_at: string;
+  expires_at: string;
+  // The link secret: present only in the response that created the invitation.
+  token: string | null;
+};
+
+export type AuditRow = { id: number; action: string; actor: string; subject: string; detail: string; at: string };
+
+export const ROLE_LABELS: Record<PersonRole, string> = {
+  owner: "Owner",
+  admin: "Admin",
+  member: "Member",
+  viewer: "Viewer",
+};
+
+export const ROLE_HELP: Record<PersonRole, string> = {
+  owner: "Set this workspace up. Cannot be changed or removed.",
+  admin: "Manages people, devices and settings, and reaches everything.",
+  member: "Chats with agents, uses rooms and files, and creates agents. Cannot change settings or people.",
+  viewer: "Can read conversations and rooms but not send or change anything.",
+};
+
+export const AUDIT_LABELS: Record<string, string> = {
+  "invite.created": "invited",
+  "invite.revoked": "revoked the invitation for",
+  "member.joined": "joined",
+  "member.role_changed": "changed the role of",
+  "member.removed": "removed",
+};
+
+export const people = {
+  list: () => request<Person[]>("/people"),
+  rename: (display_name: string) => request<Person>("/people/me", { method: "PATCH", body: JSON.stringify({ display_name }) }),
+  invites: () => request<Invite[]>("/people/invites"),
+  invite: (email: string, role: InviteRole) =>
+    request<Invite>("/people/invites", { method: "POST", body: JSON.stringify({ email, role }) }),
+  revokeInvite: (id: number) => request<void>(`/people/invites/${id}`, { method: "DELETE" }),
+  setRole: (id: number, role: InviteRole) =>
+    request<Person>(`/people/${id}`, { method: "PATCH", body: JSON.stringify({ role }) }),
+  remove: (id: number) => request<void>(`/people/${id}`, { method: "DELETE" }),
+  audit: () => request<AuditRow[]>("/people/audit"),
+};

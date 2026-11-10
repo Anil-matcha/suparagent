@@ -19,6 +19,12 @@ export type TeamJobItem = { kind: "team_job"; key: string; turnId: number | null
 
 export type NeedsYouItem = { kind: "needs_you"; key: string; turnId: number | null; cardId: string; revision: number; title: string; subtitle: string; emptyText: string; more: number; checkedAt?: string; providerCheckedAt?: string; timeZone?: string; sources?: Record<string, string>; rows: NeedsYouRow[] };
 
+// The member who sent a turn, when the server named one (a workspace shared by several people).
+function personOf(data: Record<string, unknown>): { person?: string } {
+  const label = text(record(data.person).label).trim();
+  return label ? { person: label } : {};
+}
+
 export type TranscriptItem =
   | TeamJobItem
   | NeedsYouItem
@@ -26,7 +32,7 @@ export type TranscriptItem =
   | { kind: "team_setup"; key: string; turnId: number | null; requestId: string; undoAvailable: boolean; rows: { action: string; agentId: number; name: string; changes?: { field: string; before: unknown; after: unknown }[] }[] }
   | { kind: "routine_change"; key: string; turnId: number | null; requestId: string; routineId: number; name: string; action: string; paused: boolean; note: string }
   | { kind: "agent_created"; key: string; turnId: number | null; agentId: number; name: string; title: string }
-  | { kind: "user"; key: string; turnId: number | null; text: string; attachments: AttachmentRef[]; skills?: string[]; ts?: string }
+  | { kind: "user"; key: string; turnId: number | null; text: string; attachments: AttachmentRef[]; skills?: string[]; ts?: string; person?: string }
   | {
       kind: "assistant";
       key: string;
@@ -192,7 +198,7 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
         typing: null,
         items: [
           ...state.items,
-          { kind: "user", key, turnId: id, text: text(data.prompt_text), attachments: attachmentRefs(data.attachments), ts: event.ts },
+          { kind: "user", key, turnId: id, text: text(data.prompt_text), attachments: attachmentRefs(data.attachments), ts: event.ts, ...personOf(data) },
         ],
       };
 

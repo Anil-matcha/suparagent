@@ -375,3 +375,13 @@ test('a retried setup receipt keeps one card and its field-level changes', () =>
   assert.equal(state.items.length,1);
   assert.deepEqual(state.items[0].rows[0].changes,[{field:'instructions',before:'Old brief',after:'Product Hunt launches'}]);
 });
+
+test('a turn from a named member keeps who sent it; others carry no name', () => {
+  reset();
+  const named = run([ev('turn.started', { prompt_text: 'hi', person: { id: 7, label: 'Sam' } })]);
+  assert.equal(named.items[0].person, 'Sam');
+  const plain = run([ev('turn.started', { prompt_text: 'hi' })]);
+  assert.equal('person' in plain.items[0], false);
+  const blank = run([ev('turn.started', { prompt_text: 'hi', person: { id: 7, label: '  ' } })]);
+  assert.equal('person' in blank.items[0], false);
+});

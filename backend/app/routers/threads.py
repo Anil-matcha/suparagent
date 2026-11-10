@@ -224,6 +224,8 @@ async def send_turn(
         return await rt.send_turn(
             thread_id, payload.prompt_text, attachment_ids=payload.attachment_ids, skills=payload.skills,
             configuration_allowed=principal is None or principal.is_admin,
+            person_id=principal.person_id if principal else None,
+            person_label=principal.label if principal and principal.person_id is not None else None,
         )
     except SkillError as error:
         raise _error(error.status, error.code, error.message)
@@ -273,6 +275,8 @@ async def branch_thread(
         await rt.send_turn(
             branch.id, payload.prompt_text,
             configuration_allowed=principal is None or principal.is_admin,
+            person_id=principal.person_id if principal else None,
+            person_label=principal.label if principal and principal.person_id is not None else None,
         )
     except Exception as exc:
         # Never leave an empty branch behind when the resend could not start.

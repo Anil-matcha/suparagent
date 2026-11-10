@@ -26,6 +26,9 @@ PUBLIC_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
         ({"POST"}, "/auth/login"),
         ({"POST"}, "/auth/logout"),
         ({"POST"}, "/auth/pair"),
+        # Joining by invitation and signing in as a member (auth/people_routes.py).
+        ({"POST"}, "/auth/invites/accept"),
+        ({"POST"}, "/auth/people/login"),
     )
 ) + (
     # Routine webhooks: each delivery carries the routine's own secret, checked by the route.
@@ -42,6 +45,9 @@ CHAT_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
     (frozenset(methods), re.compile(f"^{API}{path}$"))
     for methods, path in (
         ({"GET"}, "/auth/session"),
+        # The roster (names and roles) and renaming oneself; inviting and managing stay admin-only.
+        ({"GET"}, "/people"),
+        ({"PATCH"}, "/people/me"),
         ({"GET"}, "/version"),
         ({"GET", "PUT"}, "/notifications/preferences"),
         ({"GET"}, "/team"),
@@ -142,6 +148,12 @@ class Principal:
     label: str | None = None
     # Set only by a hosted deployment's resolver (auth/tenancy.py); None on the single-owner server.
     tenant_id: str | None = None
+    # Set when a signed-in member (auth/people.py) is acting; None for a paired device,
+    # the desktop app, a trusted local request and the owner's sessions that predate people.
+    person_id: int | None = None
+    role: str | None = None
+    # A viewer: the middleware refuses every write.
+    read_only: bool = False
 
     @property
     def is_admin(self) -> bool:

@@ -5,12 +5,13 @@ import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import credentials
 from app.core.config import settings
 from app.db.models.auth import SCOPES, AuthSession, OwnerAccount, PairingCode
+from app.db.models.people import Person
 from app.db.transactions import begin_write
 
 SESSION_TTL = timedelta(days=settings.AUTH_SESSION_DAYS)
@@ -93,7 +94,13 @@ async def set_passphrase(db: AsyncSession, passphrase: str, *, first_time_only: 
     if changing:
         await db.execute(
             update(AuthSession)
-            .where(AuthSession.kind == "browser", AuthSession.revoked_at.is_(None))
+            .where(
+                AuthSession.kind == "browser",
+                AuthSession.revoked_at.is_(None),
+                # The passphrase is the owner's: other members' sign-ins stay.
+                or_(AuthSession.person_id.is_(None),
+                    AuthSession.person_id.in_(select(Person.id).where(Person.role == "owner"))),
+            )
             .values(revoked_at=utcnow())
         )
     await db.commit()
@@ -127,7 +134,9 @@ async def set_identity(db: AsyncSession, user_id: str | None, *, only_if_unset: 
 # --- sessions ---------------------------------------------------------------
 
 
-async def create_session(db: AsyncSession, *, kind: str, label: str, scopes: str) -> tuple[str, AuthSession]:
+async def create_session(
+    db: AsyncSession, *, kind: str, label: str, scopes: str, person_id: int | None = None
+) -> tuple[str, AuthSession]:
     token = credentials.new_session_token()
     now = utcnow()
     record = AuthSession(
@@ -135,6 +144,7 @@ async def create_session(db: AsyncSession, *, kind: str, label: str, scopes: str
         label=clean_label(label),
         token_hash=credentials.digest(token),
         scopes=scopes,
+        person_id=person_id,
         created_at=now,
         last_seen_at=now,
         expires_at=now + SESSION_TTL,
@@ -154,6 +164,7 @@ class SessionView:
     created_at: datetime
     last_seen_at: datetime
     expires_at: datetime
+    person_id: int | None = None
 
 
 def _view(record: AuthSession) -> SessionView:
@@ -165,6 +176,7 @@ def _view(record: AuthSession) -> SessionView:
         created_at=record.created_at,
         last_seen_at=record.last_seen_at,
         expires_at=record.expires_at,
+        person_id=record.person_id,
     )
 
 
