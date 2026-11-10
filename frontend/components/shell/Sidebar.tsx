@@ -2,6 +2,7 @@
 
 import {
   Archive,
+  BookOpen,
   CalendarClock,
   ChevronDown,
   ChevronRight,
@@ -384,6 +385,10 @@ export function Sidebar({
           <Link href="/apps/" className={cn(ROW, "hover:bg-hover/60")}>
             <LayoutGrid size={16} aria-hidden="true" className="shrink-0 text-muted" />
             <span className="font-medium">{t("sidebar.apps")}</span>
+          </Link>
+          <Link href="/docs/" className={cn(ROW, "hover:bg-hover/60")}>
+            <BookOpen size={16} aria-hidden="true" className="shrink-0 text-muted" />
+            <span className="font-medium">Docs</span>
           </Link>
         </div>
 

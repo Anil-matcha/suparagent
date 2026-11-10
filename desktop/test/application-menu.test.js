@@ -88,3 +88,22 @@ test("the menu accelerator does not navigate during IME composition", () => {
   settings.click(null, null, { isComposing: false, keyCode: 0 });
   assert.deepEqual(sent, [[SETTINGS_NAVIGATION_CHANNEL, SETTINGS_ROUTE]]);
 });
+
+test("the Help menu includes Documentation and opens the documentation URL", () => {
+  const opened = [];
+  const Menu = {
+    buildFromTemplate: (given) => given,
+    setApplicationMenu: () => {},
+  };
+  const template = registerApplicationMenu({
+    Menu,
+    platform: "win32",
+    getWindow: () => null,
+    getOrigin: () => null,
+    openExternal: (url) => opened.push(url),
+  });
+  const docItem = findItem(template, (item) => item.label === "Documentation");
+  assert.ok(docItem, "Documentation menu item must be present");
+  docItem.click();
+  assert.deepEqual(opened, ["https://github.com/Anil-matcha/open-duet/tree/main/docs"]);
+});

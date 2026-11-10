@@ -153,11 +153,19 @@ export function SettingsShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-dvh">
-      <header className="flex h-12 items-center gap-4 border-b border-line px-4">
-        <Link href="/chat/" className="text-sm text-muted hover:underline">
-          ← Chat
+      <header className="flex h-12 items-center justify-between border-b border-line px-4">
+        <div className="flex items-center gap-4">
+          <Link href="/chat/" className="text-sm text-muted hover:underline">
+            ← Chat
+          </Link>
+          <h1 className="text-sm font-semibold">Settings</h1>
+        </div>
+        <Link
+          href="/docs/"
+          className="text-xs text-muted transition-colors hover:text-ink hover:underline"
+        >
+          Documentation ↗
         </Link>
-        <h1 className="text-sm font-semibold">Settings</h1>
       </header>
       <div className="mx-auto max-w-4xl px-5 pt-4">
         <SettingsSearch />

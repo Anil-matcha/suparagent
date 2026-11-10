@@ -2,6 +2,7 @@ const { sameOrigin } = require("./origin");
 
 const SETTINGS_NAVIGATION_CHANNEL = "suparagent:navigate-settings";
 const SETTINGS_ROUTE = "/settings/";
+const DOCS_URL = "https://github.com/Anil-matcha/open-duet/tree/main/docs";
 
 // Native, so the hosted page can neither read nor draw it. Radio items show where the window is.
 function workspaceMenu({ platform, workspace }) {
@@ -20,7 +21,7 @@ function workspaceMenu({ platform, workspace }) {
   };
 }
 
-function createApplicationMenuTemplate({ platform, appName = "Suparagent", onOpenSettings = () => {}, workspace = null }) {
+function createApplicationMenuTemplate({ platform, appName = "Suparagent", onOpenSettings = () => {}, onOpenDocumentation = () => {}, workspace = null }) {
   const isMac = platform === "darwin";
   const settings = {
     label: isMac ? "Settings..." : "Settings",
@@ -67,9 +68,14 @@ function createApplicationMenuTemplate({ platform, appName = "Suparagent", onOpe
       { role: "close" },
     ],
   };
+  const helpSubmenu = [
+    { label: "Documentation", click: onOpenDocumentation },
+    { type: "separator" },
+    { label: `About ${appName}`, role: "about" },
+  ];
   const help = isMac
-    ? { role: "help" }
-    : { label: "Help", submenu: [{ label: `About ${appName}`, role: "about" }] };
+    ? { role: "help", submenu: helpSubmenu }
+    : { label: "Help", submenu: helpSubmenu };
 
   if (isMac) {
     return [
@@ -120,7 +126,7 @@ function sendSettingsNavigation({ getWindow, getOrigin }) {
   return true;
 }
 
-function registerApplicationMenu({ Menu, appName, getWindow, getOrigin, platform = process.platform, workspace = null }) {
+function registerApplicationMenu({ Menu, appName, getWindow, getOrigin, platform = process.platform, workspace = null, openExternal = null, docsUrl = DOCS_URL }) {
   const template = createApplicationMenuTemplate({
     platform,
     appName,
@@ -129,12 +135,24 @@ function registerApplicationMenu({ Menu, appName, getWindow, getOrigin, platform
       if (event?.isComposing || event?.keyCode === 229) return false;
       return sendSettingsNavigation({ getWindow, getOrigin });
     },
+    onOpenDocumentation: () => {
+      const window = getWindow?.();
+      const origin = getOrigin?.();
+      if (window && !window.isDestroyed() && origin) {
+        window.loadURL(`${origin}/docs/`);
+        return;
+      }
+      if (typeof openExternal === "function") {
+        openExternal(docsUrl);
+      }
+    },
   });
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   return template;
 }
 
 module.exports = {
+  DOCS_URL,
   SETTINGS_NAVIGATION_CHANNEL,
   SETTINGS_ROUTE,
   createApplicationMenuTemplate,
