@@ -1,7 +1,18 @@
 "use client";
 
-import React, { useState, useId } from "react";
-import { Check, Copy, ExternalLink, Info, Lightbulb, AlertTriangle, AlertCircle, ShieldAlert, Hash } from "lucide-react";
+import React, { useState } from "react";
+import {
+  Check,
+  Copy,
+  ExternalLink,
+  Info,
+  Lightbulb,
+  AlertTriangle,
+  AlertCircle,
+  ShieldAlert,
+  Hash,
+  ArrowUpRight,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 
 export interface HeadingItem {
@@ -38,7 +49,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
   };
 
   return (
-    <div className="group relative my-4 overflow-hidden rounded-xl border border-line bg-surface-muted/60 dark:bg-black/40">
+    <div className="group relative my-5 overflow-hidden rounded-xl border border-line bg-surface-muted/60 dark:bg-black/50">
       <div className="flex items-center justify-between border-b border-line/60 bg-surface/80 px-4 py-1.5 text-xs text-muted">
         <span className="font-mono text-[11px] font-medium uppercase tracking-wider text-muted">
           {language || "text"}
@@ -46,7 +57,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
         <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted transition hover:bg-hover hover:text-ink"
+          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted transition hover:bg-hover hover:text-ink cursor-pointer"
           aria-label="Copy code"
         >
           {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
@@ -60,32 +71,98 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
   );
 }
 
-function Callout({ type, title, children }: { type: string; title?: string; children: React.ReactNode }) {
+function CalloutBox({ type, title, children }: { type: string; title?: string; children: React.ReactNode }) {
   const configs: Record<string, { icon: typeof Info; label: string; bg: string; border: string; text: string }> = {
-    NOTE: { icon: Info, label: "Note", bg: "bg-blue-500/10", border: "border-blue-500/30", text: "text-blue-600 dark:text-blue-400" },
-    TIP: { icon: Lightbulb, label: "Tip", bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-600 dark:text-emerald-400" },
-    WARNING: { icon: AlertTriangle, label: "Warning", bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-600 dark:text-amber-400" },
-    IMPORTANT: { icon: AlertCircle, label: "Important", bg: "bg-violet-500/10", border: "border-violet-500/30", text: "text-violet-600 dark:text-violet-400" },
-    CAUTION: { icon: ShieldAlert, label: "Caution", bg: "bg-rose-500/10", border: "border-rose-500/30", text: "text-rose-600 dark:text-rose-400" },
+    NOTE: { icon: Info, label: "Note", bg: "bg-blue-500/10", border: "border-blue-500/30", text: "text-blue-500" },
+    INFO: { icon: Info, label: "Info", bg: "bg-blue-500/10", border: "border-blue-500/30", text: "text-blue-500" },
+    TIP: { icon: Lightbulb, label: "Tip", bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-500" },
+    WARNING: { icon: AlertTriangle, label: "Warning", bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-500" },
+    IMPORTANT: { icon: AlertCircle, label: "Important", bg: "bg-violet-500/10", border: "border-violet-500/30", text: "text-violet-500" },
+    CAUTION: { icon: ShieldAlert, label: "Caution", bg: "bg-rose-500/10", border: "border-rose-500/30", text: "text-rose-500" },
   };
 
-  const key = type.toUpperCase();
+  const key = (type || "NOTE").toUpperCase();
   const cfg = configs[key] || configs.NOTE;
   const Icon = cfg.icon;
 
   return (
-    <div className={cn("my-4 rounded-xl border p-4 transition-colors", cfg.bg, cfg.border)}>
-      <div className="flex items-center gap-2 font-medium text-xs tracking-wide uppercase mb-1.5" style={{ color: "inherit" }}>
+    <div className={cn("my-6 rounded-xl border p-4.5 transition-colors", cfg.bg, cfg.border)}>
+      <div className="flex items-center gap-2 font-medium text-xs tracking-wide uppercase mb-2">
         <Icon size={16} className={cfg.text} />
-        <span className={cfg.text}>{title || cfg.label}</span>
+        <span className={cn("font-semibold", cfg.text)}>{title || cfg.label}</span>
       </div>
-      <div className="text-sm leading-relaxed text-ink/90 space-y-2">{children}</div>
+      <div className="text-[13.5px] leading-relaxed text-ink/90 space-y-2">{children}</div>
     </div>
   );
 }
 
+function ProductScreenshotView({
+  name,
+  alt,
+  caption,
+}: {
+  name: string;
+  alt: string;
+  caption?: string;
+}) {
+  return (
+    <figure className="my-8">
+      <div className="overflow-hidden rounded-2xl border border-line/80 bg-[#0a0a0b] shadow-2xl transition hover:border-line">
+        <img
+          src={`/screenshots/${name}.png`}
+          alt={alt}
+          loading="lazy"
+          className="w-full object-cover max-h-[38rem]"
+        />
+      </div>
+      {caption && (
+        <figcaption className="mt-3 text-center text-xs text-muted leading-relaxed">
+          {caption}
+        </figcaption>
+      )}
+    </figure>
+  );
+}
+
+function CardView({
+  title,
+  href,
+  description,
+  onNavigateDoc,
+}: {
+  title: string;
+  href: string;
+  description: string;
+  onNavigateDoc?: (slug: string) => void;
+}) {
+  const handleClick = (e: React.MouseEvent) => {
+    if (href.startsWith("/docs?doc=") || href.startsWith("?doc=") || href.startsWith("/docs/")) {
+      e.preventDefault();
+      const slug = href.replace(/^\/docs\?doc=/, "").replace(/^\?doc=/, "").replace(/^\/docs\//, "").replace(/\.mdx?$/, "");
+      onNavigateDoc?.(slug);
+    }
+  };
+
+  return (
+    <a
+      href={href}
+      onClick={handleClick}
+      className="group flex flex-col justify-between rounded-xl border border-line bg-surface-muted/30 p-4 transition-all duration-150 hover:border-emerald-500/50 hover:bg-surface-muted/70 hover:shadow-xs cursor-pointer"
+    >
+      <div>
+        <div className="flex items-center justify-between text-sm font-semibold text-ink group-hover:text-emerald-500 transition-colors">
+          <span>{title}</span>
+          <ArrowUpRight size={14} className="text-muted group-hover:text-emerald-500 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+        </div>
+        {description && (
+          <p className="mt-1.5 text-xs leading-relaxed text-muted">{description}</p>
+        )}
+      </div>
+    </a>
+  );
+}
+
 export function DocsMarkdown({ content, onNavigateDoc, onHeadingsExtracted }: DocsMarkdownProps) {
-  const compId = useId();
 
   // Extract headings on parse
   React.useEffect(() => {
@@ -118,19 +195,22 @@ export function DocsMarkdown({ content, onNavigateDoc, onHeadingsExtracted }: Do
       const href = match[2];
 
       const isExternal = /^https?:\/\//i.test(href);
-      const isInternalMd = /\.md(#.*)?$/i.test(href);
+      const isInternalDoc = /^\/docs\?doc=|\?doc=|\.mdx?(#.*)?$/i.test(href);
 
-      if (isInternalMd) {
-        const cleanHref = href.replace(/^(\.\/|\.\.\/|docs\/)+/, "");
-        const [filename, anchor] = cleanHref.split("#");
-        const docSlug = filename.replace(/\.md$/i, "").toLowerCase();
+      if (isInternalDoc) {
+        const slug = href
+          .replace(/^\/docs\?doc=/, "")
+          .replace(/^\?doc=/, "")
+          .replace(/^(\.\/|\.\.\/|docs\/)+/, "");
+        const [cleanSlug, anchor] = slug.split("#");
+        const docSlug = cleanSlug.replace(/\.mdx?$/i, "").toLowerCase();
 
         parts.push(
           <button
             key={match.index}
             type="button"
             onClick={() => onNavigateDoc?.(docSlug)}
-            className="inline font-medium text-accent underline underline-offset-4 decoration-accent/40 hover:decoration-accent"
+            className="inline font-medium text-emerald-500 underline underline-offset-4 decoration-emerald-500/40 hover:decoration-emerald-500 cursor-pointer"
           >
             {label}
             {anchor && <span className="text-xs text-muted ml-0.5">#{anchor}</span>}
@@ -143,7 +223,7 @@ export function DocsMarkdown({ content, onNavigateDoc, onHeadingsExtracted }: Do
             href={href}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-0.5 font-medium text-accent underline underline-offset-4 decoration-accent/40 hover:decoration-accent"
+            className="inline-flex items-center gap-0.5 font-medium text-emerald-500 underline underline-offset-4 decoration-emerald-500/40 hover:decoration-emerald-500"
           >
             <span>{label}</span>
             <ExternalLink size={11} className="inline ml-0.5 opacity-70" />
@@ -154,7 +234,7 @@ export function DocsMarkdown({ content, onNavigateDoc, onHeadingsExtracted }: Do
           <a
             key={match.index}
             href={href}
-            className="inline font-medium text-accent underline underline-offset-4 decoration-accent/40 hover:decoration-accent"
+            className="inline font-medium text-emerald-500 underline underline-offset-4 decoration-emerald-500/40 hover:decoration-emerald-500"
           >
             {label}
           </a>
@@ -167,12 +247,12 @@ export function DocsMarkdown({ content, onNavigateDoc, onHeadingsExtracted }: Do
       parts.push(renderInlineFormatting(text.slice(lastIndex)));
     }
 
-    return parts.length > 0 ? parts : text;
+    return parts.length > 0 ? parts : renderInlineFormatting(text);
   };
 
   const renderInlineFormatting = (text: string): React.ReactNode => {
     // Handle inline code `code`, bold **bold**, italic *italic*, <kbd>
-    const tokens = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|<kbd>[^<]+<\/kbd>)/g);
+    const tokens = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|<kbd>[^<]+<\/kbd>|<span[^>]*>[^<]*<\/span>)/g);
     return tokens.map((token, i) => {
       if (token.startsWith("`") && token.endsWith("`")) {
         return (
@@ -194,10 +274,21 @@ export function DocsMarkdown({ content, onNavigateDoc, onHeadingsExtracted }: Do
         return (
           <kbd
             key={i}
-            className="rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-[11px] font-medium text-ink shadow-xs"
+            className="rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-[11px] font-medium text-ink shadow-2xs"
           >
             {token.replace(/<\/?kbd>/g, "")}
           </kbd>
+        );
+      }
+      if (token.startsWith("<span") && token.includes("omb-kicker")) {
+        const textInside = token.replace(/<[^>]+>/g, "");
+        return (
+          <span
+            key={i}
+            className="block text-[11px] font-bold tracking-[0.12em] uppercase text-emerald-500 mb-2"
+          >
+            {textInside}
+          </span>
         );
       }
       return token;
@@ -211,88 +302,284 @@ export function DocsMarkdown({ content, onNavigateDoc, onHeadingsExtracted }: Do
 
   while (index < lines.length) {
     const line = lines[index];
+    const trimmed = line.trim();
 
-    // 1. Code blocks
-    if (line.trim().startsWith("```")) {
-      const language = line.trim().slice(3).trim();
+    // 0. Empty lines
+    if (!trimmed) {
+      index++;
+      continue;
+    }
+
+    // 1. Kicker span: <span className="omb-kicker">...</span>
+    if (trimmed.startsWith("<span") && trimmed.includes("omb-kicker")) {
+      const text = trimmed.replace(/<[^>]+>/g, "").trim();
+      elements.push(
+        <span
+          key={`kicker-${index}`}
+          className="block text-[11px] font-bold tracking-[0.12em] uppercase text-emerald-500 mb-3"
+        >
+          {text}
+        </span>
+      );
+      index++;
+      continue;
+    }
+
+    // 2. Stat row: <div className="omb-stat-row">
+    if (trimmed.includes("omb-stat-row")) {
+      const statItems: { strong: string; span: string }[] = [];
+      index++;
+      while (index < lines.length && !lines[index].includes("</div>\n") && !lines[index].trim().endsWith("</div>")) {
+        const cur = lines[index];
+        const match = cur.match(/<strong>([^<]+)<\/strong><span>([^<]+)<\/span>/);
+        if (match) {
+          statItems.push({ strong: match[1], span: match[2] });
+        }
+        index++;
+      }
+      if (index < lines.length && lines[index].includes("</div>")) index++;
+
+      elements.push(
+        <div
+          key={`stat-row-${index}`}
+          className="my-7 grid grid-cols-1 gap-3 sm:grid-cols-3"
+        >
+          {statItems.map((st, i) => (
+            <div
+              key={i}
+              className="rounded-2xl border border-line bg-surface-muted/30 p-4 transition hover:bg-surface-muted/60"
+            >
+              <strong className="block text-sm font-semibold tracking-tight text-ink">
+                {st.strong}
+              </strong>
+              <span className="mt-1 block text-xs leading-relaxed text-muted">
+                {st.span}
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+      continue;
+    }
+
+    // 3. ProductScreenshot: <ProductScreenshot name="..." alt="..." caption="..." />
+    if (trimmed.startsWith("<ProductScreenshot")) {
+      const nameMatch = trimmed.match(/name=["']([^"']+)["']/);
+      const altMatch = trimmed.match(/alt=["']([^"']+)["']/);
+      const capMatch = trimmed.match(/caption=["']([^"']+)["']/);
+
+      if (nameMatch) {
+        elements.push(
+          <ProductScreenshotView
+            key={`screenshot-${index}`}
+            name={nameMatch[1]}
+            alt={altMatch ? altMatch[1] : nameMatch[1]}
+            caption={capMatch ? capMatch[1] : undefined}
+          />
+        );
+      }
+      index++;
+      continue;
+    }
+
+    // 4. Cards container: <Cards>
+    if (trimmed.startsWith("<Cards>")) {
+      const cardItems: { title: string; href: string; description: string }[] = [];
+      index++;
+      while (index < lines.length && !lines[index].trim().startsWith("</Cards>")) {
+        const cur = lines[index].trim();
+        if (cur.startsWith("<Card")) {
+          const titleM = cur.match(/title=["']([^"']+)["']/);
+          const hrefM = cur.match(/href=["']([^"']+)["']/);
+          const descM = cur.match(/description=["']([^"']+)["']/);
+          if (titleM && hrefM) {
+            cardItems.push({
+              title: titleM[1],
+              href: hrefM[1],
+              description: descM ? descM[1] : "",
+            });
+          }
+        }
+        index++;
+      }
+      if (index < lines.length && lines[index].trim().startsWith("</Cards>")) index++;
+
+      elements.push(
+        <div key={`cards-${index}`} className="my-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {cardItems.map((c, i) => (
+            <CardView
+              key={i}
+              title={c.title}
+              href={c.href}
+              description={c.description}
+              onNavigateDoc={onNavigateDoc}
+            />
+          ))}
+        </div>
+      );
+      continue;
+    }
+
+    // 5. Callout: <Callout type="..." title="...">
+    if (trimmed.startsWith("<Callout")) {
+      const typeM = trimmed.match(/type=["']([^"']+)["']/);
+      const titleM = trimmed.match(/title=["']([^"']+)["']/);
+      const calloutType = typeM ? typeM[1] : "info";
+      const calloutTitle = titleM ? titleM[1] : undefined;
+      const calloutLines: string[] = [];
+      index++;
+      while (index < lines.length && !lines[index].trim().startsWith("</Callout>")) {
+        calloutLines.push(lines[index]);
+        index++;
+      }
+      if (index < lines.length && lines[index].trim().startsWith("</Callout>")) index++;
+
+      elements.push(
+        <CalloutBox key={`callout-${index}`} type={calloutType} title={calloutTitle}>
+          {calloutLines.map((cl, i) => (
+            <p key={i}>{renderInline(cl)}</p>
+          ))}
+        </CalloutBox>
+      );
+      continue;
+    }
+
+    // 6. Code blocks
+    if (trimmed.startsWith("```")) {
+      const language = trimmed.slice(3).trim();
       const codeLines: string[] = [];
       index++;
       while (index < lines.length && !lines[index].trim().startsWith("```")) {
         codeLines.push(lines[index]);
         index++;
       }
+      if (index < lines.length) index++; // skip closing ```
       elements.push(
         <CodeBlock
-          key={`code-${index}-${compId}`}
+          key={`code-${index}`}
           code={codeLines.join("\n")}
           language={language}
         />
       );
-      index++;
       continue;
     }
 
-    // 2. GitHub Alerts / Callouts (> [!NOTE])
-    const calloutMatch = line.match(/^>\s+\[!(NOTE|TIP|WARNING|IMPORTANT|CAUTION)\](?:\s+(.*))?$/i);
-    if (calloutMatch) {
-      const type = calloutMatch[1];
-      const title = calloutMatch[2];
-      const calloutLines: string[] = [];
-      index++;
-      while (index < lines.length && lines[index].startsWith(">")) {
-        calloutLines.push(lines[index].replace(/^>\s?/, ""));
+    // 7. GitHub Alerts (> [!NOTE], > [!TIP], etc.)
+    if (trimmed.startsWith("> [!")) {
+      const alertMatch = trimmed.match(/^>\s*\[!(NOTE|TIP|WARNING|IMPORTANT|CAUTION)\]/i);
+      if (alertMatch) {
+        const alertType = alertMatch[1].toUpperCase();
+        const alertLines: string[] = [];
+        index++;
+        while (index < lines.length && lines[index].trim().startsWith(">")) {
+          alertLines.push(lines[index].replace(/^>\s?/, ""));
+          index++;
+        }
+        elements.push(
+          <CalloutBox key={`alert-${index}`} type={alertType}>
+            {alertLines.map((al, i) => (
+              <p key={i}>{renderInline(al)}</p>
+            ))}
+          </CalloutBox>
+        );
+        continue;
+      }
+    }
+
+    // 8. Standard blockquotes
+    if (trimmed.startsWith(">")) {
+      const quoteLines: string[] = [];
+      while (index < lines.length && lines[index].trim().startsWith(">")) {
+        quoteLines.push(lines[index].replace(/^>\s?/, ""));
         index++;
       }
       elements.push(
-        <Callout key={`callout-${index}-${compId}`} type={type} title={title}>
-          {calloutLines.map((cl, ci) => (
-            <p key={ci}>{renderInline(cl)}</p>
+        <blockquote
+          key={`quote-${index}`}
+          className="my-4 border-l-2 border-emerald-500/60 pl-4 italic text-muted"
+        >
+          {quoteLines.map((ql, i) => (
+            <p key={i} className="my-1">{renderInline(ql)}</p>
           ))}
-        </Callout>
+        </blockquote>
       );
       continue;
     }
 
-    // 3. Headings
-    const hMatch = line.match(/^(#{1,4})\s+(.+)$/);
-    if (hMatch) {
-      const level = hMatch[1].length;
-      const hText = hMatch[2].trim();
-      const hId = slugify(hText.replace(/\*\*|__|\*|_/g, ""));
+    // 9. Headings (# H1, ## H2, ### H3, #### H4)
+    const headingMatch = line.match(/^(#{1,4})\s+(.+)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const rawText = headingMatch[2].trim();
+      const cleanText = rawText.replace(/\*\*|__|\*|_/g, "");
+      const id = slugify(cleanText);
 
       if (level === 1) {
         elements.push(
-          <div key={`h1-${index}`} className="mb-6 border-b border-line pb-4">
-            <h1 id={hId} className="group flex items-center gap-2 text-2xl sm:text-3xl font-bold tracking-tight text-ink">
-              <span>{renderInline(hText)}</span>
-              <a href={`#${hId}`} className="opacity-0 transition-opacity group-hover:opacity-60 text-muted" aria-label="Link to section">
-                <Hash size={18} />
-              </a>
-            </h1>
-          </div>
+          <h1
+            key={`h1-${index}-${id}`}
+            id={id}
+            className="group relative mt-10 mb-4 scroll-mt-24 text-2.5xl font-extrabold tracking-tight text-ink sm:text-3xl"
+          >
+            <span>{renderInline(rawText)}</span>
+            <a
+              href={`#${id}`}
+              className="ml-2 inline-block opacity-0 transition-opacity group-hover:opacity-100 text-muted hover:text-emerald-500"
+              aria-label={`Link to ${cleanText}`}
+            >
+              <Hash size={18} className="inline" />
+            </a>
+          </h1>
         );
       } else if (level === 2) {
         elements.push(
-          <h2 key={`h2-${index}`} id={hId} className="group mt-8 mb-3 flex items-center gap-2 text-xl font-semibold tracking-tight text-ink border-b border-line/40 pb-2">
-            <span>{renderInline(hText)}</span>
-            <a href={`#${hId}`} className="opacity-0 transition-opacity group-hover:opacity-60 text-muted" aria-label="Link to section">
-              <Hash size={16} />
+          <h2
+            key={`h2-${index}-${id}`}
+            id={id}
+            className="group relative mt-8 mb-3.5 scroll-mt-24 border-b border-line/60 pb-2 text-xl font-bold tracking-tight text-ink sm:text-2xl"
+          >
+            <span>{renderInline(rawText)}</span>
+            <a
+              href={`#${id}`}
+              className="ml-2 inline-block opacity-0 transition-opacity group-hover:opacity-100 text-muted hover:text-emerald-500"
+              aria-label={`Link to ${cleanText}`}
+            >
+              <Hash size={16} className="inline" />
             </a>
           </h2>
         );
       } else if (level === 3) {
         elements.push(
-          <h3 key={`h3-${index}`} id={hId} className="group mt-6 mb-2 flex items-center gap-2 text-base font-semibold text-ink">
-            <span>{renderInline(hText)}</span>
-            <a href={`#${hId}`} className="opacity-0 transition-opacity group-hover:opacity-60 text-muted" aria-label="Link to section">
-              <Hash size={14} />
+          <h3
+            key={`h3-${index}-${id}`}
+            id={id}
+            className="group relative mt-6 mb-2.5 scroll-mt-24 text-base font-semibold tracking-tight text-ink sm:text-lg"
+          >
+            <span>{renderInline(rawText)}</span>
+            <a
+              href={`#${id}`}
+              className="ml-2 inline-block opacity-0 transition-opacity group-hover:opacity-100 text-muted hover:text-emerald-500"
+              aria-label={`Link to ${cleanText}`}
+            >
+              <Hash size={14} className="inline" />
             </a>
           </h3>
         );
       } else {
         elements.push(
-          <h4 key={`h4-${index}`} id={hId} className="mt-4 mb-2 text-sm font-semibold text-ink">
-            {renderInline(hText)}
+          <h4
+            key={`h4-${index}-${id}`}
+            id={id}
+            className="group relative mt-5 mb-2 scroll-mt-24 text-sm font-semibold text-ink"
+          >
+            <span>{renderInline(rawText)}</span>
+            <a
+              href={`#${id}`}
+              className="ml-2 inline-block opacity-0 transition-opacity group-hover:opacity-100 text-muted hover:text-emerald-500"
+              aria-label={`Link to ${cleanText}`}
+            >
+              <Hash size={13} className="inline" />
+            </a>
           </h4>
         );
       }
@@ -300,75 +587,81 @@ export function DocsMarkdown({ content, onNavigateDoc, onHeadingsExtracted }: Do
       continue;
     }
 
-    // 4. Horizontal rules
-    if (/^(\*\*\*|---|___)$/.test(line.trim())) {
-      elements.push(<hr key={`hr-${index}`} className="my-8 border-line/60" />);
-      index++;
-      continue;
-    }
+    // 10. Tables (| a | b |)
+    if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+      const tableRows: string[][] = [];
 
-    // 5. Tables
-    if (line.includes("|") && lines[index + 1]?.includes("|--")) {
-      const tableLines: string[] = [];
-      while (index < lines.length && lines[index].includes("|")) {
-        tableLines.push(lines[index]);
+      while (index < lines.length && lines[index].trim().startsWith("|")) {
+        const rowStr = lines[index].trim();
+        if (/^\|(\s*[-:]+\s*\|)+$/.test(rowStr)) {
+          index++;
+          continue;
+        }
+        const cells = rowStr
+          .slice(1, -1)
+          .split("|")
+          .map((c) => c.trim());
+        tableRows.push(cells);
         index++;
       }
-      const headerCols = tableLines[0].split("|").filter((_, i, arr) => i > 0 && i < arr.length - 1).map(c => c.trim());
-      const bodyRows = tableLines.slice(2).map(row =>
-        row.split("|").filter((_, i, arr) => i > 0 && i < arr.length - 1).map(c => c.trim())
-      );
 
-      elements.push(
-        <div key={`table-${index}-${compId}`} className="my-5 overflow-x-auto rounded-xl border border-line bg-surface shadow-2xs">
-          <table className="w-full border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-line bg-surface-muted/50 font-semibold text-ink">
-                {headerCols.map((h, hi) => (
-                  <th key={hi} className="px-4 py-2.5 font-medium">{renderInline(h)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line/60">
-              {bodyRows.map((r, ri) => (
-                <tr key={ri} className="transition-colors hover:bg-hover/40">
-                  {r.map((c, ci) => (
-                    <td key={ci} className="px-4 py-2.5 text-ink/90 leading-normal">{renderInline(c)}</td>
+      if (tableRows.length > 0) {
+        const headerRow = tableRows[0];
+        const bodyRows = tableRows.slice(1);
+
+        elements.push(
+          <div key={`table-${index}`} className="my-6 overflow-x-auto rounded-xl border border-line">
+            <table className="w-full text-left text-xs sm:text-sm">
+              <thead className="border-b border-line bg-surface-muted/70 text-ink font-semibold">
+                <tr>
+                  {headerRow.map((cell, ci) => (
+                    <th key={ci} className="px-4 py-2.5 font-semibold text-ink">
+                      {renderInline(cell)}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-      continue;
+              </thead>
+              <tbody className="divide-y divide-line/60 bg-surface">
+                {bodyRows.map((row, ri) => (
+                  <tr key={ri} className="transition-colors hover:bg-hover/50">
+                    {row.map((cell, ci) => (
+                      <td key={ci} className="px-4 py-2.5 text-ink/90 align-top leading-relaxed">
+                        {renderInline(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+        continue;
+      }
     }
 
-    // 6. Lists
-    if (/^(\s*[-*+]|\s*\d+\.)\s+/.test(line)) {
-      const listItems: { text: string; ordered: boolean }[] = [];
-      while (index < lines.length && /^(\s*[-*+]|\s*\d+\.)\s+/.test(lines[index])) {
-        const itemLine = lines[index];
-        const isOrdered = /^\s*\d+\./.test(itemLine);
-        const itemText = itemLine.replace(/^(\s*[-*+]|\s*\d+\.)\s+/, "");
-        listItems.push({ text: itemText, ordered: isOrdered });
+    // 11. Bullet & Ordered Lists (* item, - item, 1. item)
+    if (/^(\*|-|\d+\.)\s+/.test(trimmed)) {
+      const isOrdered = /^\d+\.\s+/.test(trimmed);
+      const listItems: string[] = [];
+
+      while (index < lines.length && /^(\*|-|\d+\.)\s+/.test(lines[index].trim())) {
+        listItems.push(lines[index].trim().replace(/^(\*|-|\d+\.)\s+/, ""));
         index++;
       }
 
-      const isOrdered = listItems[0]?.ordered;
       if (isOrdered) {
         elements.push(
-          <ol key={`ol-${index}`} className="my-3 list-decimal space-y-1.5 pl-6 text-sm leading-relaxed text-ink/90">
-            {listItems.map((li, lii) => (
-              <li key={lii}>{renderInline(li.text)}</li>
+          <ol key={`ol-${index}`} className="my-4 ml-6 list-decimal space-y-1.5 text-sm text-ink leading-relaxed">
+            {listItems.map((item, i) => (
+              <li key={i}>{renderInline(item)}</li>
             ))}
           </ol>
         );
       } else {
         elements.push(
-          <ul key={`ul-${index}`} className="my-3 list-disc space-y-1.5 pl-6 text-sm leading-relaxed text-ink/90">
-            {listItems.map((li, lii) => (
-              <li key={lii}>{renderInline(li.text)}</li>
+          <ul key={`ul-${index}`} className="my-4 ml-6 list-disc space-y-1.5 text-sm text-ink leading-relaxed">
+            {listItems.map((item, i) => (
+              <li key={i}>{renderInline(item)}</li>
             ))}
           </ul>
         );
@@ -376,17 +669,21 @@ export function DocsMarkdown({ content, onNavigateDoc, onHeadingsExtracted }: Do
       continue;
     }
 
-    // 7. Regular paragraphs
-    if (line.trim().length > 0) {
-      elements.push(
-        <p key={`p-${index}`} className="my-3 text-[14px] sm:text-[15px] leading-relaxed text-ink/90">
-          {renderInline(line)}
-        </p>
-      );
+    // 12. Horizontal rule (---)
+    if (/^(\*\*\*|---|___)$/.test(trimmed)) {
+      elements.push(<hr key={`hr-${index}`} className="my-8 border-line/60" />);
+      index++;
+      continue;
     }
 
+    // 13. Regular paragraph
+    elements.push(
+      <p key={`p-${index}`} className="my-3.5 text-sm sm:text-[15px] leading-relaxed text-ink/90">
+        {renderInline(line)}
+      </p>
+    );
     index++;
   }
 
-  return <div className="docs-prose max-w-none">{elements}</div>;
+  return <div className="docs-prose space-y-1">{elements}</div>;
 }
