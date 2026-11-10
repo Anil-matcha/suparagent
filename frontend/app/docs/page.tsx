@@ -255,7 +255,7 @@ function DocsView() {
         </div>
 
         {/* Right header actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
@@ -267,7 +267,7 @@ function DocsView() {
 
           <Link
             href="/chat/"
-            className="hidden md:inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink"
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink"
           >
             <ArrowLeft size={13} />
             <span>Chat</span>
@@ -275,24 +275,10 @@ function DocsView() {
 
           <Link
             href="/settings/"
-            className="hidden md:inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink"
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink"
           >
             Settings
           </Link>
-
-          <a
-            href="https://github.com/Anil-matcha/open-duet"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink"
-          >
-            <span>GitHub</span>
-            <ExternalLink size={11} className="opacity-70" />
-          </a>
-
-          <div className="pl-1">
-            <ThemeToggle iconOnly />
-          </div>
         </div>
       </header>
 
@@ -305,58 +291,6 @@ function DocsView() {
             sidebarOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full md:translate-x-0"
           )}
         >
-          {/* Sidebar Top: Search & Quick Links */}
-          <div className="border-b border-line/60 p-3 space-y-2.5">
-            <button
-              type="button"
-              onClick={() => setSearchOpen(true)}
-              className="flex w-full items-center justify-between rounded-lg border border-line bg-surface-muted/50 px-2.5 py-1.5 text-xs text-muted transition hover:border-line-hover hover:bg-surface-muted cursor-pointer"
-            >
-              <span className="flex items-center gap-2">
-                <Search size={13} />
-                <span>Search</span>
-              </span>
-              <kbd className="rounded border border-line bg-surface px-1 py-0.2 font-mono text-[9px] text-muted">
-                Ctrl K
-              </kbd>
-            </button>
-
-            {/* Quick Links */}
-            <div className="flex items-center justify-between px-1 text-[11px] font-medium text-muted">
-              <Link
-                href="/chat/"
-                className="flex items-center gap-1 transition hover:text-ink"
-              >
-                <ArrowLeft size={11} />
-                <span>Chat</span>
-              </Link>
-              <button
-                type="button"
-                onClick={() => navigateToDoc("features")}
-                className="flex items-center gap-1 transition hover:text-ink cursor-pointer"
-              >
-                <Sparkles size={11} />
-                <span>Features</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => navigateToDoc("setup")}
-                className="flex items-center gap-1 transition hover:text-ink cursor-pointer"
-              >
-                <Rocket size={11} />
-                <span>Setup</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => navigateToDoc("roadmap")}
-                className="flex items-center gap-1 transition hover:text-ink cursor-pointer"
-              >
-                <Clock size={11} />
-                <span>Roadmap</span>
-              </button>
-            </div>
-          </div>
-
           {/* Navigation Tree (Scrollable) */}
           <div className="flex-1 overflow-y-auto p-3 space-y-3.5">
             {/* Overview / Docs Home */}
@@ -365,7 +299,7 @@ function DocsView() {
                 type="button"
                 onClick={() => navigateToDoc("index")}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold transition-colors cursor-pointer",
+                  "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold transition-colors cursor-pointer",
                   activeSlug === "index"
                     ? "bg-emerald-500/10 text-emerald-500 border-l-2 border-emerald-500"
                     : "text-ink/80 hover:bg-hover hover:text-ink"
@@ -544,6 +478,7 @@ function DocsView() {
           <div className="mt-6">
             <DocsMarkdown
               content={article.content}
+              articleTitle={article.title}
               onNavigateDoc={navigateToDoc}
               onHeadingsExtracted={setHeadings}
             />

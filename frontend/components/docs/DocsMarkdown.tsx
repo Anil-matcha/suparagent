@@ -23,6 +23,7 @@ export interface HeadingItem {
 
 interface DocsMarkdownProps {
   content: string;
+  articleTitle?: string;
   onNavigateDoc?: (slug: string) => void;
   onHeadingsExtracted?: (headings: HeadingItem[]) => void;
 }
@@ -134,7 +135,7 @@ function CardView({
   );
 }
 
-export function DocsMarkdown({ content, onNavigateDoc, onHeadingsExtracted }: DocsMarkdownProps) {
+export function DocsMarkdown({ content, articleTitle, onNavigateDoc, onHeadingsExtracted }: DocsMarkdownProps) {
 
   // Extract headings on parse
   React.useEffect(() => {
@@ -459,12 +460,18 @@ export function DocsMarkdown({ content, onNavigateDoc, onHeadingsExtracted }: Do
     }
 
     // 9. Headings (# H1, ## H2, ### H3, #### H4)
-    const headingMatch = line.match(/^(#{1,4})\s+(.+)$/);
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
       const level = headingMatch[1].length;
       const rawText = headingMatch[2].trim();
       const cleanText = rawText.replace(/\*\*|__|\*|_/g, "");
       const id = slugify(cleanText);
+
+      // Skip initial level-1 heading if it duplicates the article title or is at the start
+      if (level === 1 && (elements.length === 0 || (articleTitle && cleanText.toLowerCase() === articleTitle.toLowerCase()))) {
+        index++;
+        continue;
+      }
 
       if (level === 1) {
         elements.push(
