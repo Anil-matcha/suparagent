@@ -165,9 +165,13 @@ async def test_a_viewer_can_read_but_every_write_is_refused(app, factory):
     mine = write(session["csrf_token"])
     assert (await joined.get("/api/v1/people")).status_code == 200
     assert (await joined.get("/api/v1/threads")).status_code == 200
-    for method, path in (("POST", "/api/v1/threads"), ("PATCH", "/api/v1/people/me"), ("POST", "/api/v1/rooms/1/messages")):
-        response = await joined.request(method, path, json={"display_name": "x", "text": "hi"}, headers=mine)
+    for method, path in (("POST", "/api/v1/threads"), ("POST", "/api/v1/rooms/1/messages")):
+        response = await joined.request(method, path, json={"text": "hi"}, headers=mine)
         assert response.status_code == 403 and error_code(response) == "read_only", (method, path, response.text)
+    # A viewer may still manage their own name and password.
+    assert (await joined.patch("/api/v1/people/me", json={"display_name": "Sammy"}, headers=mine)).status_code == 200
+    changed = {"current_password": PASSWORD, "new_password": "another password 456"}
+    assert (await joined.post("/api/v1/people/me/password", json=changed, headers=mine)).status_code == 204
 
 
 async def test_only_the_owner_can_make_or_change_an_admin(app, factory):
@@ -211,7 +215,7 @@ async def test_a_role_change_applies_on_the_next_request(app, factory):
     assert (await joined.patch("/api/v1/people/me", json={"display_name": "Sammy"}, headers=mine)).status_code == 200
     assert (await api.patch(f"/api/v1/people/{session['person_id']}", json={"role": "viewer"},
                             headers=write(csrf))).status_code == 200
-    blocked = await joined.patch("/api/v1/people/me", json={"display_name": "Again"}, headers=mine)
+    blocked = await joined.post("/api/v1/threads", json={}, headers=mine)
     assert blocked.status_code == 403 and error_code(blocked) == "read_only"
     assert (await joined.get("/api/v1/auth/session")).json()["role"] == "viewer"
 

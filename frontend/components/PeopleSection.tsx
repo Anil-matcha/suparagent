@@ -15,6 +15,7 @@ import {
 } from "@/lib/people";
 import { inviteLink } from "@/lib/session";
 import { useSession } from "./AuthGate";
+import { HandOver, YourAccount } from "./PeopleAccount";
 import { Badge } from "@/components/ui/Badge";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
@@ -141,6 +142,8 @@ export function PeopleSection() {
       </p>
       {error && <Banner tone="danger">{error}</Banner>}
 
+      {session && <YourAccount session={session} me={roster?.find((p) => p.is_you) ?? null} onChanged={() => void load()} />}
+
       {roster === null ? <SkeletonList rows={3} /> : (
         <ul className="divide-y divide-line" data-testid="people-list">
           {roster.map((person) => (
@@ -219,6 +222,8 @@ export function PeopleSection() {
               </ul>
             </div>
           )}
+
+          <HandOver roster={roster ?? []} me={roster?.find((p) => p.is_you) ?? null} />
 
           <div>
             <Button type="button" variant="ghost" onClick={toggleAudit} aria-expanded={showAudit}>

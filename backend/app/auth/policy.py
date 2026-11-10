@@ -48,6 +48,7 @@ CHAT_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
         # The roster (names and roles) and renaming oneself; inviting and managing stay admin-only.
         ({"GET"}, "/people"),
         ({"PATCH"}, "/people/me"),
+        ({"POST"}, "/people/me/password"),
         ({"GET"}, "/version"),
         ({"GET", "PUT"}, "/notifications/preferences"),
         ({"GET"}, "/team"),
@@ -114,6 +115,28 @@ MANAGE_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
         ({"PATCH"}, f"/rooms/{_ID}/members/{_ID}"),
     )
 )
+
+
+# Event streams that stay open: the middleware ends them when the session stops being valid (auth/live.py).
+STREAM_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
+    (frozenset({"GET"}), re.compile(f"^{API}{path}$"))
+    for path in (f"/threads/{_ID}/events/stream", f"/local/tasks/{_ID}/events")
+)
+
+
+# The only writes a read-only viewer may make: their own name and password.
+READ_ONLY_OK: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = (
+    (frozenset({"PATCH"}), re.compile(f"^{API}/people/me$")),
+    (frozenset({"POST"}), re.compile(f"^{API}/people/me/password$")),
+)
+
+
+def read_only_allows(method: str, path: str) -> bool:
+    return _matches(READ_ONLY_OK, method, path)
+
+
+def is_stream(method: str, path: str) -> bool:
+    return _matches(STREAM_ROUTES, method, path)
 
 
 def _matches(rules, method: str, path: str) -> bool:

@@ -48,6 +48,9 @@ export const AUDIT_LABELS: Record<string, string> = {
   "member.joined": "joined",
   "member.role_changed": "changed the role of",
   "member.removed": "removed",
+  "member.password_changed": "changed the password of",
+  "owner.credentials_set": "set up email sign-in for",
+  "ownership.transferred": "handed the workspace to",
 };
 
 export const people = {
@@ -59,6 +62,10 @@ export const people = {
   revokeInvite: (id: number) => request<void>(`/people/invites/${id}`, { method: "DELETE" }),
   setRole: (id: number, role: InviteRole) =>
     request<Person>(`/people/${id}`, { method: "PATCH", body: JSON.stringify({ role }) }),
+  changePassword: (body: { new_password: string; current_password?: string; passphrase?: string; email?: string }) =>
+    request<void>("/people/me/password", { method: "POST", body: JSON.stringify(body) }),
+  transfer: (person_id: number, passphrase: string) =>
+    request<Person>("/people/transfer", { method: "POST", body: JSON.stringify({ person_id, passphrase }) }),
   remove: (id: number) => request<void>(`/people/${id}`, { method: "DELETE" }),
   audit: () => request<AuditRow[]>("/people/audit"),
 };

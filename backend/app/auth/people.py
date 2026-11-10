@@ -22,7 +22,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import credentials
+from app.auth import credentials, live
 from app.db.models.auth import AuthSession
 from app.db.models.people import INVITE_ROLES, ROLES, PeopleAudit, Person, PersonInvite
 from app.db.transactions import begin_write
@@ -325,6 +325,13 @@ async def authenticate_person(db: AsyncSession, email: str, password: str) -> Pe
 # --- changing people --------------------------------------------------------
 
 
+async def _live_session_ids(db: AsyncSession, person_id: int) -> list[int]:
+    result = await db.execute(
+        select(AuthSession.id).where(AuthSession.person_id == person_id, AuthSession.revoked_at.is_(None))
+    )
+    return list(result.scalars())
+
+
 async def _revoke_sessions(db: AsyncSession, person_id: int) -> None:
     await db.execute(
         update(AuthSession)
@@ -385,6 +392,7 @@ async def remove_person(db: AsyncSession, actor: Actor, person_id: int) -> None:
     person.removed_at = now
     person.updated_at = now
     person.password_hash = None
+    session_ids = await _live_session_ids(db, person.id)
     await _revoke_sessions(db, person.id)
     await db.execute(
         update(PersonInvite)
@@ -393,6 +401,7 @@ async def remove_person(db: AsyncSession, actor: Actor, person_id: int) -> None:
     )
     record(db, "member.removed", actor, subject=person, detail=f"role={person.role}")
     await db.commit()
+    live.close_sessions(session_ids)  # their open event streams end now, not at the next reconnect
 
 
 async def rename_person(db: AsyncSession, person_id: int, display_name: str) -> Person:
@@ -408,3 +417,107 @@ async def rename_person(db: AsyncSession, person_id: int, display_name: str) -> 
     person.updated_at = utcnow()
     await db.commit()
     return person
+
+
+# --- own credentials --------------------------------------------------------
+
+
+async def change_password(
+    db: AsyncSession, person_id: int, *, new_password: str, current_password: str | None = None,
+    email: str | None = None, root_verified: bool = False, keep_session_id: int | None = None,
+) -> Person:
+    """Set a person's own password. Everyone who has one proves it with `current_password`.
+    The owner of an install that predates people signs in with the root passphrase and has no
+    email or password yet; they set both once, after the route checked the passphrase
+    (`root_verified`). Every other session of the person is signed out."""
+    try:
+        credentials.check_passphrase_strength(new_password)
+    except credentials.WeakPassphrase as exc:
+        raise PeopleError(422, "weak_password", str(exc)) from exc
+    person = await get_active_person(db, person_id)
+    if person is None:
+        raise PeopleError(404, "person_not_found", "No such member.")
+    new_email = None
+    if person.password_hash:
+        if not current_password or not await asyncio.to_thread(
+            credentials.verify_passphrase, current_password, person.password_hash
+        ):
+            raise PeopleError(401, "wrong_password", "The current password is not right.")
+    else:
+        if person.role != "owner" or not root_verified:
+            raise PeopleError(403, "passphrase_required", "Confirm with the owner passphrase.")
+        new_email = normalize_email(email)
+    hashed = await asyncio.to_thread(credentials.hash_passphrase, new_password)
+    await begin_write(db)
+    person = await get_active_person(db, person_id)
+    if person is None:
+        await db.rollback()
+        raise PeopleError(404, "person_not_found", "No such member.")
+    if new_email is not None:
+        taken = (await db.execute(
+            select(Person.id).where(Person.email == new_email, Person.id != person.id)
+        )).first()
+        if taken is not None:
+            await db.rollback()
+            raise PeopleError(409, "email_taken", "That email already belongs to someone else.")
+        person.email = new_email
+    person.password_hash = hashed
+    person.updated_at = utcnow()
+    others = [i for i in await _live_session_ids(db, person.id) if i != keep_session_id]
+    if others:
+        await db.execute(
+            update(AuthSession).where(AuthSession.id.in_(others)).values(revoked_at=utcnow())
+        )
+    record(db, "owner.credentials_set" if new_email else "member.password_changed",
+           Actor(person.role, person.id, person.display_name), subject=person)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise PeopleError(409, "email_taken", "That email already belongs to someone else.") from None
+    live.close_sessions(others)
+    return person
+
+
+# --- ownership --------------------------------------------------------------
+
+
+async def check_transfer(db: AsyncSession, actor: Actor, target_id: int) -> tuple[Person, Person]:
+    """The current owner and the person who would become owner, or the reason it cannot happen.
+    Both must be able to sign in with an email and password: the root passphrase is rotated
+    during a transfer, so it is not a way back in for either of them."""
+    if actor.role != "owner" or actor.person_id is None:
+        raise PeopleError(403, "owner_only", "Only the owner can hand over the workspace.")
+    owner = await get_active_person(db, actor.person_id)
+    target = await get_person(db, target_id)
+    if owner is None or owner.role != "owner":
+        raise PeopleError(403, "owner_only", "Only the owner can hand over the workspace.")
+    if target is None or target.status != "active":
+        raise PeopleError(404, "person_not_found", "No such member.")
+    if target.id == owner.id:
+        raise PeopleError(409, "already_owner", "You are already the owner.")
+    if not owner.email or not owner.password_hash:
+        raise PeopleError(409, "owner_needs_password", "Set an email and password for yourself first, so you can sign in after the handover.")
+    if not target.password_hash:
+        raise PeopleError(409, "target_needs_password", "That person has no password yet.")
+    return owner, target
+
+
+async def transfer_ownership(db: AsyncSession, actor: Actor, target_id: int) -> Person:
+    """Make `target_id` the owner and the previous owner an admin, in one transaction. The route
+    rotates the root passphrase first, so a failure here leaves the owner in place and the old
+    passphrase already dead rather than the reverse."""
+    await begin_write(db)
+    try:
+        owner, target = await check_transfer(db, actor, target_id)
+    except PeopleError:
+        await db.rollback()
+        raise
+    now = utcnow()
+    owner.role = "admin"
+    owner.updated_at = now
+    target.role = "owner"
+    target.updated_at = now
+    record(db, "ownership.transferred", actor, subject=target, detail=f"from {owner.display_name}")
+    await db.commit()
+    return target

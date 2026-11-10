@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import credentials
+from app.auth import credentials, live
 from app.core.config import settings
 from app.db.models.auth import SCOPES, AuthSession, OwnerAccount, PairingCode
 from app.db.models.people import Person
@@ -242,6 +242,7 @@ async def revoke_session(db: AsyncSession, session_id: int) -> bool:
         .values(revoked_at=utcnow())
     )
     await db.commit()
+    live.close_sessions([session_id])
     return (result.rowcount or 0) > 0
 
 

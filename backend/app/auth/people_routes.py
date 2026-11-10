@@ -6,6 +6,7 @@ session; inviting and managing people needs admin. Not available on the desktop 
 is one person on their own machine.
 """
 
+import secrets
 from datetime import datetime
 from typing import Literal
 
@@ -92,6 +93,82 @@ async def rename_me(
         raise _error(409, "not_a_member", "Sign in as a member to set a name.")
     try:
         person = await people.rename_person(db, principal.person_id, body.display_name)
+    except people.PeopleError as exc:
+        raise _fail(exc) from exc
+    return _person(person, principal)
+
+
+class PasswordBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_password: str = Field(max_length=credentials.MAX_PASSPHRASE_LENGTH)
+    # Everyone who has a password proves it. The owner of an install that predates people has
+    # none yet: they confirm with the root passphrase and give the email they will sign in with.
+    current_password: str | None = Field(default=None, max_length=credentials.MAX_PASSPHRASE_LENGTH)
+    passphrase: str | None = Field(default=None, max_length=credentials.MAX_PASSPHRASE_LENGTH)
+    email: str | None = Field(default=None, max_length=300)
+
+
+@router.post("/me/password", status_code=204)
+async def change_my_password(
+    body: PasswordBody, request: Request, response: Response, db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(current_principal), source: str = Depends(require_rate),
+):
+    if principal.person_id is None:
+        raise _error(409, "not_a_member", "Sign in as a member to set a password.")
+    wait = limiter.login_lockout.retry_after(source)
+    if wait:
+        raise _error(429, "locked_out", f"Too many wrong attempts. Try again in {wait} seconds.",
+                     {"Retry-After": str(wait)})
+    root_verified = False
+    if body.passphrase is not None:
+        root_verified = await store.verify_owner(db, body.passphrase)
+        if not root_verified:
+            limiter.login_lockout.failure(source)
+            raise _error(401, "wrong_passphrase", "That passphrase is not right.")
+    try:
+        await people.change_password(
+            db, principal.person_id, new_password=body.new_password, current_password=body.current_password,
+            email=body.email, root_verified=root_verified, keep_session_id=principal.session_id,
+        )
+    except people.PeopleError as exc:
+        if exc.code == "wrong_password":
+            limiter.login_lockout.failure(source)
+        raise _fail(exc) from exc
+    limiter.login_lockout.success(source)
+    response.status_code = 204
+    return response
+
+
+class TransferBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    person_id: int
+    passphrase: str = Field(max_length=credentials.MAX_PASSPHRASE_LENGTH)
+
+
+@router.post("/transfer", response_model=PersonResponse)
+async def transfer_ownership(
+    body: TransferBody, response: Response, db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(require_admin), source: str = Depends(require_rate),
+):
+    """Hand the workspace to another member. The old owner becomes an admin and the root passphrase
+    is replaced by one nobody knows (the server's operator can set a new one with the CLI), so the
+    old owner's passphrase cannot sign in as the new owner."""
+    actor = actor_of(principal)
+    wait = limiter.login_lockout.retry_after(source)
+    if wait:
+        raise _error(429, "locked_out", f"Too many wrong attempts. Try again in {wait} seconds.",
+                     {"Retry-After": str(wait)})
+    try:
+        await people.check_transfer(db, actor, body.person_id)
+    except people.PeopleError as exc:
+        raise _fail(exc) from exc
+    if not await store.verify_owner(db, body.passphrase):
+        limiter.login_lockout.failure(source)
+        raise _error(401, "wrong_passphrase", "That passphrase is not right.")
+    limiter.login_lockout.success(source)
+    await store.set_passphrase(db, secrets.token_urlsafe(24), first_time_only=False)
+    try:
+        person = await people.transfer_ownership(db, actor, body.person_id)
     except people.PeopleError as exc:
         raise _fail(exc) from exc
     return _person(person, principal)
