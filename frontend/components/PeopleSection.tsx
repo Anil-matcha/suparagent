@@ -163,14 +163,17 @@ export function PeopleSection() {
                   {person.is_you && <span className="ml-2 rounded bg-inset px-1.5 py-0.5 text-xs font-normal">you</span>}
                 </p>
                 <p className="text-xs text-muted">
-                  {person.email ?? "No email"}{person.email ? " · " : ""}joined {when(person.joined_at)}
-                  {person.last_login_at ? ` · last sign-in ${when(person.last_login_at)}` : ""}
+                  {[
+                    person.email, // only admins are shown addresses
+                    `joined ${when(person.joined_at)}`,
+                    person.last_login_at ? `last sign-in ${when(person.last_login_at)}` : null,
+                  ].filter(Boolean).join(" · ")}
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 {canManage(person) ? (
                   <Button type="button" disabled={busy} aria-expanded={editing === person.id}
-                    aria-label={`Change what ${person.display_name} may do`}
+                    aria-label={`Change what ${person.display_name} may do (now: ${describePermissions(person.role, person.permissions)})`}
                     onClick={() => {
                       if (editing === person.id) { setEditing(null); return; }
                       setDraft({ role: person.role as Access["role"], permissions: [...person.permissions] });
@@ -182,7 +185,7 @@ export function PeopleSection() {
                   <Badge>{describePermissions(person.role, person.permissions)}</Badge>
                 )}
                 {canManage(person) && (
-                  <Button type="button" disabled={busy} onClick={() => remove(person)} aria-label={`Remove ${person.display_name}`}>
+                  <Button type="button" disabled={busy} onClick={() => remove(person)} aria-label={confirming === person.id ? `Confirm removing ${person.display_name}` : `Remove ${person.display_name}`}>
                     {confirming === person.id ? "Confirm remove" : "Remove"}
                   </Button>
                 )}

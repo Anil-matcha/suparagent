@@ -11,6 +11,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import credentials, limiter, people, request_info, store
@@ -310,13 +311,22 @@ class DeviceResponse(BaseModel):
 
 @router.get("/devices", response_model=list[DeviceResponse])
 async def list_devices(db: AsyncSession = Depends(get_db), principal: Principal = Depends(require_admin)):
-    return [
-        DeviceResponse(
-            id=s.id, kind=s.kind, label=s.label, scopes=list(s.scopes), created_at=s.created_at,
-            last_seen_at=s.last_seen_at, expires_at=s.expires_at, current=s.id == principal.session_id,
-        )
-        for s in await store.list_active_sessions(db)
-    ]
+    sessions = await store.list_active_sessions(db)
+    ids = {s.person_id for s in sessions if s.person_id is not None}
+    members = {} if not ids else {
+        p.id: p for p in (await db.execute(select(Person).where(Person.id.in_(ids)))).scalars()
+    }
+    out = []
+    for s in sessions:
+        person = members.get(s.person_id) if s.person_id is not None else None
+        # A member's browser is named after them and shows what they may do today, not what the session row says.
+        out.append(DeviceResponse(
+            id=s.id, kind=s.kind, label=f"{person.display_name} · {s.label}" if person else s.label,
+            scopes=list(people.person_scopes(person)) if person else list(s.scopes),
+            created_at=s.created_at, last_seen_at=s.last_seen_at, expires_at=s.expires_at,
+            current=s.id == principal.session_id,
+        ))
+    return out
 
 
 @router.delete("/devices/{device_id}", status_code=204)

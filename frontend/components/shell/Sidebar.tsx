@@ -97,6 +97,7 @@ export function Sidebar({
   onOpenRoutines,
   onOpenPlanner,
   onOpenWorkflows,
+  showApps = true,
   onNavigate,
   collaboration,
 }: {
@@ -119,6 +120,8 @@ export function Sidebar({
   onOpenRoutines?: () => void;
   onOpenPlanner?: () => void;
   onOpenWorkflows?: () => void;
+  // The Apps page is for admins; a member is not offered it.
+  showApps?: boolean;
   onNavigate?: () => void;
   collaboration?: React.ReactNode;
 }) {
@@ -381,10 +384,12 @@ export function Sidebar({
               <span className="font-medium">Workflows</span>
             </button>
           )}
-          <Link href="/apps/" className={cn(ROW, "hover:bg-hover/60")}>
-            <LayoutGrid size={16} aria-hidden="true" className="shrink-0 text-muted" />
-            <span className="font-medium">{t("sidebar.apps")}</span>
-          </Link>
+          {showApps && (
+            <Link href="/apps/" className={cn(ROW, "hover:bg-hover/60")}>
+              <LayoutGrid size={16} aria-hidden="true" className="shrink-0 text-muted" />
+              <span className="font-medium">{t("sidebar.apps")}</span>
+            </Link>
+          )}
         </div>
 
         {/* Bottom bar with Settings and Theme Toggle */}

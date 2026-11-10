@@ -7,13 +7,17 @@ import { DevicesSection } from "@/components/DevicesSection";
 import { HistoryExport } from "@/components/HistoryExport";
 import { PeopleSection } from "@/components/PeopleSection";
 import { Applies } from "./Applies";
+import { useSession } from "@/components/AuthGate";
 
 export function AccountSettings() {
+  // The app account and the hosted-workspace card are the owner's; a member's session is refused them.
+  const { session } = useSession();
+  const fullAccess = session === null || session.scopes.includes("admin");
   return <div className="space-y-6">
     <p className="text-xs text-muted"><Applies when="now" /> Account, device and permission changes take effect as you make them.</p>
     <div id="setting-account-app" data-setting-id="setting-account-app" data-setting-root data-setting-container tabIndex={-1}>
-      <DesktopAccountSection />
-      <HostedWorkspaceCard />
+      {fullAccess && <DesktopAccountSection />}
+      {fullAccess && <HostedWorkspaceCard />}
       <span id="setting-account-reset" className="sr-only" />
       <span id="setting-account-delete" className="sr-only" />
     </div>
