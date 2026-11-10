@@ -58,8 +58,10 @@ async def test_files_and_agents_permissions_open_exactly_those_routes(app, facto
     api, csrf = await owner_api(app, factory)
     joined, session = await member_with(app, api, csrf, ["chat", "files", "agents"])
     assert (await joined.get("/api/v1/threads/1/files")).status_code != 403
-    created = await joined.post("/api/v1/agents", json={"name": "x"}, headers=write(session["csrf_token"]))
-    assert created.status_code != 403
+    # An empty body fails validation (422) after the permission gate: enough to show the gate let the request
+    # through, without creating a real agent (which touches engines and the filesystem).
+    through = await joined.post("/api/v1/agents", json={}, headers=write(session["csrf_token"]))
+    assert through.status_code == 422
 
 
 async def test_unknown_or_misplaced_permissions_are_refused(app, factory):  # noqa: F811
