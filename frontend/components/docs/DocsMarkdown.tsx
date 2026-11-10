@@ -141,9 +141,10 @@ export function DocsMarkdown({ content, articleTitle, onNavigateDoc, onHeadingsE
   React.useEffect(() => {
     if (!onHeadingsExtracted) return;
     const headings: HeadingItem[] = [];
-    const lines = content.split("\n");
+    const lines = content.split(/\r?\n/);
     for (const line of lines) {
-      const match = line.match(/^(#{2,4})\s+(.+)$/);
+      const trimmed = line.trim();
+      const match = trimmed.match(/^(#{2,4})\s+(.+)$/);
       if (match) {
         const level = match[1].length;
         const text = match[2].trim().replace(/\*\*|__|\*|_/g, "");
@@ -269,7 +270,7 @@ export function DocsMarkdown({ content, articleTitle, onNavigateDoc, onHeadingsE
   };
 
   // Block level parser
-  const lines = content.split("\n");
+  const lines = content.split(/\r?\n/);
   const elements: React.ReactNode[] = [];
   let index = 0;
 
