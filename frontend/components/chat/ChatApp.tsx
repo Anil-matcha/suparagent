@@ -46,6 +46,7 @@ import { RoomList } from "./RoomList";
 import { RoomView } from "./RoomView";
 import { collaboration, type TeamState } from "@/lib/collaboration";
 import { useSession } from "@/components/AuthGate";
+import { can } from "@/lib/permissions";
 import { onboarding } from "@/lib/onboarding";
 import { TeamPanel } from "./TeamPanel";
 import { parseRoom, roomHref } from "@/lib/rooms";
@@ -147,6 +148,8 @@ export function ChatApp() {
   // Notifications, "needs you", setup progress and audio settings belong to the workspace's admins: a member's
   // session is refused them, so the page does not ask. An unknown session (null) behaves as before.
   const fullAccess = session === null || session.scopes.includes("admin");
+  // Creating and managing agents is its own permission for a member (a reply-only member is not offered it).
+  const mayManageAgents = can(session?.permissions, "agents");
 
   const [gate, setGate] = useState<Gate>({ phase: "loading" });
   // Bumped by "Check again": Claude may have been installed or signed in since.
@@ -1154,15 +1157,15 @@ export function ChatApp() {
       actions={listActions}
       error={manageError}
       onNewChat={startChat}
-      onManageAgents={agents !== null ? () => { setEditAgent(null); setAgentsCreate(false); setAgentsOpen(true); } : undefined}
+      onManageAgents={agents !== null && mayManageAgents ? () => { setEditAgent(null); setAgentsCreate(false); setAgentsOpen(true); } : undefined}
       leadAgentId={teamState?.team?.lead_agent_id ?? null}
       onChangeLead={session?.scopes.includes("admin") ? async (agent, remove) => {
         try { setTeamState(await (remove ? collaboration.clearLead(agent.id) : collaboration.lead(agent.id))); setAgentTick(value => value + 1); }
         catch (err) { setManageError(err instanceof ApiError ? err.message : "Could not change the lead."); }
       } : undefined}
       onEditAgent={session?.scopes.includes("admin") ? agent => { setEditAgent(agent); setAgentsCreate(false); setAgentsOpen(true); } : undefined}
-      onDeleteAgent={agents !== null ? (agent) => { setAgentsCreate(false); setDeleteAgentTarget(agent); setAgentsOpen(true); } : undefined}
-      onNewAgent={agents !== null ? () => { setEditAgent(null); setAgentsCreate(true); setAgentsOpen(true); } : undefined}
+      onDeleteAgent={agents !== null && fullAccess ? (agent) => { setAgentsCreate(false); setDeleteAgentTarget(agent); setAgentsOpen(true); } : undefined}
+      onNewAgent={agents !== null && mayManageAgents ? () => { setEditAgent(null); setAgentsCreate(true); setAgentsOpen(true); } : undefined}
       collaboration={ready ? <RoomList selected={roomId} onTeam={() => setTeamOpen(true)} onNavigate={() => setDrawerOpen(false)} /> : undefined}
       onOpenRoutines={ready && fullAccess && agents !== null ? () => setRoutinesOpen(true) : undefined}
       onOpenPlanner={ready && fullAccess && agents !== null ? () => setPlannerOpen(true) : undefined}
