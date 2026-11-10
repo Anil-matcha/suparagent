@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Share a server install with other people. An admin invites someone from Settings → Account & privacy → People and sends them a one-time link; they pick a name and password and work in the same workspace as themselves. Each person has a role (owner, admin, member, viewer), and a member's permissions (reply, read files, answer commands, save standing rules, manage agents) are chosen when they are invited and can be changed later. Removing someone signs them out and ends their open event streams at once. Members can change their own password, the owner can hand the workspace to another member, and every membership change is recorded. Turns and approvals show which person sent or answered them, agents are told whose message they are answering when several people share a workspace, and a member's chats are not learned as the owner's. Not available in the desktop app, which stays one person. See [docs/AUTH.md](docs/AUTH.md#members).
+
+### Changed
+
+- Changing notification settings now needs an admin when people share a workspace, because it is one setting for everyone. Paired phones keep their access.
+
 ## 0.8.5 - 2026-11-09
 
 ### Changed

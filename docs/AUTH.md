@@ -1,8 +1,8 @@
-# Authentication: owner, sessions and paired devices
+# Authentication: owner, members, sessions and paired devices
 
 Suparagent runs agents with access to your machine, so the server must know who
 is asking. This document is the design and the operating guide for a
-self-hosted, single-owner install. The desktop app requires an app account as
+self-hosted install with one owner, who can also invite other people (Members below). The desktop app requires an app account as
 well as its local launch-token boundary (see Desktop app below).
 
 ## Principals
@@ -14,6 +14,7 @@ Every request acts as exactly one of these, decided by the auth middleware
 |---|---|---|
 | `desktop` | The desktop launcher's per-launch token (`X-Suparagent-Token`), checked by `LaunchAuthMiddleware` | admin + chat |
 | `browser` | The owner signed in with the passphrase, or a browser paired with a code; an `HttpOnly` session cookie | admin + chat, or chat |
+| `member` | A person who joined by invitation and signed in with email and password; an `HttpOnly` session cookie | by role and permissions, never `admin` unless they are an admin |
 | `device` | A paired device (phone, script, another computer); `Authorization: Bearer ods_…` | admin + chat, or chat |
 | `loopback` | Only when `LOOPBACK_TRUST` allows it: a request from this machine directly to this server | admin + chat |
 
@@ -67,6 +68,82 @@ Setting it:
 The same CLI opens pairing codes (`pairing-code [--scope chat]`), lists devices
 (`devices`) and revokes one (`revoke ID`). A shell on the server is the
 authority, as it already is for `backend/.env`.
+
+## Members
+
+A server install can be shared. Besides the owner, other people join by invitation and work in the
+same workspace: they see the same agents, rooms and conversations, each signed in as themselves.
+Members are for server installs. The desktop app is one person on their own machine and refuses
+every `/people` route (`409 people_unavailable`). Everything here lives in the workspace's own
+database; there is no separate account service.
+
+### Roles and permissions
+
+| Role | Can |
+|---|---|
+| `owner` | Everything. Set the install up; the only one who can make an admin, allow standing rules, or hand the workspace over. One per workspace. |
+| `admin` | Everything the owner can, except the owner-only items above. Manages people, devices and settings. |
+| `member` | What they were invited with (below). Never `admin`, so their messages stay "restricted" like any other non-admin sign-in, and agent configuration is refused as for a paired device without `admin`. |
+| `viewer` | Reads conversations and rooms. Every write is refused (`403 read_only`), except their own name and password. |
+
+A member's permissions are chosen when they are invited and can be changed later; the change applies
+on their next request, because their rights are read from the database on every request, not from
+the session.
+
+| Permission | Allows | Scope it maps to |
+|---|---|---|
+| `chat` | Send messages to agents and in rooms. Without it the member is read-only. | `chat` |
+| `files` | Read a conversation's workspace files. | `files` |
+| `approve` | Allow or deny a command an agent asks about, one at a time. | (checked by the approval route) |
+| `rules` | Save a standing "always allow" rule. It applies to everyone in the workspace. **Only the owner can grant it.** | (checked by the approval route) |
+| `agents` | Create and edit agents and rooms. | `manage` |
+
+The presets are **Member** (`chat`, `files`, `approve`, `agents`), **Reply only** (`chat`), **Viewer**
+(none) and **Admin** (all). Without a choice a member gets the Member preset. Without `rules`, a
+member's "always allow" still counts once but saves no rule. Paired devices are a separate system and
+keep the scopes they were paired with.
+
+### Joining and signing in
+
+1. An admin creates an invitation (Settings → Account & privacy → People). The server returns a link
+   once, `…/join/#token=…&email=…`; only a hash of the token is stored. Send it to the person yourself:
+   the server sends no email. The secret is in the URL fragment, so it never reaches a server log, and
+   the page removes it from the address bar.
+2. The invitation is bound to that email address, works once, expires after seven days, and can be
+   revoked. A new invitation for the same address replaces the open one. An expired, used, revoked or
+   wrong-email invitation all fail the same way (`400 invite_invalid`), and a wrong email does not
+   use the invitation up.
+3. The person chooses a name and a password (at least 10 characters) and is signed in. They sign in
+   again with their email and password ("Team member? Sign in with your email" on the sign-in page).
+   Wrong passwords are rate-limited and locked out like the owner passphrase.
+
+The owner still signs in with the passphrase and appears in the roster as a person. To hand the
+workspace over later, the owner first adds an email and password to their own account (Settings →
+People → Your account, confirmed with the passphrase).
+
+### Removing, changing and handing over
+
+- **Removing** a person revokes all their sessions and ends their open event streams at once (and,
+  with several server processes, at the next recheck, within 15 seconds). Their history keeps their
+  name. Inviting the same email again brings the same person back.
+- A member changes their own password (other sessions are signed out) and name; nobody changes their
+  own role or permissions, and nobody removes themselves or the owner.
+- **Handing over** (`POST /people/transfer`, owner only, confirmed with the passphrase) makes another
+  member the owner and the old owner an admin. The owner passphrase is replaced with one nobody
+  knows, so the old owner's passphrase cannot sign in as the new owner; whoever runs the server sets
+  a new one with `python -m app.auth.cli set-passphrase`. Both people need an email and password
+  first, because the passphrase is no way back in for either.
+- Membership changes are recorded: invitations, joins, role and permission changes, removals,
+  password and credential changes, and hand-overs (`GET /people/audit`, admins only).
+
+### What members see
+
+Admin-only pages are hidden from members and their requests are refused: routines, workflows, apps,
+usage, notifications and "needs you" items, memory, settings, devices and people management.
+Notification settings are one setting for the whole workspace, so only an admin changes them. Agents
+are told whose message they are answering once more than one person is in the workspace (rooms always
+carry the author), and agent memory does not learn from anyone but the owner as if they were the owner.
+Each turn and each approval records which member sent or answered it, by the name they had then.
 
 ## Sessions
 
@@ -261,6 +338,14 @@ All under `/api/v1`.
 | `GET /auth/devices` | admin | list sessions and devices |
 | `DELETE /auth/devices/{id}` | admin | revoke |
 | `PUT`/`DELETE /auth/identity` | admin | set or clear the web identity |
+| `POST /auth/invites/accept` | public | invitation token, email, name, password → member session |
+| `POST /auth/people/login` | public | email and password → member session |
+| `GET /people` | chat | the roster (names and roles; addresses only for admins) |
+| `PATCH /people/me`, `POST /people/me/password` | chat | rename yourself, change your password |
+| `POST`/`GET /people/invites`, `DELETE /people/invites/{id}` | admin | invite, list and revoke invitations |
+| `PATCH`/`DELETE /people/{id}` | admin | change a member's role or permissions, remove a member |
+| `POST /people/transfer` | owner | hand the workspace to another member |
+| `GET /people/audit` | admin | the membership history |
 | `GET`, `PUT`, `DELETE /integrations/composio…` | admin | the owner's Composio key, and connecting, listing and disconnecting apps |
 
 Also public, with their own credential: `POST /permissions/check/…` (Boat's
@@ -269,7 +354,7 @@ else, including `/docs`, needs a session.
 
 Errors are `{"detail": {"error_code": …, "message": …}}`. The codes a client
 acts on: `auth_required`, `session_invalid` (sign in or pair again),
-`csrf_failed` (reload), `scope_denied`, `untrusted_host`, `untrusted_origin`,
+`csrf_failed` (reload), `scope_denied`, `read_only`, `permission_denied`, `owner_only`, `invite_invalid`, `untrusted_host`, `untrusted_origin`,
 `locked_out` and `rate_limited` (with `Retry-After`).
 
 ## Self-hosting checklist
