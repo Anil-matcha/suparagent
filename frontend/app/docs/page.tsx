@@ -213,7 +213,7 @@ function DocsView() {
   };
 
   return (
-    <div className="min-h-screen bg-surface text-ink antialiased">
+    <div className="min-h-screen bg-surface text-ink antialiased scroll-smooth">
       {/* Top Header */}
       <header className="sticky top-0 z-40 flex h-14 w-full items-center justify-between border-b border-line bg-surface/95 px-4 backdrop-blur-md">
         <div className="flex items-center gap-3">
@@ -549,8 +549,17 @@ function DocsView() {
                     >
                       <a
                         href={`#${h.id}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          const el = document.getElementById(h.id);
+                          if (el) {
+                            el.scrollIntoView({ behavior: "smooth", block: "start" });
+                            setActiveHeadingId(h.id);
+                            window.history.pushState(null, "", `#${h.id}`);
+                          }
+                        }}
                         className={cn(
-                          "block py-1 transition-colors border-l-2 pl-2.5",
+                          "block py-1 transition-colors border-l-2 pl-2.5 cursor-pointer",
                           isActive
                             ? "border-emerald-500 text-emerald-500 font-semibold"
                             : "border-transparent text-muted hover:text-ink hover:border-line"

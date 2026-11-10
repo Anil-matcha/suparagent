@@ -269,6 +269,15 @@ export function DocsMarkdown({ content, articleTitle, onNavigateDoc, onHeadingsE
     });
   };
 
+  const handleAnchorClick = (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.history.pushState(null, "", `#${id}`);
+    }
+  };
+
   // Block level parser
   const lines = content.split(/\r?\n/);
   const elements: React.ReactNode[] = [];
@@ -484,7 +493,8 @@ export function DocsMarkdown({ content, articleTitle, onNavigateDoc, onHeadingsE
             <span>{renderInline(rawText)}</span>
             <a
               href={`#${id}`}
-              className="ml-2 inline-block opacity-0 transition-opacity group-hover:opacity-100 text-muted hover:text-emerald-500"
+              onClick={(e) => handleAnchorClick(e, id)}
+              className="ml-2 inline-block opacity-0 transition-opacity group-hover:opacity-100 text-muted hover:text-emerald-500 cursor-pointer"
               aria-label={`Link to ${cleanText}`}
             >
               <Hash size={18} className="inline" />
@@ -501,7 +511,8 @@ export function DocsMarkdown({ content, articleTitle, onNavigateDoc, onHeadingsE
             <span>{renderInline(rawText)}</span>
             <a
               href={`#${id}`}
-              className="ml-2 inline-block opacity-0 transition-opacity group-hover:opacity-100 text-muted hover:text-emerald-500"
+              onClick={(e) => handleAnchorClick(e, id)}
+              className="ml-2 inline-block opacity-0 transition-opacity group-hover:opacity-100 text-muted hover:text-emerald-500 cursor-pointer"
               aria-label={`Link to ${cleanText}`}
             >
               <Hash size={16} className="inline" />
@@ -518,7 +529,8 @@ export function DocsMarkdown({ content, articleTitle, onNavigateDoc, onHeadingsE
             <span>{renderInline(rawText)}</span>
             <a
               href={`#${id}`}
-              className="ml-2 inline-block opacity-0 transition-opacity group-hover:opacity-100 text-muted hover:text-emerald-500"
+              onClick={(e) => handleAnchorClick(e, id)}
+              className="ml-2 inline-block opacity-0 transition-opacity group-hover:opacity-100 text-muted hover:text-emerald-500 cursor-pointer"
               aria-label={`Link to ${cleanText}`}
             >
               <Hash size={14} className="inline" />
@@ -535,7 +547,8 @@ export function DocsMarkdown({ content, articleTitle, onNavigateDoc, onHeadingsE
             <span>{renderInline(rawText)}</span>
             <a
               href={`#${id}`}
-              className="ml-2 inline-block opacity-0 transition-opacity group-hover:opacity-100 text-muted hover:text-emerald-500"
+              onClick={(e) => handleAnchorClick(e, id)}
+              className="ml-2 inline-block opacity-0 transition-opacity group-hover:opacity-100 text-muted hover:text-emerald-500 cursor-pointer"
               aria-label={`Link to ${cleanText}`}
             >
               <Hash size={13} className="inline" />
