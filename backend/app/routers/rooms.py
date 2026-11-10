@@ -106,7 +106,9 @@ async def post(room_id: int, payload: Message, request: Request, rt=Depends(get_
         author = None
         if principal is not None and principal.person_id is not None:
             # A signed-in member is named; anyone else stays "You" as before.
-            author = {'kind': 'person', 'label': principal.label or 'Member', 'person_id': principal.person_id}
+            # `owner` tells agent memory whose words these are: only the owner's are "You".
+            author = {'kind': 'person', 'label': principal.label or 'Member', 'person_id': principal.person_id,
+                      'owner': principal.role == 'owner'}
         seq = await rt.rooms.post(
             room_id, payload.text, author=author,
             source={'origin': 'person' if principal is None or principal.is_admin else 'restricted'})

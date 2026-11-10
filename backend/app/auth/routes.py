@@ -92,6 +92,7 @@ class SessionInfo(BaseModel):
     person_id: int | None = None
     role: str | None = None
     display_name: str | None = None
+    permissions: list[str] | None = None
 
 
 class StatusResponse(BaseModel):
@@ -118,6 +119,7 @@ async def _session_info(db: AsyncSession, principal: Principal, cookie: str | No
         person_id=principal.person_id,
         role=principal.role,
         display_name=principal.label if principal.person_id is not None else None,
+        permissions=list(principal.permissions) if principal.permissions is not None else None,
     )
 
 
@@ -134,9 +136,7 @@ async def _browser_session(
     )
     _set_session_cookie(request, response, token)
     if person is not None:
-        principal = Principal(kind="browser", scopes=people.scopes_for_role(person.role), session_id=record.id,
-                              label=person.display_name, person_id=person.id, role=person.role,
-                              read_only=person.role == "viewer")
+        principal = people.principal_for(person, kind="browser", session_id=record.id)
     else:
         principal = Principal(kind="browser", scopes=store.parse_scopes(record.scopes),
                               session_id=record.id, label=record.label)

@@ -57,6 +57,8 @@ class PersonResponse(BaseModel):
     id: int
     display_name: str
     role: str
+    # What they may do: chat, files, approve, rules, agents. Admins and the owner have all.
+    permissions: list[str] = []
     # Only for admins: a member sees names and roles, not other people's addresses.
     email: str | None = None
     joined_at: datetime
@@ -67,6 +69,7 @@ class PersonResponse(BaseModel):
 def _person(person: Person, principal: Principal) -> PersonResponse:
     return PersonResponse(
         id=person.id, display_name=person.display_name, role=person.role,
+        permissions=list(people.person_permissions(person)),
         email=person.email if principal.is_admin else None,
         joined_at=person.created_at,
         last_login_at=person.last_login_at if principal.is_admin else None,
@@ -178,12 +181,15 @@ class InviteBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     email: str = Field(max_length=300)
     role: Literal["admin", "member", "viewer"] = "member"
+    # For a member only; leave out for the usual set (chat, files, approve, agents).
+    permissions: list[str] | None = Field(default=None, max_length=10)
 
 
 class InviteResponse(BaseModel):
     id: int
     email: str
     role: str
+    permissions: list[str] = []
     invited_by: str
     created_at: datetime
     expires_at: datetime
@@ -193,7 +199,9 @@ class InviteResponse(BaseModel):
 
 def _invite(invite: PersonInvite, token: str | None = None) -> InviteResponse:
     return InviteResponse(
-        id=invite.id, email=invite.email, role=invite.role, invited_by=invite.invited_by_label,
+        id=invite.id, email=invite.email, role=invite.role,
+        permissions=list(people.effective_permissions(invite.role, invite.permissions)),
+        invited_by=invite.invited_by_label,
         created_at=invite.created_at, expires_at=invite.expires_at, token=token,
     )
 
@@ -204,7 +212,8 @@ async def create_invite(
     principal: Principal = Depends(require_admin), _: str = Depends(require_rate),
 ):
     try:
-        token, invite = await people.create_invite(db, actor_of(principal), email=body.email, role=body.role)
+        token, invite = await people.create_invite(
+            db, actor_of(principal), email=body.email, role=body.role, permissions=body.permissions)
     except people.PeopleError as exc:
         raise _fail(exc) from exc
     return _invite(invite, token)
@@ -249,18 +258,22 @@ async def audit(limit: int = 100, db: AsyncSession = Depends(get_db), _: Princip
     ]
 
 
-class RoleBody(BaseModel):
+class UpdateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    role: Literal["admin", "member", "viewer"]
+    role: Literal["admin", "member", "viewer"] | None = None
+    permissions: list[str] | None = Field(default=None, max_length=10)
 
 
 @router.patch("/{person_id}", response_model=PersonResponse)
-async def change_role(
-    person_id: int, body: RoleBody, db: AsyncSession = Depends(get_db),
+async def update_member(
+    person_id: int, body: UpdateBody, db: AsyncSession = Depends(get_db),
     principal: Principal = Depends(require_admin),
 ):
+    if body.role is None and body.permissions is None:
+        raise _error(422, "nothing_to_change", "Send a role, permissions, or both.")
     try:
-        person = await people.change_role(db, actor_of(principal), person_id, body.role)
+        person = await people.update_member(
+            db, actor_of(principal), person_id, role=body.role, permissions=body.permissions)
     except people.PeopleError as exc:
         raise _fail(exc) from exc
     return _person(person, principal)

@@ -1,11 +1,14 @@
 // Members of this workspace: roster, invitations, roles and the audit log.
 import { request } from "./api";
+import type { Permission } from "./permissions";
 import type { PersonRole } from "./session";
 
 export type Person = {
   id: number;
   display_name: string;
   role: PersonRole;
+  // What they may do (chat, files, approve, rules, agents); admins and the owner have all of them.
+  permissions: Permission[];
   // Only admins get addresses and sign-in times.
   email: string | null;
   joined_at: string;
@@ -19,6 +22,7 @@ export type Invite = {
   id: number;
   email: string;
   role: InviteRole;
+  permissions: Permission[];
   invited_by: string;
   created_at: string;
   expires_at: string;
@@ -47,6 +51,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   "invite.revoked": "revoked the invitation for",
   "member.joined": "joined",
   "member.role_changed": "changed the role of",
+  "member.permissions_changed": "changed what they may do for",
   "member.removed": "removed",
   "member.password_changed": "changed the password of",
   "owner.credentials_set": "set up email sign-in for",
@@ -57,11 +62,12 @@ export const people = {
   list: () => request<Person[]>("/people"),
   rename: (display_name: string) => request<Person>("/people/me", { method: "PATCH", body: JSON.stringify({ display_name }) }),
   invites: () => request<Invite[]>("/people/invites"),
-  invite: (email: string, role: InviteRole) =>
-    request<Invite>("/people/invites", { method: "POST", body: JSON.stringify({ email, role }) }),
+  // `permissions` only for a member; leave it out for the usual set.
+  invite: (email: string, role: InviteRole, permissions?: Permission[]) =>
+    request<Invite>("/people/invites", { method: "POST", body: JSON.stringify({ email, role, ...(permissions ? { permissions } : {}) }) }),
   revokeInvite: (id: number) => request<void>(`/people/invites/${id}`, { method: "DELETE" }),
-  setRole: (id: number, role: InviteRole) =>
-    request<Person>(`/people/${id}`, { method: "PATCH", body: JSON.stringify({ role }) }),
+  update: (id: number, change: { role?: InviteRole; permissions?: Permission[] }) =>
+    request<Person>(`/people/${id}`, { method: "PATCH", body: JSON.stringify(change) }),
   changePassword: (body: { new_password: string; current_password?: string; passphrase?: string; email?: string }) =>
     request<void>("/people/me/password", { method: "POST", body: JSON.stringify(body) }),
   transfer: (person_id: number, passphrase: string) =>

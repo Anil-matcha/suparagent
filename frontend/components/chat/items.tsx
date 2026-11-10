@@ -4,6 +4,7 @@ import { Check, ChevronRight, Copy, GitBranch, Loader2, Square, ThumbsDown, Thum
 import type { ReactionKind } from "@/lib/reactions";
 import { useState } from "react";
 import { canAlwaysAllow, isScreenInput } from "@/lib/approvals";
+import { can } from "@/lib/permissions";
 import { isComputerTool, toolLabel } from "@/lib/computers";
 import { cn } from "@/lib/cn";
 import { failureNextStep, interruptedText, turnUsageText } from "@/lib/everyday";
@@ -12,6 +13,7 @@ import type { TranscriptItem } from "@/lib/transcript";
 import { useT } from "@/lib/use-i18n";
 import { toolRunSummary } from "@/lib/transcript-view";
 import { Button } from "@/components/ui/Button";
+import { useSession } from "../AuthGate";
 import { Markdown } from "./Markdown";
 import { copyToClipboard } from "@/lib/clipboard";
 import { MessageAttachments } from "./Attachments";
@@ -353,6 +355,10 @@ export function ApprovalCard({
   onUndo?: (ruleId: number) => void;
 }) {
   const t = useT();
+  const { session } = useSession();
+  // A member may be limited to some answers; a device or the desktop app is not.
+  const mayAnswer = can(session?.permissions, "approve");
+  const mayRemember = can(session?.permissions, "rules");
   const pending = item.status === "pending";
   // A decided card is one line; the input it was asked about is behind the arrow.
   const [open, setOpen] = useState(false);
@@ -434,6 +440,7 @@ export function ApprovalCard({
                       : item.resolvedBy === "plan_mode"
                         ? t("approval.planRefused")
                         : t(APPROVAL_LABEL[item.status])}
+                {item.resolvedPerson && <span className="text-faint"> · by {item.resolvedPerson}</span>}
                 {!pending && item.summary && <span className="font-mono text-faint"> · {item.summary}</span>}
               </>
             )}
@@ -453,13 +460,16 @@ export function ApprovalCard({
           ))}
         </dl>
       )}
-      {pending && (
+      {pending && !mayAnswer && (
+        <p className="text-xs text-muted">Waiting for someone who may answer commands. Ask an admin if that should be you.</p>
+      )}
+      {pending && mayAnswer && (
         <div className="flex flex-wrap gap-2">
           <Button variant="primary" onClick={() => onAnswer("allow")} disabled={answering} title="Allow with thumbs up">
             <ThumbsUp size={13} className="mr-1.5 inline" aria-hidden="true" />
             {screenInput ? t("approval.allowThisTurn") : t("approval.allow")}
           </Button>
-          {rememberable && (
+          {rememberable && mayRemember && (
             <Button
               onClick={() => onAnswer("allow", true)}
               disabled={answering}

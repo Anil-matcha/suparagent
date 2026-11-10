@@ -1621,7 +1621,8 @@ class ThreadRuntime:
     # -- approvals ----------------------------------------------------------------------
 
     async def answer_approval(
-        self, approval_id: str, decision: str, *, remember: bool = False
+        self, approval_id: str, decision: str, *, remember: bool = False,
+        person_id: int | None = None, person_label: str | None = None,
     ) -> bool:
         """The person's answer (`allow` or `deny`). True if it was recorded; False
         means it changed nothing (already answered, cancelled, or its turn is no
@@ -1633,7 +1634,8 @@ class ThreadRuntime:
             raise ValueError("decision must be 'allow' or 'deny'")
         status = "allowed" if decision == ALLOW else "denied"
         async with self.session() as db:
-            won = await store.decide_approval(db, approval_id, status)
+            won = await store.decide_approval(
+                db, approval_id, status, person_id=person_id, person_label=person_label)
             approval = await store.get_approval(db, approval_id)
         if won:
             future = self._waiters.get(approval_id)

@@ -6,20 +6,20 @@ import { BASE_PATH } from "@/lib/paths";
 import {
   AUDIT_LABELS,
   people,
-  ROLE_HELP,
   ROLE_LABELS,
   type AuditRow,
   type Invite,
-  type InviteRole,
   type Person,
 } from "@/lib/people";
 import { inviteLink } from "@/lib/session";
 import { useSession } from "./AuthGate";
 import { HandOver, YourAccount } from "./PeopleAccount";
+import { AccessPicker, DEFAULT_ACCESS, type Access } from "./AccessPicker";
+import { describePermissions } from "@/lib/permissions";
 import { Badge } from "@/components/ui/Badge";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
-import { Input, Select } from "@/components/ui/Input";
+import { Input } from "@/components/ui/Input";
 import { SkeletonList } from "@/components/ui/Skeleton";
 
 function when(iso: string): string {
@@ -29,8 +29,6 @@ function when(iso: string): string {
 function failure(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
 }
-
-const INVITE_ROLES: readonly InviteRole[] = ["member", "viewer", "admin"];
 
 // Shown once, right after an invitation is made: the secret is not kept in readable form.
 function NewInvite({ invite, onDone }: { invite: Invite & { token: string }; onDone: () => void }) {
@@ -71,7 +69,10 @@ export function PeopleSection() {
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState<number | null>(null);
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<InviteRole>("member");
+  const [access, setAccess] = useState<Access>(DEFAULT_ACCESS);
+  // The person whose access is being edited, and what it is being changed to.
+  const [editing, setEditing] = useState<number | null>(null);
+  const [draft, setDraft] = useState<Access>(DEFAULT_ACCESS);
   const [showAudit, setShowAudit] = useState(false);
 
   const admin = session !== null && session.kind !== "desktop" && session.scopes.includes("admin");
@@ -111,9 +112,10 @@ export function PeopleSection() {
   };
 
   const invite = () => act(async () => {
-    const made = await people.invite(email, role);
+    const made = await people.invite(email, access.role, access.role === "member" ? access.permissions : undefined);
     setCreated(made as Invite & { token: string });
     setEmail("");
+    setAccess(DEFAULT_ACCESS);
   }, "Could not create the invitation.");
 
   const toggleAudit = async () => {
@@ -129,6 +131,13 @@ export function PeopleSection() {
     setConfirming(null);
     void act(() => people.remove(person.id), `Could not remove ${person.display_name}.`);
   };
+
+  const saveAccess = (person: Person) => act(async () => {
+    await people.update(person.id, draft.role === person.role && draft.role !== "member"
+      ? { role: draft.role }
+      : { role: draft.role, ...(draft.role === "member" ? { permissions: draft.permissions } : {}) });
+    setEditing(null);
+  }, "Could not change that access.");
 
   // An admin changes members and viewers; only the owner touches admins.
   const canManage = (person: Person) => admin && !person.is_you && person.role !== "owner" && (person.role !== "admin" || isOwner);
@@ -160,13 +169,17 @@ export function PeopleSection() {
               </div>
               <div className="flex items-center gap-2">
                 {canManage(person) ? (
-                  <Select aria-label={`Role of ${person.display_name}`} value={person.role} disabled={busy}
-                    onChange={(e) => void act(async () => { await people.setRole(person.id, e.target.value as InviteRole); }, "Could not change that role.")}>
-                    {INVITE_ROLES.filter((r) => r !== "admin" || isOwner || person.role === "admin")
-                      .map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-                  </Select>
+                  <Button type="button" disabled={busy} aria-expanded={editing === person.id}
+                    aria-label={`Change what ${person.display_name} may do`}
+                    onClick={() => {
+                      if (editing === person.id) { setEditing(null); return; }
+                      setDraft({ role: person.role as Access["role"], permissions: [...person.permissions] });
+                      setEditing(person.id);
+                    }}>
+                    {describePermissions(person.role, person.permissions)}
+                  </Button>
                 ) : (
-                  <Badge>{ROLE_LABELS[person.role]}</Badge>
+                  <Badge>{describePermissions(person.role, person.permissions)}</Badge>
                 )}
                 {canManage(person) && (
                   <Button type="button" disabled={busy} onClick={() => remove(person)} aria-label={`Remove ${person.display_name}`}>
@@ -174,6 +187,15 @@ export function PeopleSection() {
                   </Button>
                 )}
               </div>
+              {editing === person.id && (
+                <div className="w-full space-y-3 rounded-md border border-line p-3" data-testid="access-editor">
+                  <AccessPicker value={draft} onChange={setDraft} isOwner={isOwner} disabled={busy} />
+                  <div className="flex gap-2">
+                    <Button type="button" variant="primary" disabled={busy} onClick={() => void saveAccess(person)}>Save</Button>
+                    <Button type="button" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+                  </div>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -186,20 +208,12 @@ export function PeopleSection() {
             <NewInvite invite={created} onDone={() => setCreated(null)} />
           ) : (
             <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void invite(); }}>
-              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-                <div className="space-y-1">
-                  <label htmlFor="invite-email" className="block text-sm font-medium">Email</label>
-                  <Input id="invite-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                    placeholder="teammate@example.com" required maxLength={254} autoComplete="off" />
-                </div>
-                <div className="space-y-1">
-                  <label htmlFor="invite-role" className="block text-sm font-medium">Role</label>
-                  <Select id="invite-role" value={role} onChange={(e) => setRole(e.target.value as InviteRole)}>
-                    {INVITE_ROLES.filter((r) => r !== "admin" || isOwner).map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-                  </Select>
-                </div>
+              <div className="space-y-1">
+                <label htmlFor="invite-email" className="block text-sm font-medium">Email</label>
+                <Input id="invite-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                  placeholder="teammate@example.com" required maxLength={254} autoComplete="off" />
               </div>
-              <p className="text-xs text-muted">{ROLE_HELP[role]}</p>
+              <AccessPicker value={access} onChange={setAccess} isOwner={isOwner} disabled={busy} />
               <Button type="submit" disabled={busy || !email.trim()}>Create invitation link</Button>
             </form>
           )}
@@ -211,7 +225,7 @@ export function PeopleSection() {
                 {invites.map((item) => (
                   <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                     <p className="min-w-0 truncate text-sm">
-                      {item.email} <span className="text-xs text-muted">· {ROLE_LABELS[item.role]} · expires {when(item.expires_at)}</span>
+                      {item.email} <span className="text-xs text-muted">· {describePermissions(item.role, item.permissions)} · expires {when(item.expires_at)}</span>
                     </p>
                     <Button type="button" disabled={busy || (item.role === "admin" && !isOwner)} aria-label={`Revoke the invitation for ${item.email}`}
                       onClick={() => void act(() => people.revokeInvite(item.id), "Could not revoke that invitation.")}>

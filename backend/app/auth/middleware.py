@@ -206,17 +206,15 @@ class AuthMiddleware:
                 expected = credentials.csrf_token_for(cookie)
                 if len(presented) != 1 or not hmac.compare_digest(presented[0].encode(), expected.encode()):
                     return (403, "csrf_failed", "Missing or wrong CSRF token. Reload the page.", False)
-            scopes = people.scopes_for_role(person.role) if person is not None else session.scopes
+            scopes = people.person_scopes(person) if person is not None else session.scopes
             needed = required_scope(method, path)
             if not allows(scopes, needed):
                 return (403, "scope_denied", f"This device needs the {needed} scope for that.", False)
-            if (person is not None and person.role == "viewer" and method not in SAFE_METHODS
+            if (person is not None and people.person_read_only(person) and method not in SAFE_METHODS
                     and not read_only_allows(method, path)):
-                return (403, "read_only", "Viewers can read but not change anything.", False)
+                return (403, "read_only", "You can read but not send or change anything here.", False)
             if person is not None:
-                set_principal(scope, Principal(
-                    kind=session.kind, scopes=scopes, session_id=session.id, label=person.display_name,
-                    person_id=person.id, role=person.role, read_only=person.role == "viewer"))
+                set_principal(scope, people.principal_for(person, kind=session.kind, session_id=session.id))
             else:
                 set_principal(scope, Principal(kind=session.kind, scopes=session.scopes,
                                                session_id=session.id, label=session.label))

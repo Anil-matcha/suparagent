@@ -385,3 +385,15 @@ test('a turn from a named member keeps who sent it; others carry no name', () =>
   const blank = run([ev('turn.started', { prompt_text: 'hi', person: { id: 7, label: '  ' } })]);
   assert.equal('person' in blank.items[0], false);
 });
+
+test('an approval answered by a member keeps who answered it', () => {
+  reset();
+  const asked = ev('approval.requested', { approval_id: 'a1', tool: 'Bash', kind: 'command', summary: 'ls', input: {} });
+  const named = run([asked, ev('approval.resolved', { approval_id: 'a1', status: 'allowed', person: { id: 3, label: 'Sam' } })]);
+  assert.equal(named.items[0].status, 'allowed');
+  assert.equal(named.items[0].resolvedPerson, 'Sam');
+  reset();
+  const plain = run([ev('approval.requested', { approval_id: 'a2', tool: 'Bash', kind: 'command', summary: 'ls', input: {} }),
+    ev('approval.resolved', { approval_id: 'a2', status: 'denied' })]);
+  assert.equal('resolvedPerson' in plain.items[0], false);
+});

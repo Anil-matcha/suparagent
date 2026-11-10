@@ -21,6 +21,8 @@ export type SessionInfo = {
   person_id?: number | null;
   role?: PersonRole | null;
   display_name?: string | null;
+  // What a signed-in member may do; null or missing for a device, the desktop app and the like.
+  permissions?: string[] | null;
 };
 
 export type PersonRole = "owner" | "admin" | "member" | "viewer";

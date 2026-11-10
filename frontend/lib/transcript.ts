@@ -70,6 +70,8 @@ export type TranscriptItem =
       // person; "" otherwise. `ruleId` is that rule.
       resolvedBy: string;
       ruleId: number | null;
+      // The member who answered it, when the server named one.
+      resolvedPerson?: string;
     }
   | {
       kind: "turn_end";
@@ -302,7 +304,7 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
         ...base,
         items: state.items.map((i) =>
           i.kind === "approval" && i.approvalId === approvalId && i.status === "pending"
-            ? { ...i, status, resolvedBy, ruleId }
+            ? { ...i, status, resolvedBy, ruleId, ...(personOf(data).person ? { resolvedPerson: personOf(data).person } : {}) }
             : i
         ),
       };

@@ -15,6 +15,9 @@ from app.db.types import BigIntPK, UTCDateTime
 
 ROLES = ("owner", "admin", "member", "viewer")
 INVITE_ROLES = ("admin", "member", "viewer")
+# What a member may do, chosen when they are invited and editable later. Admins and the owner have all
+# of them; a viewer has none. `chat` is sending messages (without it a member is read-only).
+PERMISSIONS = ("chat", "files", "approve", "rules", "agents")
 
 
 class Person(Base):
@@ -32,6 +35,8 @@ class Person(Base):
     display_name: Mapped[str] = mapped_column(String, nullable=False)
     password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     role: Mapped[str] = mapped_column(String, nullable=False)
+    # Space-separated subset of PERMISSIONS for a member; null means the role's usual set.
+    permissions: Mapped[str | None] = mapped_column(String, nullable=True)
     # active | removed
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="active")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
@@ -53,6 +58,7 @@ class PersonInvite(Base):
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     email: Mapped[str] = mapped_column(String, nullable=False, index=True)
     role: Mapped[str] = mapped_column(String, nullable=False)
+    permissions: Mapped[str | None] = mapped_column(String, nullable=True)
     invited_by_person_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     invited_by_label: Mapped[str] = mapped_column(String, nullable=False, server_default="")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)

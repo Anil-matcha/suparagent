@@ -15,6 +15,7 @@ session row, so a role change or a removal applies on the next request.
 import asyncio
 import re
 import secrets
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -23,8 +24,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import credentials, live
+from app.auth.policy import Principal
 from app.db.models.auth import AuthSession
-from app.db.models.people import INVITE_ROLES, ROLES, PeopleAudit, Person, PersonInvite
+from app.db.models.people import INVITE_ROLES, PERMISSIONS, ROLES, PeopleAudit, Person, PersonInvite
 from app.db.transactions import begin_write
 
 INVITE_TTL = timedelta(days=7)
@@ -35,21 +37,67 @@ EMAIL_MAX = 254
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-ROLE_SCOPES: dict[str, tuple[str, ...]] = {
-    "owner": ("admin", "chat", "files"),
-    "admin": ("admin", "chat", "files"),
-    "member": ("chat", "files", "manage"),
-    "viewer": ("chat",),
-}
+# Owners and admins have every permission; a viewer has none. A member has what they were invited
+# with, or this set when nobody chose.
+DEFAULT_MEMBER_PERMISSIONS: tuple[str, ...] = ("chat", "files", "approve", "agents")
+FULL_ACCESS_ROLES = ("owner", "admin")
 
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def scopes_for_role(role: str) -> tuple[str, ...]:
-    """Unknown roles get nothing useful: fail closed."""
-    return ROLE_SCOPES.get(role, ())
+def effective_permissions(role: str, stored: str | None) -> tuple[str, ...]:
+    """What someone may do. Unknown roles get nothing: fail closed."""
+    if role in FULL_ACCESS_ROLES:
+        return PERMISSIONS
+    if role != "member":
+        return ()
+    if stored is None:
+        return DEFAULT_MEMBER_PERMISSIONS
+    chosen = set(stored.split())
+    return tuple(p for p in PERMISSIONS if p in chosen)
+
+
+def encode_permissions(permissions: Iterable[str]) -> str:
+    chosen = set(permissions)
+    return " ".join(p for p in PERMISSIONS if p in chosen)
+
+
+def scopes_for(role: str, stored: str | None) -> tuple[str, ...]:
+    """The scopes the auth middleware knows, from a person's role and permissions. Everyone who is
+    signed in may read (`chat`); writing is `chat` in `permissions`, which `is_read_only` checks."""
+    if role in FULL_ACCESS_ROLES:
+        return ("admin", "chat", "files")
+    if role not in ROLES:
+        return ()
+    permissions = effective_permissions(role, stored)
+    return ("chat",) + (("files",) if "files" in permissions else ()) + (("manage",) if "agents" in permissions else ())
+
+
+def is_read_only(role: str, stored: str | None) -> bool:
+    return role not in FULL_ACCESS_ROLES and "chat" not in effective_permissions(role, stored)
+
+
+def person_scopes(person: Person) -> tuple[str, ...]:
+    return scopes_for(person.role, person.permissions)
+
+
+def person_permissions(person: Person) -> tuple[str, ...]:
+    return effective_permissions(person.role, person.permissions)
+
+
+def person_read_only(person: Person) -> bool:
+    return is_read_only(person.role, person.permissions)
+
+
+def principal_for(person: Person, *, kind: str, session_id: int | None) -> Principal:
+    """Who a request acts as when a signed-in member makes it."""
+    return Principal(
+        kind=kind, scopes=person_scopes(person), session_id=session_id, label=person.display_name,
+        person_id=person.id, role=person.role, read_only=person_read_only(person),
+        permissions=person_permissions(person),
+    )
 
 
 class PeopleError(Exception):
@@ -180,11 +228,36 @@ def _require_can_grant(actor: Actor, role: str) -> None:
         raise PeopleError(403, "owner_only", "Only the owner can make someone an admin.")
 
 
-async def create_invite(db: AsyncSession, actor: Actor, *, email: str, role: str) -> tuple[str, PersonInvite]:
+def clean_permissions(role: str, permissions: Iterable[str] | None) -> str | None:
+    """The permissions to store for a role, or None for the role's usual set. Only a member's can be
+    chosen: an admin has everything and a viewer nothing."""
+    if permissions is None:
+        return None
+    chosen = list(permissions)
+    unknown = [p for p in chosen if p not in PERMISSIONS]
+    if unknown:
+        raise PeopleError(422, "permission_invalid", f"Unknown permission: {unknown[0]}.")
+    if role != "member":
+        raise PeopleError(422, "permissions_not_editable", "Permissions can be chosen for members only.")
+    return encode_permissions(chosen)
+
+
+def _require_can_grant_permissions(actor: Actor, before: tuple[str, ...], stored: str | None, role: str) -> None:
+    """Standing rules widen what agents may do for the whole workspace, so only the owner hands that out."""
+    after = effective_permissions(role, stored)
+    if "rules" in after and "rules" not in before and actor.role != "owner":
+        raise PeopleError(403, "owner_only", "Only the owner can allow someone to save standing rules.")
+
+
+async def create_invite(
+    db: AsyncSession, actor: Actor, *, email: str, role: str, permissions: Iterable[str] | None = None
+) -> tuple[str, PersonInvite]:
     """Returns the raw token once: only its digest is stored. Replaces any open
     invitation for the same email, so one address has at most one live link."""
     email = normalize_email(email)
     _require_can_grant(actor, role)
+    stored = clean_permissions(role, permissions)
+    _require_can_grant_permissions(actor, (), stored, role)
     await begin_write(db)
     existing = (await db.execute(select(Person).where(Person.email == email))).scalar_one_or_none()
     if existing is not None and existing.status == "active":
@@ -207,12 +280,13 @@ async def create_invite(db: AsyncSession, actor: Actor, *, email: str, role: str
     )
     token = secrets.token_urlsafe(32)
     invite = PersonInvite(
-        token_hash=credentials.digest(token), email=email, role=role,
+        token_hash=credentials.digest(token), email=email, role=role, permissions=stored,
         invited_by_person_id=actor.person_id, invited_by_label=actor.label,
         created_at=now, expires_at=now + INVITE_TTL,
     )
     db.add(invite)
-    record(db, "invite.created", actor, subject_label=email, detail=f"role={role}")
+    record(db, "invite.created", actor, subject_label=email,
+           detail=f"role={role}" + (f" permissions={stored or 'none'}" if stored is not None else ""))
     await db.commit()
     await db.refresh(invite)
     return token, invite
@@ -272,12 +346,13 @@ async def accept_invite(
         raise PeopleError(409, "already_member", "That email already belongs to a member.")
     if person is None:
         person = Person(email=email, display_name=name, password_hash=hashed_password, role=invite.role,
-                        status="active", created_at=now, updated_at=now)
+                        permissions=invite.permissions, status="active", created_at=now, updated_at=now)
         db.add(person)
     else:  # re-joining after removal: the row is kept so history still points at it
         person.display_name = name
         person.password_hash = hashed_password
         person.role = invite.role
+        person.permissions = invite.permissions
         person.status = "active"
         person.removed_at = None
         person.updated_at = now
@@ -347,7 +422,12 @@ def _require_can_manage(actor: Actor, target: Person) -> None:
         raise PeopleError(403, "owner_only", "Only the owner can change or remove an admin.")
 
 
-async def change_role(db: AsyncSession, actor: Actor, person_id: int, role: str) -> Person:
+async def update_member(
+    db: AsyncSession, actor: Actor, person_id: int, *, role: str | None = None,
+    permissions: Iterable[str] | None = None,
+) -> Person:
+    """Change a member's role and/or permissions. Changing the role resets permissions to that role's
+    usual set unless some are given. Takes effect on the person's next request."""
     await begin_write(db)
     person = await get_person(db, person_id)
     if person is None or person.status != "active":
@@ -355,18 +435,32 @@ async def change_role(db: AsyncSession, actor: Actor, person_id: int, role: str)
         raise PeopleError(404, "person_not_found", "No such member.")
     try:
         _require_can_manage(actor, person)
-        _require_can_grant(actor, role)
+        if role is not None:
+            _require_can_grant(actor, role)
+        if actor.person_id is not None and actor.person_id == person.id:
+            raise PeopleError(403, "self_change", "You cannot change your own role or permissions.")
+        new_role = role or person.role
+        before_role, before = person.role, person_permissions(person)
+        if permissions is not None:
+            stored = clean_permissions(new_role, permissions)
+        elif new_role != person.role:
+            stored = None
+        else:
+            stored = person.permissions
+        _require_can_grant_permissions(actor, before, stored, new_role)
     except PeopleError:
         await db.rollback()
         raise
-    if actor.person_id is not None and actor.person_id == person.id:
-        await db.rollback()
-        raise PeopleError(403, "self_change", "You cannot change your own role.")
-    if person.role != role:
-        before = person.role
-        person.role = role
+    person.role = new_role
+    person.permissions = stored
+    after = person_permissions(person)
+    if new_role != before_role:
+        record(db, "member.role_changed", actor, subject=person, detail=f"{before_role} -> {new_role}")
+    elif after != before:  # a role change already implies its permissions; only log them when the role stayed
+        record(db, "member.permissions_changed", actor, subject=person,
+               detail=f"{' '.join(before) or 'none'} -> {' '.join(after) or 'none'}")
+    if new_role != before_role or after != before:
         person.updated_at = utcnow()
-        record(db, "member.role_changed", actor, subject=person, detail=f"{before} -> {role}")
     await db.commit()
     return person
 

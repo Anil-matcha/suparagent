@@ -192,6 +192,8 @@ class ApprovalResponse(BaseModel):
     status: str
     created_at: datetime
     decided_at: datetime | None
+    # The member who answered it, when one did.
+    decided_by_label: str | None = None
 
 
 class StopResponse(BaseModel):

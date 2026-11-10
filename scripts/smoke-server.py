@@ -277,7 +277,9 @@ def member_joins_and_is_removed(server: Server) -> None:
     owner, csrf = signed_in(server)
     write = {**owner, "X-CSRF-Token": csrf}
     email = "teammate@example.com"
-    made = server.client.post("/api/v1/people/invites", json={"email": email, "role": "member"}, headers=write)
+    # Reply and read files, but not manage agents: what the invitation carries is what the member gets.
+    made = server.client.post("/api/v1/people/invites", headers=write,
+                              json={"email": email, "role": "member", "permissions": ["chat", "files"]})
     assert made.status_code == 201, made.text
     token = made.json()["token"]
     assert server.client.get("/join/", headers=PROXY).status_code == 200
@@ -288,6 +290,7 @@ def member_joins_and_is_removed(server: Server) -> None:
         joined = other.post("/api/v1/auth/invites/accept", headers=PROXY, json={
             "token": token, "email": email, "display_name": "Teammate", "password": "a member password 123"})
         assert joined.status_code == 200 and joined.json()["role"] == "member", joined.text
+        assert joined.json()["permissions"] == ["chat", "files"], joined.json()
         cookie = joined.headers["set-cookie"].split(";")[0]
         assert "HttpOnly" in joined.headers["set-cookie"] and "Secure" in joined.headers["set-cookie"]
         member = {**PROXY, "Cookie": cookie}
@@ -295,6 +298,8 @@ def member_joins_and_is_removed(server: Server) -> None:
         refused = other.get("/api/v1/settings", headers=member)
         assert refused.status_code == 403, f"a member must not read settings: {refused.status_code}"
         assert other.get("/api/v1/auth/devices", headers=member).status_code == 403
+        no_agents = other.post("/api/v1/agents", json={"name": "nope"}, headers={**member, "X-CSRF-Token": joined.json()["csrf_token"]})
+        assert no_agents.status_code == 403, f"a member without the agents permission created an agent: {no_agents.status_code}"
         assert other.post("/api/v1/auth/login", json={"passphrase": "not the passphrase"}, headers=PROXY).status_code == 401
         person_id = joined.json()["person_id"]
         removed = server.client.delete(f"/api/v1/people/{person_id}", headers=write)

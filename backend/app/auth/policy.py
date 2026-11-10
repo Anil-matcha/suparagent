@@ -155,6 +155,12 @@ def required_scope(method: str, path: str) -> str:
     return "manage" if _matches(MANAGE_ROUTES, method, path) else "admin"
 
 
+def has_permission(principal: "Principal | None", permission: str) -> bool:
+    """Whether the caller may use a member permission. Anything that is not a signed-in member keeps
+    the access its scopes already give it."""
+    return principal is None or principal.permissions is None or permission in principal.permissions
+
+
 def allows(scopes: tuple[str, ...], needed: str) -> bool:
     """Admin reaches everything, including sessions made before `files` existed."""
     return needed in scopes or "admin" in scopes
@@ -175,8 +181,11 @@ class Principal:
     # the desktop app, a trusted local request and the owner's sessions that predate people.
     person_id: int | None = None
     role: str | None = None
-    # A viewer: the middleware refuses every write.
+    # A member who may not send anything (a viewer): the middleware refuses every write.
     read_only: bool = False
+    # What a signed-in member may do (auth/people.py); None for everything that is not a member
+    # (a paired device, the desktop app, a trusted local request), which has no such limits.
+    permissions: tuple[str, ...] | None = None
 
     @property
     def is_admin(self) -> bool:
