@@ -16,7 +16,7 @@ from typing import Mapping
 
 import httpx
 
-APP_VERSION = "0.8.3"
+APP_VERSION = "0.8.5"
 RELEASES_URL = "https://api.github.com/repos/Anil-matcha/suparagent/releases?per_page=10"
 CACHE_TTL_SECONDS = 3600  # 1 hour in-memory cache
 

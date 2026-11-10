@@ -47,7 +47,9 @@ class Server:
         self.tools = composio_tools.mcp_tools(levels, routine_tools=exact_tools is not None, uninterrupted=uninterrupted)
         if exact_tools is not None:
             self.tools = [t for t in self.tools if t["name"] in exact_tools]
-        if any(t["name"] != "list_accounts" for t in self.tools):
+            if READ_TOOL in exact_tools:
+                self.tools = self.tools + [READ_TOOL_SPEC]
+        elif any(t["name"] != "list_accounts" for t in self.tools):
             self.tools = self.tools + [READ_TOOL_SPEC]
         self.names = {tool["name"] for tool in self.tools}
 

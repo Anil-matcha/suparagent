@@ -67,7 +67,7 @@ async def test_read_version_with_newer_release(api, monkeypatch):
 @pytest.mark.asyncio
 async def test_read_version_with_same_release(api, monkeypatch):
     async def mock_fetch_release(client=None):
-        return "0.8.1", "https://github.com/Anil-matcha/suparagent/releases/tag/v0.8.1"
+        return "0.8.5", "https://github.com/Anil-matcha/suparagent/releases/tag/v0.8.5"
 
     monkeypatch.setattr(version_service, "fetch_latest_release", mock_fetch_release)
 
@@ -75,7 +75,7 @@ async def test_read_version_with_same_release(api, monkeypatch):
     assert res.status_code == 200
     data = res.json()
     assert data["update_available"] is False
-    assert data["latest_version"] == "0.8.1"
+    assert data["latest_version"] == "0.8.5"
 
 
 @pytest.mark.asyncio
