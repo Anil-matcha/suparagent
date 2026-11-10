@@ -12,7 +12,9 @@ or model subscription.
 
 **[Desktop downloads](https://github.com/Anil-matcha/suparagent/releases) · [Self-hosting](docs/SELF-HOSTING.md) · [Hosted app](https://suparagent.ai) · [Watch the demo](https://youtu.be/vtFy94DfETE) · [Discord](https://discord.com/invite/zpnuBRXhKg)**
 
-<p align="center"><img src="docs/suparagent-workflow.svg" alt="A request goes to a Claude or Codex team lead, who delegates work to specialists. Teammates can share a project folder, and you review actions when approval is required." width="100%"></p>
+
+<p align="center"><a href="https://youtu.be/vtFy94DfETE"><img src="https://i.ytimg.com/vi/vtFy94DfETE/maxresdefault.jpg" width="720"></a></p>
+<p align="center"><a href="https://youtu.be/vtFy94DfETE"><b>▶ Watch: Free Unlimited Grok Bot Alternative: Open-Source, Any Model, No Restrictions </b></a></p>
 
 > **Status:** Suparagent is in active development. Desktop releases, self-hosting,
 > agent computers, and newer team features are still evolving. Review
@@ -63,6 +65,8 @@ automatically. The release-to-release update path has not been verified end to
 end.
 
 ## What you can do
+
+<p align="center"><img src="docs/suparagent-workflow.svg" alt="A request goes to a Claude or Codex team lead, who delegates work to specialists. Teammates can share a project folder, and you review actions when approval is required." width="100%"></p>
 
 - **Create agents and teams.** Give agents a name, role, engine, workspace,
   memory, and approval settings. A lead can delegate work to specialists or
@@ -156,8 +160,6 @@ information is handled under that provider's terms. You bring the provider
 account, CLI sign-in, or API key; model usage may cost money.
 
 ## Example: prepare a weekly project briefing
-
-<p align="center"><a href="https://youtu.be/vtFy94DfETE" title="Watch the Suparagent demo"><img src="https://i.ytimg.com/vi/vtFy94DfETE/maxresdefault.jpg" alt="Suparagent demo video thumbnail — click to watch on YouTube" width="720"></a></p>
 
 Create a lead agent and specialists, such as a researcher and an editor. Give
 them the same project workspace, and set the lead's engine to Claude or
