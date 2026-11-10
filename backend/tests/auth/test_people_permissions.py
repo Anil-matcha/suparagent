@@ -9,7 +9,6 @@ from app.core.config import settings
 from app.db.models.approval import Approval
 from app.db.models.turn import Turn
 from app.services import thread_store
-from app.services.thread_runtime import runtime as default_runtime
 from tests.auth.test_auth_api import PASSPHRASE, app, auth_settings, client, error_code, factory  # noqa: F401
 from tests.auth.test_people import PASSWORD, clean_people, invite, join, member, owner_api, write  # noqa: F401
 
@@ -136,11 +135,11 @@ async def test_nobody_edits_their_own_permissions_and_admins_cannot_hand_out_rul
 
 
 @pytest_asyncio.fixture
-async def waiting_approval(factory, tmp_path, monkeypatch):  # noqa: F811
+async def waiting_approval(factory, tmp_path, monkeypatch, owner):  # noqa: F811
     """A running turn that is waiting for someone to answer one tool call."""
     monkeypatch.setattr(settings, "DECISION_LOG_DIR", str(tmp_path / "decisions"), raising=False)
     async with factory() as db:
-        thread = await thread_store.create_thread(db, owner_id=default_runtime.owner_id, provider="claude")
+        thread = await thread_store.create_thread(db, owner_id=owner, provider="claude")
         turn = await thread_store.start_turn(db, thread.id, "do it", origin="person")
         approval = await thread_store.create_approval(
             db, thread_id=thread.id, turn_id=turn.id, request_id="r1", tool="Bash", input={"command": "ls"},
