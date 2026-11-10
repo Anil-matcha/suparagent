@@ -30,7 +30,7 @@ from app.core.logging import get_logger
 from app.services import agent_memory, agent_skills, agent_store, attachments, context_compaction, memory_entries, memory_explicit, memory_journal, memory_log, memory_recall, recent_work
 from app.db.models import Room
 from app.db.transactions import begin_write
-from app.services import side_jobs
+from app.services import side_jobs, speaker
 from app.services.memory_bridge import MemoryBridge
 from app.services.composio_bridge import ComposioBridge, accounts_for, apps_for
 from app.services.community_mcp_bridge import CommunityMcpBridge
@@ -716,6 +716,7 @@ class ThreadRuntime:
         internal: bool = False,
         person_id: int | None = None,
         person_label: str | None = None,
+        person_is_owner: bool = True,
     ) -> store.Turn:
         """Start a turn and run it in the background. Raises ThreadNotFound,
         UnknownProvider, SessionBroken, ProviderUnavailable, ThreadBusy (a
@@ -860,10 +861,16 @@ class ThreadRuntime:
             return plan.items
 
         explicit_memory = memory_explicit.prepare(agent, thread, turn, internal=internal)
+        # With several people in the workspace the engine is told whose message this is. The stored
+        # prompt stays exactly what they typed.
+        speaker_note = ""
+        if person_label:
+            async with self.session() as db:
+                speaker_note = speaker.note(person_label, await speaker.count_people(db))
         ctx = TurnContext(
             thread_id=thread_id,
             turn_id=turn.id,
-            prompt=handoff + agent_skills.prompt_block(chosen_skills) + memory_recall.with_recall(recall, attachments.prompt_with_text_files(prompt_text, attached)),
+            prompt=handoff + agent_skills.prompt_block(chosen_skills) + memory_recall.with_recall(recall, attachments.prompt_with_text_files(speaker_note + prompt_text, attached)),
             images=[
                 {"path": str(path), "mime": a.mime, "name": a.name}
                 for a, path in attached
@@ -918,6 +925,8 @@ class ThreadRuntime:
                 and thread.job_id is None
                 and team_origin == "person"
                 and not internal
+                # Another person's chat is not the owner's words, whatever their rights.
+                and speaker.learns_from(person_id, person_is_owner)
             ),
         )
         if not draft_only and agent is not None and agent.team_id is not None and app_settings.get("TEAM_ENABLED") and capabilities_of(adapter).mcp:

@@ -10,7 +10,7 @@ Errors a client acts on carry a machine-readable code:
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from app.core.config import settings
 from app.schemas.routine import (
@@ -422,7 +422,15 @@ async def get_notification_preferences():
 
 
 @router.put("/notifications/preferences", response_model=NotificationPreferencesModel)
-async def update_notification_preferences(payload: NotificationPreferencesModel):
+async def update_notification_preferences(payload: NotificationPreferencesModel, request: Request):
+    # One setting for the whole workspace: a signed-in member who is not an admin may read it, not change it.
+    # A paired device or the desktop app has no person behind it and keeps its access.
+    from app.auth.middleware import principal_of
+
+    principal = principal_of(request.scope)
+    if principal is not None and principal.person_id is not None and not principal.is_admin:
+        raise HTTPException(status_code=403, detail={
+            "error_code": "admin_only", "message": "Notification settings are shared by everyone here. Ask an admin to change them."})
     prefs = notification_preference.NotificationPreferences(
         desktop_enabled=payload.desktop_enabled,
         notify_needs_you=payload.notify_needs_you,
