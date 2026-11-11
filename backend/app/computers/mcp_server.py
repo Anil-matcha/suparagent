@@ -338,7 +338,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--turn-id", default="")
     parser.add_argument("--max-screen-actions", type=int, default=300)
     parser.add_argument("--browser", action="store_true")
-    parser.add_argument("--provider", choices=("docker", "boat", "muapi"), default="docker")
+    parser.add_argument("--provider", choices=("docker", "boat", "muapi", "boxd"), default="docker")
     parser.add_argument("--computer-id", type=int)
     parser.add_argument("--api-origin", default="")
     parser.add_argument("--capability-file", default=None)
