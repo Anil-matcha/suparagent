@@ -105,5 +105,5 @@ test("the Help menu includes Documentation and opens the documentation URL", () 
   const docItem = findItem(template, (item) => item.label === "Documentation");
   assert.ok(docItem, "Documentation menu item must be present");
   docItem.click();
-  assert.deepEqual(opened, ["https://github.com/Anil-matcha/open-duet/tree/main/docs"]);
+  assert.deepEqual(opened, ["https://github.com/Anil-matcha/suparagent/tree/main/docs"]);
 });

@@ -368,7 +368,7 @@ function DocsView() {
           {/* Sticky Sidebar Footer */}
           <div className="flex items-center justify-between border-t border-line/60 p-3 text-xs text-muted">
             <a
-              href="https://github.com/Anil-matcha/open-duet"
+              href="https://github.com/Anil-matcha/suparagent"
               target="_blank"
               rel="noreferrer"
               className="flex items-center gap-1.5 transition hover:text-ink"
@@ -442,7 +442,7 @@ function DocsView() {
                   {openDropdown && (
                     <div className="absolute left-0 mt-1.5 w-44 rounded-lg border border-line bg-surface p-1 shadow-lg z-20 text-xs">
                       <a
-                        href={`https://github.com/Anil-matcha/open-duet/tree/main/docs`}
+                        href={`https://github.com/Anil-matcha/suparagent/tree/main/docs`}
                         target="_blank"
                         rel="noreferrer"
                         className="flex items-center justify-between rounded px-2.5 py-1.5 text-muted hover:bg-hover hover:text-ink"
