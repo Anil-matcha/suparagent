@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { activeWorkspace, arrange, isSwitcherShortcut, roleLabel } from './workspaces.ts';
+import { activeWorkspace, arrange, isSwitcherShortcut, roleLabel, sortRoster } from './workspaces.ts';
 import { lastPage, noteRecent, recentWorkspaces, rememberPage, setWorkspaceScope, workspaceScope } from './workspace-scope.ts';
 import { loadDraft, saveDraft } from './drafts.ts';
 
@@ -80,4 +80,13 @@ test('drafts stay with the workspace they were written in', () => {
   } finally {
     delete globalThis.localStorage;
   }
+});
+
+test('the roster lists the owner first, then admins, members and viewers, by name', () => {
+  const m = (name, role) => ({ name, role, me: false });
+  const sorted = sortRoster([m('zed', 'viewer'), m('bo', 'member'), m('ada', 'member'), m('cy', 'admin'), m('ow', 'owner')]);
+  assert.deepEqual(sorted.map((x) => x.name), ['ow', 'cy', 'ada', 'bo', 'zed']);
+  const input = [m('b', 'member'), m('a', 'member')];
+  sortRoster(input);
+  assert.deepEqual(input.map((x) => x.name), ['b', 'a']); // the caller's list is not reordered
 });

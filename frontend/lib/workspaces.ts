@@ -54,3 +54,17 @@ export function roleLabel(role: WorkspaceRole): string {
 export function isSwitcherShortcut(event: { altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; code: string }): boolean {
   return event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.code === "KeyW";
 }
+
+export type RosterMember = { name: string; role: WorkspaceRole; me: boolean };
+
+// Everyone in a workspace, names and roles only: any member may read it.
+export async function workspaceRoster(id: string): Promise<RosterMember[]> {
+  const data = await call<{ members: RosterMember[] }>(`${API}/${encodeURIComponent(id)}/roster`);
+  return Array.isArray(data.members) ? data.members : [];
+}
+
+// Owner first, then admins, members and viewers; by name within a role.
+export function sortRoster(members: RosterMember[]): RosterMember[] {
+  const order: Record<WorkspaceRole, number> = { owner: 0, admin: 1, member: 2, viewer: 3 };
+  return [...members].sort((a, b) => order[a.role] - order[b.role] || a.name.localeCompare(b.name));
+}

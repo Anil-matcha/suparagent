@@ -338,6 +338,8 @@ ownership transfer and member passwords return 409 (`managed_by_workspace_owner`
 authoritative. The server cannot see a removal, so the control plane ends a removed person's open streams. With
 neither setting present nothing changes for self-hosted installs or the desktop app.
 
+In this mode Settings shows the control plane's list of people (names and roles) instead of the local people controls, and hides device pairing, because a pairing code could not be used without a grant.
+
 ## Endpoints
 
 All under `/api/v1`.

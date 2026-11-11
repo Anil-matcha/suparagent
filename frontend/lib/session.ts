@@ -10,7 +10,8 @@ export type AuthStatus = {
 };
 
 export type SessionInfo = {
-  kind: "desktop" | "loopback" | "browser" | "device";
+  // "grant": a person signed in by the hosted control plane (docs/AUTH.md, hosted workspace grants).
+  kind: "desktop" | "loopback" | "browser" | "device" | "grant";
   scopes: string[];
   label: string | null;
   session_id: number | null;
