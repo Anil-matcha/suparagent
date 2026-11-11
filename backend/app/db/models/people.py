@@ -26,6 +26,7 @@ class Person(Base):
     __tablename__ = "person"
     __table_args__ = (
         Index("uq_person_email", "email", unique=True),
+        Index("uq_person_external_id", "external_id", unique=True),
         {"sqlite_autoincrement": True},
     )
 
@@ -37,6 +38,8 @@ class Person(Base):
     role: Mapped[str] = mapped_column(String, nullable=False)
     # Space-separated subset of PERMISSIONS for a member; null means the role's usual set.
     permissions: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Hosted workspaces only: the control plane's ID for this person (the grant's `sub`). Null for local people.
+    external_id: Mapped[str | None] = mapped_column(String, nullable=True)
     # active | removed
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="active")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)

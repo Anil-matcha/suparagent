@@ -322,6 +322,28 @@ browser migrated first), the server's wins and the local key is simply
 removed. Only the signed-in owner can do this; in a single-owner install every
 id on the server is the owner's anyway.
 
+## Hosted workspace grants
+
+A hosted deployment can put a control plane in front of this server that signs people in and owns who belongs to
+which workspace. Set `HOSTED_WORKSPACE_ID` and `HOSTED_GRANT_PUBLIC_KEYS` (JSON: key id to base64url Ed25519 public
+key, or `kid=key,kid=key`) and every request must then carry `X-Dots-Grant`: a token of at most 60 seconds, signed by the control plane
+for exactly this workspace (`aud`), naming the person (`sub`, `name`, `email`), their `role` and, for a member,
+`perms`. The server holds only public keys, so it cannot mint grants. A missing, expired, tampered, wrong-workspace
+or wrong-key grant is refused with 401; cookies, device tokens and loopback trust are not consulted (health and
+routine-webhook routes stay public, each with its own secret).
+
+The person is mirrored into the people table by `external_id`, so attribution, the roster and history work as for
+local people, and rights follow the grant's role and permissions on every request. Inviting, role changes, removal,
+ownership transfer and member passwords return 409 (`managed_by_workspace_owner`): the control plane is
+authoritative. The server cannot see a removal, so the control plane ends a removed person's open streams. With
+neither setting present nothing changes for self-hosted installs or the desktop app.
+
+In this mode `GET /auth/session` reports `kind: "grant"`. Settings shows the control plane's list of people (names and roles) instead of the local people controls, and hides device pairing, because a pairing code could not be used without a grant. A hosted build also shows a workspace switcher at the top of the sidebar: it asks the account service (`/api/v1/accounts/workspaces`, same origin) which workspaces the person belongs to, with their role; choosing one asks the service to switch, then reopens the page last open in that workspace. It is hidden when the service does not answer, so the desktop app and self-hosted installs never show it. Unsent drafts and the last page are kept per workspace in browser storage.
+
+**Keys.** `HOSTED_GRANT_PUBLIC_KEYS` is JSON (`{"k1": "<key>"}`) or `kid=key,kid=key` (easier in an env file). A key is the base64url raw 32-byte Ed25519 public key. The server accepts several key ids at once, so a rotation does not lock anyone out: publish the new key next to the old one, wait until every workspace trusts both, switch the account service to sign with the new id, and remove the old id once tokens signed with it have expired (at most 60 seconds plus a 30-second skew allowance).
+
+**What a grant contains.** `iss` (`dots-control`), `aud` (the workspace id, which must equal `HOSTED_WORKSPACE_ID`), `sub` (the person's id in the account service), `role`, `name`, `email`, `iat`, `exp`, `jti`, and for a member optionally `perms`. The header is `{"v": 1, "kid": ...}`; the algorithm is not read from the token.
+
 ## Endpoints
 
 All under `/api/v1`.
