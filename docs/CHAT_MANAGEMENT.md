@@ -6,6 +6,8 @@ In both the new-agent form and an existing agent's settings, **Team lead (Chief 
 
 Claude and Codex can mount the team tools. ACP and OpenAI-compatible adapters do not offer these management tools. A capable engine must also be installed and signed in. Turning local shell tools off does not remove team configuration tools. Codex uses a read-only sandbox with MCP approval requests enabled in that case; the app still checks every call.
 
+In a workspace shared with teammates, a member needs the **Manage agents** permission to create or edit agents. Settings that change what an agent may do on the machine (its working folder, the "Accept edits" mode, connected apps and the team lead role) stay with admins, and so does deleting an agent. See [AUTH.md](AUTH.md#members).
+
 ## Chat controls
 
 | Request | Tool and behavior |

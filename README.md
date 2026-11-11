@@ -109,7 +109,7 @@ end.
 | Where workspace data lives | Your computer | Your server | An account-specific hosted workspace | Your development machine or configured database |
 | Start here | [Quick start](#quick-start) | [Self-hosting guide](docs/SELF-HOSTING.md) | [suparagent.ai](https://suparagent.ai) | [Development setup](docs/SETUP.md) |
 | Main requirements | Node.js 22+, uv, and an engine | Linux server, HTTPS, Docker or Node.js and uv, and an engine | An account and an AI provider account | Node.js, uv, and Docker if you use PostgreSQL |
-| Status | Experimental | Experimental; single owner | Separate hosted product | — |
+| Status | Experimental | Experimental; one owner who can invite teammates | Separate hosted product | — |
 
 The hosted service is separate from the open-source desktop and self-hosted
 core. Hosted account, workspace, and billing data are handled by Suparagent;
@@ -182,8 +182,11 @@ details](backend/README.md#scheduling) and [environment settings](backend/.env.e
 
 ## Known limitations
 
-- Suparagent is early and changing. The self-hosted server is experimental and
-  intended for one owner with paired devices, not a multi-user organization.
+- Suparagent is early and changing. The self-hosted server is experimental. One
+  person owns it and can invite teammates to work in the same workspace, with
+  roles and per-person permissions; everyone shares the same agents,
+  conversations and memory. It is not a multi-organization service, and there
+  are no separate workspaces to switch between.
 - Team delegation is new; lead agents need to use Claude or Codex.
 - The phone app has been tried on an Android emulator and an Android phone, not
   on iOS. It has no push notifications or store release.

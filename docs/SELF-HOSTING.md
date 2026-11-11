@@ -1,6 +1,6 @@
-# Self-hosting on a server (one owner)
+# Self-hosting on a server (one owner, optional teammates)
 
-Run Suparagent on a Linux machine you rent or own, so your agents and routines keep working with your laptop closed, and reach it from a browser or a phone over HTTPS. One person owns the server: you sign in with a passphrase and pair other devices with one-time codes. It is not a multi-user or hosted service (see [AUTH.md](AUTH.md) "Limits").
+Run Suparagent on a Linux machine you rent or own, so your agents and routines keep working with your laptop closed, and reach it from a browser or a phone over HTTPS. One person owns the server: you sign in with a passphrase, pair other devices with one-time codes, and can invite teammates to work in the same workspace (see [Share the server with teammates](#share-the-server-with-teammates)). It is not a hosted or multi-organization service (see [AUTH.md](AUTH.md) "Limits").
 
 There are two ways to run it. Both use the same server, the same settings and the same commands.
 
@@ -228,6 +228,18 @@ sudo systemctl start suparagent       # migrates first; a SQLite file is copied 
 
 If the migration fails, the server does not start and the journal says why; the copy made before is named in the message.
 
+## Share the server with teammates
+
+The owner can invite other people to work in the same workspace: **Settings → Account & privacy → People → Invite someone**. Choose their access (Member, Reply only, Viewer or Admin; for a member you can tick exactly what they may do) and copy the one-time link. The server sends no email, so send the link yourself. It works once, only for that email address, and expires after seven days.
+
+- Create the link from the HTTPS address people will use, not from `localhost`: the link is built from the address you opened the page on.
+- A teammate opens the link, picks a name and a password, and signs in again later with **Team member? Sign in with your email** on the sign-in page.
+- Everyone shares the same agents, rooms, conversations, files and memory. Routines, workflows, apps, usage, notifications, memory settings and device pairing are for the owner and admins; members chat, use rooms and, if allowed, read files, answer commands and manage agents.
+- Removing a person signs them out at once and ends their open streams. With several server processes a stream can take up to 15 seconds to end.
+- To hand the server to someone else, the owner first adds an email and password to their own account (People → Your account), then uses **Hand over this workspace**. The owner passphrase is then replaced by one nobody knows; whoever runs the server sets a new one from the server's shell with `python -m app.auth.cli set-passphrase` (see [SETUP.md](SETUP.md)).
+
+Roles, permissions and the endpoints are in [AUTH.md](AUTH.md#members).
+
 ## Pair your phone
 
 In the web app: **Settings → Devices → Create pairing code**, choose *Chat only* for a phone, and scan the QR code or open the link. Or from the server's shell (inside the container for Route 1, prefixed with `docker compose exec suparagent`):
@@ -380,6 +392,7 @@ Each line says what was run. "Not run" means exactly that: do not assume it work
 | Ubuntu 26, rootless Docker, Podman, Traefik, a tunnel | **Not run** |
 | Agent computers on a server (direct install) | **Not run**; not possible in the Docker route by design |
 | Signing in to a real engine inside the container | **Not run** (the build step that installs a package was run with a harmless one) |
+| Inviting a teammate, joining, role and permission limits, removal, an open stream ending | Run by `scripts/smoke-server.py` over proxy-style requests on SQLite; the screens were walked through in Chrome on a source build. **Not run** behind a real HTTPS proxy, on the phone app, or with a screen reader |
 | PostgreSQL as the server's database | The backend suite passes on it; the server routes above were run on SQLite |
 
 See [ROADMAP.md](ROADMAP.md) for what is next.
