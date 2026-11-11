@@ -176,3 +176,15 @@ async def test_without_the_settings_nothing_changes(app, factory, monkeypatch): 
 def test_enabled_needs_both_settings(monkeypatch):
     monkeypatch.setattr(settings, "HOSTED_GRANT_PUBLIC_KEYS", "")
     assert not grant.enabled()
+
+
+def test_keys_may_be_written_as_pairs_for_an_env_file():
+    other = Ed25519PrivateKey.generate()
+    keys = grant.load_keys(f"k1={public(KEY)}, k2={public(other)}")
+    assert set(keys) == {"k1", "k2"}
+    claims = grant.verify(make(), keys, WORKSPACE)
+    assert claims.sub == "user-1"
+    with pytest.raises(grant.GrantError):
+        grant.load_keys("not a key list")
+    with pytest.raises(grant.GrantError):
+        grant.load_keys("k1=@@@")

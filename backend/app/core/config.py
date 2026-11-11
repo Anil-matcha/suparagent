@@ -152,7 +152,7 @@ class Settings(BaseSettings):
     HOSTED_SANDBOX: bool = False
     # Hosted workspace grants (auth/grant.py). When both are set, every request must carry a grant signed by the
     # hosted control plane for exactly this workspace, and cookie sessions are refused. Unset: nothing changes.
-    # HOSTED_GRANT_PUBLIC_KEYS is JSON: {"<key id>": "<base64url Ed25519 public key>"}.
+    # HOSTED_GRANT_PUBLIC_KEYS is JSON {"<key id>": "<base64url Ed25519 public key>"} or "<key id>=<key>,...".
     HOSTED_WORKSPACE_ID: str = ""
     HOSTED_GRANT_PUBLIC_KEYS: str = ""
     # A headless Chromium on this machine for agents with no Docker computer (computers/local_browser.py):

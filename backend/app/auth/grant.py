@@ -58,11 +58,17 @@ def enabled() -> bool:
 
 
 def load_keys(raw: str) -> dict[str, Ed25519PublicKey]:
+    """Public keys by key id. Written as JSON ({"k1": "<key>"}) or, where quotes are awkward (an env file), as
+    `k1=<key>,k2=<key>`; a key is the base64url raw 32-byte Ed25519 public key."""
     try:
-        table = json.loads(raw)
+        text = raw.strip()
+        if text.startswith("{"):
+            table = json.loads(text)
+        else:
+            table = dict(pair.strip().split("=", 1) for pair in text.split(",") if pair.strip())
         return {kid: Ed25519PublicKey.from_public_bytes(_unb64(key)) for kid, key in table.items()}
     except (ValueError, TypeError, AttributeError) as exc:
-        raise GrantError("HOSTED_GRANT_PUBLIC_KEYS is not a JSON map of key id to base64url Ed25519 public key") from exc
+        raise GrantError("HOSTED_GRANT_PUBLIC_KEYS must map key ids to base64url Ed25519 public keys") from exc
 
 
 _keys_cache: tuple[str, dict[str, Ed25519PublicKey]] | None = None

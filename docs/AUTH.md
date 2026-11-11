@@ -326,7 +326,7 @@ id on the server is the owner's anyway.
 
 A hosted deployment can put a control plane in front of this server that signs people in and owns who belongs to
 which workspace. Set `HOSTED_WORKSPACE_ID` and `HOSTED_GRANT_PUBLIC_KEYS` (JSON: key id to base64url Ed25519 public
-key) and every request must then carry `X-Dots-Grant`: a token of at most 60 seconds, signed by the control plane
+key, or `kid=key,kid=key`) and every request must then carry `X-Dots-Grant`: a token of at most 60 seconds, signed by the control plane
 for exactly this workspace (`aud`), naming the person (`sub`, `name`, `email`), their `role` and, for a member,
 `perms`. The server holds only public keys, so it cannot mint grants. A missing, expired, tampered, wrong-workspace
 or wrong-key grant is refused with 401; cookies, device tokens and loopback trust are not consulted (health and
