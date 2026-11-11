@@ -2,7 +2,7 @@
   "expo": {
     "name": "Suparagent",
     "slug": "suparagent",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "orientation": "portrait",
     "scheme": "suparagent",
     "userInterfaceStyle": "automatic",
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "ai.suparagent.app",
-      "versionCode": 4
+      "versionCode": 5
     },
     "plugins": [
       "expo-router",
