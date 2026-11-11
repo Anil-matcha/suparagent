@@ -51,6 +51,9 @@ export function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  // A member of a shared workspace signs in with email and password instead of the owner passphrase.
+  const [member, setMember] = useState(false);
+  const [email, setEmail] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +80,7 @@ export function LoginScreen() {
     setBusy(true);
     try {
       if (settingUp) await auth.setup(passphrase);
+      else if (member) await auth.memberLogin(email, passphrase);
       else await auth.login(passphrase);
       setSignedIn(true);
       window.location.replace(nextPath());
@@ -111,10 +115,15 @@ export function LoginScreen() {
         {status && (!settingUp || status.setup_allowed) && (
           <form onSubmit={submit} className="space-y-4">
             {settingUp && <p className="text-sm text-muted">{t("auth.setupHelp")}</p>}
-            <Field label={t("auth.passphrase")}>
+            {member && !settingUp && (
+              <Field label="Email">
+                {(props) => <Input {...props} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required autoFocus />}
+              </Field>
+            )}
+            <Field label={member && !settingUp ? "Password" : t("auth.passphrase")}>
               {(props) => (
                 <PasswordInput {...props} reveal={reveal} showLabel={t("auth.showPassphrase")} hideLabel={t("auth.hidePassphrase")} onToggle={() => setReveal((v) => !v)} value={passphrase} onChange={(e) => setPassphrase(e.target.value)}
-                  autoComplete={settingUp ? "new-password" : "current-password"} required minLength={settingUp ? 10 : 1} autoFocus />
+                  autoComplete={settingUp ? "new-password" : "current-password"} required minLength={settingUp ? 10 : 1} autoFocus={!member} />
               )}
             </Field>
             {settingUp && (
@@ -127,6 +136,13 @@ export function LoginScreen() {
             {error && <Banner tone="danger">{error}</Banner>}
             <Button type="submit" variant="primary" className="w-full" loading={busy || signedIn}>{label}</Button>
           </form>
+        )}
+        {status && !settingUp && (
+          <p className="text-xs text-muted">
+            <button type="button" className="cursor-pointer underline" onClick={() => { setMember((v) => !v); setError(null); }}>
+              {member ? "Sign in as the owner instead" : "Team member? Sign in with your email"}
+            </button>
+          </p>
         )}
         {status && !settingUp && (
           <p className="text-xs text-muted">{t("auth.pairingPrompt")} <Link href="/pair/" className="underline">{t("auth.pairBrowser")}</Link>.</p>

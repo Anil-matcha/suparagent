@@ -26,6 +26,9 @@ PUBLIC_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
         ({"POST"}, "/auth/login"),
         ({"POST"}, "/auth/logout"),
         ({"POST"}, "/auth/pair"),
+        # Joining by invitation and signing in as a member (auth/people_routes.py).
+        ({"POST"}, "/auth/invites/accept"),
+        ({"POST"}, "/auth/people/login"),
     )
 ) + (
     # Routine webhooks: each delivery carries the routine's own secret, checked by the route.
@@ -42,6 +45,10 @@ CHAT_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
     (frozenset(methods), re.compile(f"^{API}{path}$"))
     for methods, path in (
         ({"GET"}, "/auth/session"),
+        # The roster (names and roles) and renaming oneself; inviting and managing stay admin-only.
+        ({"GET"}, "/people"),
+        ({"PATCH"}, "/people/me"),
+        ({"POST"}, "/people/me/password"),
         ({"GET"}, "/version"),
         ({"GET", "PUT"}, "/notifications/preferences"),
         ({"GET"}, "/team"),
@@ -110,6 +117,28 @@ MANAGE_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
 )
 
 
+# Event streams that stay open: the middleware ends them when the session stops being valid (auth/live.py).
+STREAM_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
+    (frozenset({"GET"}), re.compile(f"^{API}{path}$"))
+    for path in (f"/threads/{_ID}/events/stream", f"/local/tasks/{_ID}/events")
+)
+
+
+# The only writes a read-only viewer may make: their own name and password.
+READ_ONLY_OK: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = (
+    (frozenset({"PATCH"}), re.compile(f"^{API}/people/me$")),
+    (frozenset({"POST"}), re.compile(f"^{API}/people/me/password$")),
+)
+
+
+def read_only_allows(method: str, path: str) -> bool:
+    return _matches(READ_ONLY_OK, method, path)
+
+
+def is_stream(method: str, path: str) -> bool:
+    return _matches(STREAM_ROUTES, method, path)
+
+
 def _matches(rules, method: str, path: str) -> bool:
     return any(method in methods and pattern.match(path) for methods, pattern in rules)
 
@@ -124,6 +153,12 @@ def required_scope(method: str, path: str) -> str:
     if _matches(FILES_ROUTES, method, path):
         return "files"
     return "manage" if _matches(MANAGE_ROUTES, method, path) else "admin"
+
+
+def has_permission(principal: "Principal | None", permission: str) -> bool:
+    """Whether the caller may use a member permission. Anything that is not a signed-in member keeps
+    the access its scopes already give it."""
+    return principal is None or principal.permissions is None or permission in principal.permissions
 
 
 def allows(scopes: tuple[str, ...], needed: str) -> bool:
@@ -142,6 +177,15 @@ class Principal:
     label: str | None = None
     # Set only by a hosted deployment's resolver (auth/tenancy.py); None on the single-owner server.
     tenant_id: str | None = None
+    # Set when a signed-in member (auth/people.py) is acting; None for a paired device,
+    # the desktop app, a trusted local request and the owner's sessions that predate people.
+    person_id: int | None = None
+    role: str | None = None
+    # A member who may not send anything (a viewer): the middleware refuses every write.
+    read_only: bool = False
+    # What a signed-in member may do (auth/people.py); None for everything that is not a member
+    # (a paired device, the desktop app, a trusted local request), which has no such limits.
+    permissions: tuple[str, ...] | None = None
 
     @property
     def is_admin(self) -> bool:

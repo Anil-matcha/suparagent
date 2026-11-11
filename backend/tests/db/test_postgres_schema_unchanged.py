@@ -33,6 +33,7 @@ PLANNER_TABLES = {"work_board", "work_column", "work_item"}
 WORK_EXECUTION_TABLES = {"work_item_run", "work_item_event"}
 COMMUNITY_MCP_TABLES = {"community_mcp_connection", "community_mcp_tool_grant"}
 WORKFLOW_TABLES = {"workflow", "workflow_run"}
+PEOPLE_TABLES = {"person", "person_invite", "people_audit"}
 
 
 def postgres_ddl(table_names: set[str]) -> str:
@@ -86,6 +87,7 @@ def test_every_table_is_covered_by_one_of_the_snapshots():
         | WORK_EXECUTION_TABLES
         | COMMUNITY_MCP_TABLES
         | WORKFLOW_TABLES
+        | PEOPLE_TABLES
     )
     assert covered_tables == set(Base.metadata.tables)
     assert not original_tables() & F04_TABLES
@@ -147,3 +149,7 @@ def test_workflow_tables_compile_to_their_reviewed_postgres_schema():
 
 def test_agent_revision_table_compiles_to_its_reviewed_postgres_schema():
     assert postgres_ddl(AGENT_REVISION_TABLES) == snapshot_text(HERE / "postgres_schema_agent_revision.sql")
+
+
+def test_people_tables_compile_to_their_reviewed_postgres_schema():
+    assert postgres_ddl(PEOPLE_TABLES) == snapshot_text(HERE / "postgres_schema_people.sql")

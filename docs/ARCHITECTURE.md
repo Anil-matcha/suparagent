@@ -63,9 +63,12 @@ Optional legacy path: Telegram and Boat sandbox tasks
   available on every engine without a helper.
 - **Storage and access.** Alembic manages PostgreSQL and SQLite schemas. API
   credentials are encrypted at rest, and the desktop app uses operating-system
-  secret storage. Web users authenticate as one owner; paired devices receive
-  scoped, revocable tokens. The self-hosted server remains a single-owner
-  product.
+  secret storage. Web users sign in as the owner (passphrase) or as an invited
+  member (email and password), and a member's rights are read from their role
+  and permissions on every request, so a change or a removal applies at once.
+  Paired devices receive scoped, revocable tokens. A self-hosted server is one
+  workspace with one owner; invited members share its agents, conversations,
+  files and memory (see [authentication](AUTH.md#members)).
 
 ## Capability boundaries
 

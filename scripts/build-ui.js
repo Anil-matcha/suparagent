@@ -21,6 +21,7 @@ const SERVER_PAGES = [
   path.join("onboarding", "index.html"),
   path.join("login", "index.html"),
   path.join("pair", "index.html"),
+  path.join("join", "index.html"),
   path.join("docs", "index.html"),
 ];
 

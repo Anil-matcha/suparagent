@@ -103,7 +103,15 @@ async def post(room_id: int, payload: Message, request: Request, rt=Depends(get_
     try:
         from app.auth.middleware import principal_of
         principal = principal_of(request.scope)
-        seq = await rt.rooms.post(room_id, payload.text, source={'origin': 'person' if principal is None or principal.is_admin else 'restricted'})
+        author = None
+        if principal is not None and principal.person_id is not None:
+            # A signed-in member is named; anyone else stays "You" as before.
+            # `owner` tells agent memory whose words these are: only the owner's are "You".
+            author = {'kind': 'person', 'label': principal.label or 'Member', 'person_id': principal.person_id,
+                      'owner': principal.role == 'owner'}
+        seq = await rt.rooms.post(
+            room_id, payload.text, author=author,
+            source={'origin': 'person' if principal is None or principal.is_admin else 'restricted'})
         # A saved post is independent of dispatch startup. Scheduler tick also
         # picks it up after a process restart.
         await rt.rooms.tick()

@@ -27,6 +27,11 @@ def test_compare_versions():
     assert compare_versions("0.8.1-rc1", "0.8.1-rc2") == -1
 
 
+def test_the_fallback_version_is_used_only_when_no_project_files_exist(monkeypatch):
+    monkeypatch.setattr(version_service, "find_project_root", lambda: None)
+    assert version_service.get_current_version() == version_service.APP_VERSION
+
+
 def test_install_kind_and_update_command():
     assert detect_install_kind({"SUPARAGENT_DOCKER": "1"}) == "docker"
     assert "docker compose" in get_update_command("docker")
@@ -42,7 +47,8 @@ async def test_read_version_endpoint(api):
     res = await api.get("/api/v1/version")
     assert res.status_code == 200
     data = res.json()
-    assert data["current_version"] == version_service.APP_VERSION
+    # The real version comes from desktop/package.json (bumped by each release); APP_VERSION is only the fallback.
+    assert data["current_version"] == version_service.get_current_version()
     assert "install_kind" in data
     assert "update_command" in data
     assert "release_notes_url" in data
@@ -88,7 +94,7 @@ async def test_read_version_network_error_graceful(api, monkeypatch):
     res = await api.get("/api/v1/version?refresh=true")
     assert res.status_code == 200
     data = res.json()
-    assert data["current_version"] == version_service.APP_VERSION
+    assert data["current_version"] == version_service.get_current_version()
     assert data["update_available"] is False
     assert data["latest_version"] is None
 

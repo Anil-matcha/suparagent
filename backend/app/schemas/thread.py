@@ -97,6 +97,10 @@ class TurnResponse(BaseModel):
     usage: dict | None
     # Who started it: person, routine, outside, peer; null for older turns.
     origin: str | None = None
+    # The member who sent it, when one did; null for older turns, routines and the owner's own
+    # sessions from before people existed.
+    person_id: int | None = None
+    person_label: str | None = None
     started_at: datetime
     finished_at: datetime | None
 
@@ -188,6 +192,8 @@ class ApprovalResponse(BaseModel):
     status: str
     created_at: datetime
     decided_at: datetime | None
+    # The member who answered it, when one did.
+    decided_by_label: str | None = None
 
 
 class StopResponse(BaseModel):
