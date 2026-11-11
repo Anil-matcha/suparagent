@@ -15,7 +15,8 @@ from tests.services.thread_harness import owner, sessions  # noqa: F401
 
 def test_exact_tool_filter_offers_only_the_granted_read_tool(tmp_path):
     server = Server(tmp_path, {"github": "read"}, {"github_get_authenticated_user"})
-    assert [tool["name"] for tool in server.tools] == ["github_get_authenticated_user"]
+    # The granted tool, plus the helper that pages through a large result it returned. No other app tool.
+    assert [tool["name"] for tool in server.tools] == ["github_get_authenticated_user", "read_saved_result"]
     assert server.call("github_list_my_repositories", {})["error"]
 
 
@@ -250,7 +251,8 @@ async def test_runtime_mounts_only_granted_routine_writes_at_the_agent_scope(
                 exact = args[args.index("--exact-tools") + 1].split(",")
                 assert exact == expected_tools
                 server = Server(bridge.folder, mounted, set(exact))
-                assert [tool["name"] for tool in server.tools] == expected_tools
+                # Exactly the granted write, plus the helper that pages through a large result.
+                assert [tool["name"] for tool in server.tools] == [*expected_tools, "read_saved_result"]
             finally:
                 await bridge.close()
         else:
