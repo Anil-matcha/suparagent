@@ -19,16 +19,19 @@ Order of checks:
 
 import hmac
 import json
+import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.auth import credentials, live, people, request_info, store, tenancy
+from app.auth import credentials, grant, live, people, request_info, store, tenancy
 from app.db import tenant_schema
 from app.auth.policy import Principal, allows, is_public, is_stream, read_only_allows, required_scope
 from app.core.config import settings
 from app.db.models.auth import AuthSession
 from app.desktop import profile
+
+logger = logging.getLogger("dots.auth")
 
 COOKIE_NAME = "od_session"
 CSRF_HEADER = b"x-csrf-token"
@@ -157,6 +160,26 @@ class AuthMiddleware:
         except Exception:
             return True
 
+    async def _authorize_grant(self, scope: Scope, method: str, path: str) -> tuple[int, str, str, bool] | None:
+        """Hosted workspace: only a grant signed by the control plane for this workspace is accepted. No grant, or
+        a bad one, is refused; cookies, bearer tokens and loopback trust are not consulted."""
+        presented = request_info.header_values(scope, grant.HEADER)
+        if len(presented) != 1:
+            return (401, "auth_required", "Sign in to use this server.", False)
+        try:
+            async with self.sessions()() as db:
+                principal = await grant.principal_for_grant(db, presented[0].strip())
+        except grant.GrantError as exc:
+            logger.warning("workspace grant refused: %s", exc)
+            return (401, "grant_invalid", "This sign-in is not valid for this workspace.", False)
+        needed = required_scope(method, path)
+        if not allows(principal.scopes, needed):
+            return (403, "scope_denied", "This sign-in cannot do that.", False)
+        if principal.read_only and method not in SAFE_METHODS and not read_only_allows(method, path):
+            return (403, "read_only", "You can read but not send or change anything here.", False)
+        set_principal(scope, principal)
+        return None
+
     async def _authorize(self, scope: Scope) -> tuple[int, str, str, bool] | None:
         hostname = request_info.request_hostname(scope)
         if hostname is None or not request_info.host_is_trusted(hostname):
@@ -173,6 +196,9 @@ class AuthMiddleware:
         path = scope.get("path", "")
         if is_public(method, path):
             return None
+
+        if grant.enabled():
+            return await self._authorize_grant(scope, method, path)
 
         resolver = tenancy.principal_resolver()
         if resolver is not None:

@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import credentials, limiter, people, request_info, store
+from app.auth import credentials, grant, limiter, people, request_info, store
 from app.auth.routes import (
     SessionInfo,
     _browser_session,
@@ -35,8 +35,15 @@ def _not_on_desktop() -> None:
         raise _error(409, "people_unavailable", "The desktop app is for one person. Use a hosted or server install to share it.")
 
 
+def _not_managed_elsewhere() -> None:
+    """In a hosted workspace the control plane is authoritative for who belongs and in what role."""
+    if grant.enabled():
+        raise _error(409, "managed_by_workspace_owner", "People are managed by the workspace owner.")
+
+
 router = APIRouter(prefix="/people", tags=["People"], dependencies=[Depends(_not_on_desktop)])
-join_router = APIRouter(prefix="/auth", tags=["Auth"], dependencies=[Depends(_not_on_desktop)])
+join_router = APIRouter(prefix="/auth", tags=["Auth"], dependencies=[Depends(_not_on_desktop), Depends(_not_managed_elsewhere)])
+managed = [Depends(_not_managed_elsewhere)]
 
 
 def actor_of(principal: Principal) -> people.Actor:
@@ -111,7 +118,7 @@ class PasswordBody(BaseModel):
     email: str | None = Field(default=None, max_length=300)
 
 
-@router.post("/me/password", status_code=204)
+@router.post("/me/password", status_code=204, dependencies=managed)
 async def change_my_password(
     body: PasswordBody, request: Request, response: Response, db: AsyncSession = Depends(get_db),
     principal: Principal = Depends(current_principal), source: str = Depends(require_rate),
@@ -148,7 +155,7 @@ class TransferBody(BaseModel):
     passphrase: str = Field(max_length=credentials.MAX_PASSPHRASE_LENGTH)
 
 
-@router.post("/transfer", response_model=PersonResponse)
+@router.post("/transfer", response_model=PersonResponse, dependencies=managed)
 async def transfer_ownership(
     body: TransferBody, response: Response, db: AsyncSession = Depends(get_db),
     principal: Principal = Depends(require_admin), source: str = Depends(require_rate),
@@ -206,7 +213,7 @@ def _invite(invite: PersonInvite, token: str | None = None) -> InviteResponse:
     )
 
 
-@router.post("/invites", response_model=InviteResponse, status_code=201)
+@router.post("/invites", response_model=InviteResponse, status_code=201, dependencies=managed)
 async def create_invite(
     body: InviteBody, db: AsyncSession = Depends(get_db),
     principal: Principal = Depends(require_admin), _: str = Depends(require_rate),
@@ -224,7 +231,7 @@ async def list_invites(db: AsyncSession = Depends(get_db), _: Principal = Depend
     return [_invite(i) for i in await people.list_open_invites(db)]
 
 
-@router.delete("/invites/{invite_id}", status_code=204)
+@router.delete("/invites/{invite_id}", status_code=204, dependencies=managed)
 async def revoke_invite(
     invite_id: int, response: Response, db: AsyncSession = Depends(get_db),
     principal: Principal = Depends(require_admin),
@@ -264,7 +271,7 @@ class UpdateBody(BaseModel):
     permissions: list[str] | None = Field(default=None, max_length=10)
 
 
-@router.patch("/{person_id}", response_model=PersonResponse)
+@router.patch("/{person_id}", response_model=PersonResponse, dependencies=managed)
 async def update_member(
     person_id: int, body: UpdateBody, db: AsyncSession = Depends(get_db),
     principal: Principal = Depends(require_admin),
@@ -279,7 +286,7 @@ async def update_member(
     return _person(person, principal)
 
 
-@router.delete("/{person_id}", status_code=204)
+@router.delete("/{person_id}", status_code=204, dependencies=managed)
 async def remove_person(
     person_id: int, response: Response, db: AsyncSession = Depends(get_db),
     principal: Principal = Depends(require_admin),

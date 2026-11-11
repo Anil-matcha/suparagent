@@ -19,6 +19,7 @@ CREATE TABLE person (
 	password_hash VARCHAR, 
 	role VARCHAR NOT NULL, 
 	permissions VARCHAR, 
+	external_id VARCHAR, 
 	status VARCHAR DEFAULT 'active' NOT NULL, 
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
 	updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
@@ -28,6 +29,8 @@ CREATE TABLE person (
 );
 
 CREATE UNIQUE INDEX uq_person_email ON person (email);
+
+CREATE UNIQUE INDEX uq_person_external_id ON person (external_id);
 
 CREATE TABLE person_invite (
 	id BIGINT GENERATED ALWAYS AS IDENTITY, 

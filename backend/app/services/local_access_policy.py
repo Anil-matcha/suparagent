@@ -84,9 +84,10 @@ class LoopbackPolicy:
             )
 
         # A signed-in browser or paired device (docs/AUTH.md): the auth
-        # middleware already checked its Host, Origin, CSRF token and scope.
+        # middleware already checked its Host, Origin, CSRF token and scope. A workspace grant
+        # (auth/grant.py) is the same: signed by the hosted control plane for this workspace only.
         principal = principal_of(request.scope)
-        if principal is not None and principal.kind in ("browser", "device"):
+        if principal is not None and principal.kind in ("browser", "device", "grant"):
             return _issue_grant()
         # A hosted account (auth/tenancy.py). Safe only because the server then starts no engine
         # or tool process on its own machine (core/host_exec.py); with that switch off it falls
