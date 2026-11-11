@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from 'react';
-import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Switch, View, type TextInputProps } from 'react-native';
+import { useMemo, useState, type ReactNode } from 'react';
+import { ActivityIndicator, FlatList, Modal, Platform, Pressable, StyleSheet, Switch, View, type TextInputProps } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
 import { Text, TextInput } from '@/components/text';
 import { radius, touch, useStyles, useTheme, type Palette } from '@/lib/theme';
@@ -108,6 +109,8 @@ export function PickerField<T extends string>({
   value,
   onChange,
   disabled,
+  searchable,
+  searchPlaceholder,
 }: {
   label: string;
   title: string;
@@ -116,10 +119,30 @@ export function PickerField<T extends string>({
   value: T | null;
   onChange: (value: T) => void;
   disabled?: boolean;
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }) {
   const styles = useStyles(createStyles);
   const theme = useTheme();
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+
+  const filteredOptions = useMemo(() => {
+    if (!searchable || !query.trim()) return options;
+    const q = query.toLowerCase().trim();
+    return options.filter((option) =>
+      option.label.toLowerCase().includes(q) ||
+      option.value.toLowerCase().includes(q) ||
+      (option.note && option.note.toLowerCase().includes(q)) ||
+      (option.description && option.description.toLowerCase().includes(q))
+    );
+  }, [options, searchable, query]);
+
+  const handleClose = () => {
+    setOpen(false);
+    setQuery('');
+  };
+
   return (
     <>
       <Pressable
@@ -135,15 +158,40 @@ export function PickerField<T extends string>({
         </Text>
         <Text style={styles.chevron}>▾</Text>
       </Pressable>
-      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-        <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={() => setOpen(false)} />
-        <View style={styles.sheet} accessibilityViewIsModal>
+      <Modal visible={open} transparent animationType="slide" onRequestClose={handleClose} statusBarTranslucent>
+        <KeyboardAvoidingView style={styles.modalKeyboardAvoiding} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={handleClose} />
+          <View style={styles.sheet} accessibilityViewIsModal>
           <Text accessibilityRole="header" style={styles.sheetTitle}>
             {title}
           </Text>
+          {searchable ? (
+            <View style={styles.searchBoxContainer}>
+              <TextInput
+                accessibilityLabel={searchPlaceholder ?? `Search ${title}`}
+                style={styles.searchBoxInput}
+                placeholder={searchPlaceholder ?? `Search ${title}...`}
+                placeholderTextColor={theme.muted}
+                value={query}
+                onChangeText={setQuery}
+                autoCapitalize="none"
+                autoCorrect={false}
+                clearButtonMode="while-editing"
+                returnKeyType="search"
+              />
+            </View>
+          ) : null}
           <FlatList
-            data={options}
+            data={filteredOptions}
             keyExtractor={(option) => option.value}
+            keyboardShouldPersistTaps="handled"
+            ListEmptyComponent={
+              searchable ? (
+                <View style={styles.emptySearchContainer}>
+                  <Text style={styles.emptySearchText}>No matching options</Text>
+                </View>
+              ) : undefined
+            }
             renderItem={({ item }) => (
               <Pressable
                 accessibilityRole="button"
@@ -154,7 +202,7 @@ export function PickerField<T extends string>({
                 style={({ pressed }) => [styles.sheetRow, pressed && styles.pressed, item.disabled && styles.disabled]}
                 onPress={() => {
                   onChange(item.value);
-                  setOpen(false);
+                  handleClose();
                 }}
               >
                 <View style={styles.switchText}>
@@ -165,8 +213,9 @@ export function PickerField<T extends string>({
               </Pressable>
             )}
           />
-          <Button label="Cancel" kind="secondary" onPress={() => setOpen(false)} />
+          <Button label="Cancel" kind="secondary" onPress={handleClose} />
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );
@@ -248,9 +297,24 @@ const createStyles = (p: Palette) =>
     picker: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: touch.min, borderWidth: 1, borderColor: p.inputBorder, borderRadius: radius.field, paddingHorizontal: 12 },
     pickerValue: { flex: 1, fontSize: 16, color: p.text },
     chevron: { fontSize: 14, color: p.muted },
+    modalKeyboardAvoiding: { flex: 1, justifyContent: 'flex-end' },
     scrim: { flex: 1, backgroundColor: p.text, opacity: 0.4 },
     sheet: { backgroundColor: p.background, borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card, padding: 16, paddingBottom: 28, maxHeight: '75%', gap: 8 },
     sheetTitle: { fontSize: 17, fontWeight: '600', color: p.text, marginBottom: 4 },
+    searchBoxContainer: { marginBottom: 6 },
+    searchBoxInput: {
+      backgroundColor: p.surface,
+      minHeight: touch.min,
+      borderWidth: 1,
+      borderColor: p.inputBorder,
+      borderRadius: radius.field,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      fontSize: 15,
+      color: p.text,
+    },
+    emptySearchContainer: { paddingVertical: 20, alignItems: 'center' },
+    emptySearchText: { fontSize: 14, color: p.muted },
     sheetRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: touch.min, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: p.border },
     button: { minHeight: touch.min, borderRadius: radius.field, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, marginTop: 8 },
     buttonPrimary: { backgroundColor: p.accent },

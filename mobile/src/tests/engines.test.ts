@@ -46,6 +46,31 @@ describe('readEngines', () => {
   it('carries a usage limit message', () => {
     expect(readEngines([{ ...claude, limit: { kind: 'usage_limit', message: 'Resets at 5pm' } }])[0].limit).toBe('Resets at 5pm');
   });
+
+  it('reads model reasoning effort metadata when present', () => {
+    const engineWithReasoning = {
+      ...claude,
+      models: [
+        {
+          id: 'o3-mini',
+          label: 'o3-mini',
+          default: true,
+          default_reasoning_effort: 'medium',
+          supported_reasoning_efforts: ['low', 'medium', 'high'],
+          reasoning_effort_configurable: true,
+        },
+      ],
+    };
+    const [engine] = readEngines([engineWithReasoning]);
+    expect(engine.models[0]).toEqual({
+      id: 'o3-mini',
+      label: 'o3-mini',
+      isDefault: true,
+      defaultReasoningEffort: 'medium',
+      supportedReasoningEfforts: ['low', 'medium', 'high'],
+      reasoningEffortConfigurable: true,
+    });
+  });
 });
 
 describe('labels', () => {

@@ -107,6 +107,29 @@ export default function AgentEditor() {
   const engine = findEngine(engines, draft.provider);
   const fallbackEngine = draft.fallback_provider ? findEngine(engines, draft.fallback_provider) : undefined;
 
+  const currentModelId = draft.model ?? engine?.defaultModel ?? engine?.models.find((m) => m.isDefault)?.id ?? engine?.models[0]?.id ?? null;
+  const currentModelObj = engine?.models.find((m) => m.id === currentModelId);
+  const modelEfforts = currentModelObj?.supportedReasoningEfforts && currentModelObj.supportedReasoningEfforts.length > 0
+    ? currentModelObj.supportedReasoningEfforts
+    : null;
+  const supportsEffort = Boolean(
+    (modelEfforts && modelEfforts.length > 1 && currentModelObj?.reasoningEffortConfigurable !== false) ||
+    draft.effort
+  );
+  const effortList = modelEfforts && modelEfforts.length > 0 ? modelEfforts : ['low', 'medium', 'high', 'max'];
+  const effortOptions: Option<string>[] = [
+    {
+      value: DEFAULT,
+      label: currentModelObj?.defaultReasoningEffort
+        ? `Default (${currentModelObj.defaultReasoningEffort})`
+        : 'Default',
+    },
+    ...effortList.map((eff) => ({
+      value: eff,
+      label: eff.charAt(0).toUpperCase() + eff.slice(1),
+    })),
+  ];
+
   const engineOptions: Option<string>[] = engines.map((entry) => ({ value: entry.id, label: entry.label, note: engineProblem(entry), disabled: !entry.available && entry.id !== draft.provider }));
   if (!engine) engineOptions.push({ value: draft.provider, label: draft.provider, note: 'Not on this server', disabled: true });
 
@@ -223,18 +246,25 @@ export default function AgentEditor() {
           <PickerField
             label="Engine"
             title="Engine"
+            searchable
+            searchPlaceholder="Search engines..."
             valueLabel={engineLabel(engines, draft.provider)}
             options={engineOptions}
             value={draft.provider}
-            onChange={(next) =>
+            onChange={(next) => {
+              const nextEngine = findEngine(engines, next);
+              const nextModelId = nextEngine?.defaultModel ?? nextEngine?.models[0]?.id ?? null;
+              const nextModelObj = nextEngine?.models.find((m) => m.id === nextModelId);
+              const nextEffort = nextModelObj?.defaultReasoningEffort ?? null;
               setDraft((current) => ({
                 ...current,
                 provider: next,
                 model: null,
+                effort: nextEffort,
                 fallback_provider: current.fallback_provider === next ? null : current.fallback_provider,
                 fallback_model: current.fallback_provider === next ? null : current.fallback_model,
-              }))
-            }
+              }));
+            }}
           />
           {engine && engineProblem(engine) ? <Text style={styles.note}>{engineProblem(engine)}</Text> : null}
         </Field>
@@ -242,19 +272,45 @@ export default function AgentEditor() {
           <PickerField
             label="Model"
             title="Model"
+            searchable
+            searchPlaceholder="Search models..."
             valueLabel={modelLabel(engine, draft.model)}
             options={modelOptions(engine, draft.model)}
             value={draft.model ?? DEFAULT}
-            onChange={(next) => set('model', next === DEFAULT ? null : next)}
+            onChange={(next) => {
+              const nextModel = next === DEFAULT ? null : next;
+              const nextModelId = nextModel ?? engine?.defaultModel ?? engine?.models[0]?.id ?? null;
+              const nextModelObj = engine?.models.find((m) => m.id === nextModelId);
+              const nextEffort = nextModelObj?.defaultReasoningEffort ?? null;
+              setDraft((current) => ({
+                ...current,
+                model: nextModel,
+                effort: nextEffort,
+              }));
+            }}
           />
           {engine?.customModels ? (
             <FormInput accessibilityLabel="Model ID" value={draft.model ?? ''} onChangeText={(text) => set('model', text.trim() ? text : null)} placeholder="Engine default" autoCapitalize="none" autoCorrect={false} maxLength={200} />
           ) : null}
         </Field>
+        {supportsEffort ? (
+          <Field label="Reasoning effort" helper="Controls thinking depth for reasoning models.">
+            <PickerField
+              label="Reasoning effort"
+              title="Reasoning effort"
+              valueLabel={draft.effort ? draft.effort.charAt(0).toUpperCase() + draft.effort.slice(1) : (currentModelObj?.defaultReasoningEffort ? `Default (${currentModelObj.defaultReasoningEffort})` : 'Default')}
+              options={effortOptions}
+              value={draft.effort ?? DEFAULT}
+              onChange={(next) => set('effort', next === DEFAULT ? null : next)}
+            />
+          </Field>
+        ) : null}
         <Field label="Fallback engine" helper="When the engine refuses a message for a usage or rate limit before starting on it, the message goes to the fallback, if it can do everything the turn needs.">
           <PickerField
             label="Fallback engine"
             title="Fallback engine"
+            searchable
+            searchPlaceholder="Search fallback engines..."
             valueLabel={draft.fallback_provider ? engineLabel(engines, draft.fallback_provider) : 'None'}
             options={fallbackOptions}
             value={draft.fallback_provider ?? NONE}
@@ -264,6 +320,8 @@ export default function AgentEditor() {
             <PickerField
               label="Fallback model"
               title="Fallback model"
+              searchable
+              searchPlaceholder="Search fallback models..."
               valueLabel={modelLabel(fallbackEngine, draft.fallback_model)}
               options={modelOptions(fallbackEngine, draft.fallback_model)}
               value={draft.fallback_model ?? DEFAULT}

@@ -10,6 +10,7 @@ import type { ReactionKind } from '@/lib/reactions';
 import { formatMessageTime } from '@/lib/relative-time';
 import type { TranscriptItem } from '@/lib/transcript';
 import { radius, useStyles, useTheme, type Palette } from '@/lib/theme';
+import { useUserProfile } from '@/lib/user-profile';
 
 export type Row = TranscriptItem | { kind: 'typing'; key: string; text: string };
 
@@ -88,13 +89,14 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
 export function TranscriptRow({ row, attachmentSource, reaction = null, onReact, disabled = false }: Props) {
   const styles = useStyles(createStyles);
   const theme = useTheme();
+  const { getUserBubbleColor } = useUserProfile();
 
   switch (row.kind) {
     case 'user': {
       const timeStr = formatMessageTime(row.ts);
       return (
         <View style={styles.userContainer}>
-          <View style={[styles.bubble, styles.user]}>
+          <View style={[styles.bubble, styles.user, { backgroundColor: getUserBubbleColor() }]}>
             {row.attachments.length > 0 ? <Attachments files={row.attachments} source={attachmentSource} /> : null}
             <Text selectable style={styles.userText}>
               {row.text}

@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -18,6 +19,7 @@ import { Text } from '@/components/text';
 import { type Agent } from '@/lib/agents';
 import type { Thread } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { useUserProfile } from '@/lib/user-profile';
 import { identityColor, ON_IDENTITY } from '@/lib/identity';
 import { serverLabel } from '@/lib/server-url';
 import { radius, touch, useStyles, useTheme, type Palette } from '@/lib/theme';
@@ -87,12 +89,21 @@ export function MobileSidebar({ visible, onClose, activeThreadId, onNewChat, onS
     };
   }, [visible, slideAnim, fadeAnim]);
 
+  const { displayName, email: userEmail, avatarUrl } = useUserProfile();
+
   if (!visible) return null;
 
   const paired = state.status === 'paired';
   const hosted = paired ? state.hosted : undefined;
-  const profileName = hosted?.email || (paired ? state.label || 'My Phone' : 'User');
-  const profileSub = hosted ? 'Hosted workspace' : paired ? serverLabel(state.server) || 'Local server' : 'Settings';
+  const profileName = displayName || hosted?.email || userEmail || (paired ? state.label || 'Connected User' : 'User');
+  const profileSub =
+    userEmail && displayName && displayName !== userEmail
+      ? userEmail
+      : hosted
+        ? 'Hosted workspace'
+        : paired
+          ? serverLabel(state.server) || 'Local server'
+          : 'Settings';
   const profileInitial = profileName.trim() ? profileName.trim().charAt(0).toUpperCase() : 'U';
 
   const handleNewChat = () => {
@@ -243,7 +254,11 @@ export function MobileSidebar({ visible, onClose, activeThreadId, onNewChat, onS
             onPress={handleSettings}
             style={({ pressed }) => [styles.profileCard, pressed && styles.pressed]}>
             <View style={styles.profileAvatar}>
-              <Text style={styles.profileAvatarText}>{profileInitial}</Text>
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={styles.profileAvatarImage} />
+              ) : (
+                <Text style={styles.profileAvatarText}>{profileInitial}</Text>
+              )}
             </View>
             <View style={styles.profileInfo}>
               <Text style={styles.profileName} numberOfLines={1}>
@@ -431,6 +446,12 @@ const createStyles = (p: Palette) =>
       backgroundColor: identityColor(42),
       alignItems: 'center',
       justifyContent: 'center',
+      overflow: 'hidden',
+    },
+    profileAvatarImage: {
+      width: 36,
+      height: 36,
+      borderRadius: radius.round,
     },
     profileAvatarText: {
       color: ON_IDENTITY,

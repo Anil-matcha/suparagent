@@ -112,6 +112,13 @@ describe('toCreateBody', () => {
   it('sends a fallback model only with a fallback engine', () => {
     expect(toCreateBody({ ...EMPTY_DRAFT, name: 'a', fallback_model: 'm' })).not.toHaveProperty('fallback_model');
   });
+
+  it('includes reasoning effort when configured', () => {
+    expect(toCreateBody({ ...EMPTY_DRAFT, name: 'Ada', effort: 'high' })).toMatchObject({
+      name: 'Ada',
+      effort: 'high',
+    });
+  });
 });
 
 describe('toUpdateBody', () => {
@@ -123,6 +130,10 @@ describe('toUpdateBody', () => {
 
   it('sends only what changed, so a setting the phone cannot change is never sent', () => {
     expect(toUpdateBody({ ...original, instructions: 'New.', approval_mode: 'ask' }, original)).toEqual({ instructions: 'New.', approval_mode: 'ask' });
+  });
+
+  it('includes updated reasoning effort', () => {
+    expect(toUpdateBody({ ...original, effort: 'low' }, original)).toEqual({ effort: 'low' });
   });
 
   it('clears a title or description with null', () => {

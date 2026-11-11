@@ -159,11 +159,28 @@ export function useThread(threadId: number | null) {
     [api, threadId],
   );
 
+  const updateModel = useCallback(
+    async (options: { model?: string | null; effort?: string | null }): Promise<boolean> => {
+      if (!api || !threadId) return false;
+      try {
+        const updated = await api.updateThread(threadId, options);
+        setThread(updated);
+        setError(null);
+        return true;
+      } catch (err) {
+        setError(describeApiError(err));
+        return false;
+      }
+    },
+    [api, threadId],
+  );
+
   const loaded = threadId ? (thread !== null && transcript.lastSeq >= thread.last_seq) : true;
 
   return {
     transcript: threadId ? transcript : emptyTranscript(),
     thread,
+    setThread,
     connection: threadId ? connection : 'connected',
     error,
     loaded,
@@ -173,5 +190,6 @@ export function useThread(threadId: number | null) {
     attachmentSource,
     stop,
     answerApproval,
+    updateModel,
   };
 }

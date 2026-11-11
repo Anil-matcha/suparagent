@@ -8,6 +8,7 @@ import { HostedGate } from '@/components/hosted-gate';
 import { PairingLinkHandler } from '@/components/pairing-link-handler';
 import { FontsLoadedContext, useFont } from '@/components/text';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
+import { UserProfileProvider } from '@/lib/user-profile';
 import { FONT_FILES } from '@/lib/font-assets';
 import { useTheme } from '@/lib/theme';
 
@@ -67,9 +68,11 @@ export default function RootLayout() {
       <ThemeProvider value={navigationTheme}>
         <FontsLoadedContext.Provider value={loaded}>
           <AuthProvider>
-            <StatusBar style="auto" />
-            <PairingLinkHandler />
-            <RootStack ready={loaded || failed !== null} />
+            <UserProfileProvider>
+              <StatusBar style="auto" />
+              <PairingLinkHandler />
+              <RootStack ready={loaded || failed !== null} />
+            </UserProfileProvider>
           </AuthProvider>
         </FontsLoadedContext.Provider>
       </ThemeProvider>
