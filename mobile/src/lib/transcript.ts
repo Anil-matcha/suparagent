@@ -15,13 +15,13 @@ export type TurnEndStatus = 'completed' | 'failed' | 'cancelled' | 'interrupted'
 export type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'expired' | 'cancelled';
 
 export type TranscriptItem =
-  | { kind: 'user'; key: string; turnId: number | null; text: string; attachments: Attachment[] }
-  | { kind: 'assistant'; key: string; turnId: number | null; text: string; incomplete: boolean }
-  | { kind: 'tool'; key: string; turnId: number | null; callId: string; name: string; summary: string; state: 'running' | 'done' | 'error' | 'stopped' }
-  | { kind: 'approval'; key: string; turnId: number | null; approvalId: string; tool: string; approvalKind: string; summary: string; input: Record<string, unknown>; status: ApprovalStatus }
-  | { kind: 'turn_end'; key: string; turnId: number | null; status: Exclude<TurnEndStatus, 'completed'>; error: string }
-  | { kind: 'note'; key: string; text: string }
-  | { kind: 'unsupported'; key: string; type: string };
+  | { kind: 'user'; key: string; turnId: number | null; text: string; attachments: Attachment[]; ts?: string | null }
+  | { kind: 'assistant'; key: string; turnId: number | null; text: string; incomplete: boolean; ts?: string | null }
+  | { kind: 'tool'; key: string; turnId: number | null; callId: string; name: string; summary: string; state: 'running' | 'done' | 'error' | 'stopped'; ts?: string | null }
+  | { kind: 'approval'; key: string; turnId: number | null; approvalId: string; tool: string; approvalKind: string; summary: string; input: Record<string, unknown>; status: ApprovalStatus; ts?: string | null }
+  | { kind: 'turn_end'; key: string; turnId: number | null; status: Exclude<TurnEndStatus, 'completed'>; error: string; ts?: string | null }
+  | { kind: 'note'; key: string; text: string; ts?: string | null }
+  | { kind: 'unsupported'; key: string; type: string; ts?: string | null };
 
 export type Transcript = {
   items: TranscriptItem[];
@@ -53,6 +53,15 @@ function text(value: unknown): string {
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function eventTs(event: ThreadEvent): string | null {
+  if (typeof event.ts === 'string' && event.ts) return event.ts;
+  if (typeof event.created_at === 'string' && event.created_at) return event.created_at;
+  const data = record(event.data);
+  if (typeof data.created_at === 'string' && data.created_at) return data.created_at;
+  if (typeof data.ts === 'string' && data.ts) return data.ts;
+  return null;
 }
 
 function approvalStatus(value: unknown): ApprovalStatus {
@@ -97,23 +106,24 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
   const key = `e${event.seq}`;
   const data = record(event.data);
   const turnId = typeof event.turn_id === 'number' ? event.turn_id : null;
+  const ts = eventTs(event);
   const base: Transcript = { ...state, lastSeq: event.seq };
 
   switch (event.type) {
     case 'turn.started':
-      return { ...base, runningTurnId: turnId, typing: null, items: [...state.items, { kind: 'user', key, turnId, text: text(data.prompt_text), attachments: readAttachments(data.attachments) }] };
+      return { ...base, runningTurnId: turnId, typing: null, items: [...state.items, { kind: 'user', key, turnId, text: text(data.prompt_text), attachments: readAttachments(data.attachments), ts }] };
 
     case 'assistant.message':
       return {
         ...base,
         typing: null,
-        items: [...state.items, { kind: 'assistant', key, turnId, text: text(data.text), incomplete: data.incomplete === true }],
+        items: [...state.items, { kind: 'assistant', key, turnId, text: text(data.text), incomplete: data.incomplete === true, ts }],
       };
 
     case 'tool.started':
       return {
         ...base,
-        items: [...state.items, { kind: 'tool', key, turnId, callId: text(data.call_id), name: text(data.name) || 'tool', summary: text(data.summary), state: 'running' }],
+        items: [...state.items, { kind: 'tool', key, turnId, callId: text(data.call_id), name: text(data.name) || 'tool', summary: text(data.summary), state: 'running', ts }],
       };
 
     case 'tool.completed': {
@@ -123,12 +133,12 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
       const items = state.items.map((item) => {
         if (item.kind === 'tool' && item.callId === callId && item.state === 'running') {
           matched = true;
-          return { ...item, state: finished };
+          return { ...item, state: finished, ...(ts ? { ts } : {}) };
         }
         return item;
       });
       // A completion whose start was never seen is still shown, not dropped.
-      if (!matched) items.push({ kind: 'tool', key, turnId, callId, name: 'tool', summary: '', state: finished });
+      if (!matched) items.push({ kind: 'tool', key, turnId, callId, name: 'tool', summary: '', state: finished, ts });
       return { ...base, items };
     }
 
@@ -147,6 +157,7 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
             summary: text(data.summary),
             input: record(data.input),
             status: 'pending',
+            ts,
           },
         ],
       };
@@ -171,16 +182,16 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
         runningTurnId: turnId === state.runningTurnId || turnId === null ? null : state.runningTurnId,
         typing: null,
         // A normal finish needs no row; the answer is the end of the turn.
-        items: status === 'completed' ? closed : [...closed, { kind: 'turn_end', key, turnId, status, error: text(data.error) }],
+        items: status === 'completed' ? closed : [...closed, { kind: 'turn_end', key, turnId, status, error: text(data.error), ts }],
       };
     }
 
     case 'session.reset':
-      return { ...base, items: [...state.items, { kind: 'note', key, text: text(data.message) || 'The conversation was started over.' }] };
+      return { ...base, items: [...state.items, { kind: 'note', key, text: text(data.message) || 'The conversation was started over.', ts }] };
 
     default:
       if (SKIPPED.has(event.type)) return base;
-      return { ...base, items: [...state.items, { kind: 'unsupported', key, type: event.type }] };
+      return { ...base, items: [...state.items, { kind: 'unsupported', key, type: event.type, ts }] };
   }
 }
 

@@ -34,6 +34,8 @@ export type ThreadEvent = {
   type: string;
   turn_id?: number | null;
   data: Record<string, unknown>;
+  ts?: string;
+  created_at?: string;
 };
 
 export type EventsPage = { events: ThreadEvent[]; next_after: number; has_more: boolean };

@@ -8,8 +8,18 @@ import { Composer } from '@/components/composer';
 import { ConversationTitle } from '@/components/conversation-title';
 import { JumpToLatest } from '@/components/jump-to-latest';
 import { KeyboardScreen } from '@/components/keyboard-screen';
-import { TranscriptRow, type Row } from '@/components/transcript-row';
+import { DateDivider, TranscriptRow, type Row } from '@/components/transcript-row';
 import { agentName, type Agent } from '@/lib/agents';
+import {
+  formatReactionReply,
+  getCachedThreadReactions,
+  isLatestAssistantMessage,
+  loadThreadReactions,
+  saveThreadReaction,
+  type ReactionKind,
+  type ReactionsMap,
+} from '@/lib/reactions';
+import { findDateDividerItemKeys, formatDateDivider } from '@/lib/relative-time';
 import { rowKeyForSeq } from '@/lib/search';
 import { pendingApprovals } from '@/lib/transcript';
 import { useApi } from '@/lib/use-api';
@@ -39,8 +49,37 @@ export default function Thread() {
     api?.listAgents().then(setAgents, () => undefined);
   }, [api]);
 
+  const threadId = Number(id);
+  const [reactions, setReactions] = useState<ReactionsMap>(() => getCachedThreadReactions(threadId));
+  const [sendingReaction, setSendingReaction] = useState(false);
+
+  useEffect(() => {
+    loadThreadReactions(threadId).then(setReactions, () => {});
+  }, [threadId]);
+
+  const handleReact = async (itemKey: string, reaction: ReactionKind) => {
+    if (reactions[itemKey] === reaction) {
+      const next = saveThreadReaction(threadId, itemKey, null);
+      setReactions(next);
+      return;
+    }
+    if (running || sendingReaction) return;
+    setSendingReaction(true);
+    try {
+      const reply = formatReactionReply(reaction);
+      const ok = await send(reply);
+      if (ok) {
+        const next = saveThreadReaction(threadId, itemKey, reaction);
+        setReactions(next);
+      }
+    } finally {
+      setSendingReaction(false);
+    }
+  };
+
   const waiting = pendingApprovals(transcript.items);
   const rows: Row[] = transcript.typing ? [...transcript.items, { kind: 'typing', key: 'typing', text: transcript.typing }] : transcript.items;
+  const dividerKeys = findDateDividerItemKeys(rows);
 
   const targetIndex = targetKey ? rows.findIndex((row) => row.key === targetKey) : -1;
   useEffect(() => {
@@ -97,11 +136,22 @@ export default function Thread() {
             }}
             data={rows}
             keyExtractor={(row) => row.key}
-            renderItem={({ item }) => (
-              <View style={item.key === targetKey ? styles.target : undefined}>
-                <TranscriptRow row={item} attachmentSource={attachmentSource} />
-              </View>
-            )}
+            renderItem={({ item }) => {
+              const dividerLabel = dividerKeys.has(item.key) && 'ts' in item && item.ts ? formatDateDivider(item.ts) : null;
+              const canReply = item.kind === 'assistant' && !item.incomplete && isLatestAssistantMessage(item.key, transcript.items);
+              return (
+                <View style={item.key === targetKey ? styles.target : undefined}>
+                  {dividerLabel ? <DateDivider label={dividerLabel} /> : null}
+                  <TranscriptRow
+                    row={item}
+                    attachmentSource={attachmentSource}
+                    reaction={reactions[item.key] ?? null}
+                    onReact={canReply ? (r) => void handleReact(item.key, r) : undefined}
+                    disabled={running || sendingReaction}
+                  />
+                </View>
+              );
+            }}
             // Rows further down are not measured yet: go near, then to the row itself.
             onScrollToIndexFailed={(info) => {
               list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });

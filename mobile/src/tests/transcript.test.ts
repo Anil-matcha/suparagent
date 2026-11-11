@@ -14,6 +14,15 @@ describe('transcript', () => {
     expect(t.runningTurnId).toBeNull();
   });
 
+  it('preserves timestamps on user and assistant items', () => {
+    const t = applyEvents(emptyTranscript(), [
+      { seq: 1, type: 'turn.started', turn_id: 1, data: { prompt_text: 'hello' }, ts: '2026-11-10T12:00:00Z' },
+      { seq: 2, type: 'assistant.message', turn_id: 1, data: { text: 'hi' }, created_at: '2026-11-10T12:01:00Z' },
+    ]);
+    expect(t.items[0]).toMatchObject({ kind: 'user', ts: '2026-11-10T12:00:00Z' });
+    expect(t.items[1]).toMatchObject({ kind: 'assistant', ts: '2026-11-10T12:01:00Z' });
+  });
+
   it('tracks the running turn', () => {
     const t = applyEvent(emptyTranscript(), ev(1, 'turn.started', { prompt_text: 'x' }, 7));
     expect(t.runningTurnId).toBe(7);
