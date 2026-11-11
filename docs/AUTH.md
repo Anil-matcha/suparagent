@@ -57,7 +57,8 @@ Setting it:
   anywhere else, because whoever reached a fresh remote server first would
   otherwise own it.
 - **From the server's shell**, at any time (this also replaces a forgotten
-  passphrase and signs every browser out; paired devices keep working):
+  passphrase and signs the owner's browsers out; paired devices and invited
+  members keep working):
 
   ```sh
   cd backend
@@ -378,9 +379,14 @@ served separately.
 
 ## Limits
 
-- One owner. No multiple accounts, no per-user data separation; every
-  principal acts as the owner (within its scope). The `user_id` that older
-  routes take as a parameter is not cross-checked against the session.
+- One workspace and one owner. The owner can invite other people as members
+  (see Members above), but there is still no per-person data separation: they
+  share the same agents, conversations, files and memory, and an install has
+  no separate workspaces to switch between. There is no per-agent visibility,
+  no invitation email and no password recovery for a member (an admin removes
+  and re-invites them). Paired devices and the desktop app act as the owner
+  within their scope. The `user_id` that older routes take as a parameter is
+  not cross-checked against the session.
 - Sign-in and pairing lockouts are saved to small files next to the database
   (desktop profile folder, SQLite folder, or `AUTH_LIMITS_DIR`), so a restart
   keeps them; with PostgreSQL and no `AUTH_LIMITS_DIR` they stay in memory. The

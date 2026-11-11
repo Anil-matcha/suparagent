@@ -22,10 +22,11 @@ Outside the desktop app every request needs a sign-in. Full design and tradeoffs
    cd backend && uv run python -m app.auth.cli set-passphrase
    ```
 
-   The same command replaces a forgotten passphrase (every browser is then signed out).
+   The same command replaces a forgotten passphrase (the owner's browsers are then signed out; teammates and paired devices stay signed in).
 3. **Pair a phone or another browser:** **Settings → Devices → Create pairing code**, choose *Chat only*, *Chat and files* or *Full access*, then scan the QR code or open `/pair` on the other device and type the code (5 minutes, single use). Revoke a device from the same list. From the shell: `uv run python -m app.auth.cli pairing-code [--scope chat]`, `devices`, `revoke ID`.
 4. **Scripts:** pair them (`POST /api/v1/auth/pair` with `{"code": "…"}` returns a token once) and send `Authorization: Bearer <token>`.
 5. **An older browser** that kept its guest or Telegram id in `localStorage` hands it to the server after the first sign-in and forgets it; your tasks and schedules stay yours.
+6. **Teammates (optional, server installs):** **Settings → Account & privacy → People → Invite someone** makes a one-time link for an email address. They pick a name and a password and work in the same workspace. Roles, permissions and limits are in [AUTH.md](AUTH.md#members).
 
 Settings: `TRUSTED_HOSTS` (default `localhost,127.0.0.1,[::1]`; add your public host name when self-hosting), `LOOPBACK_TRUST` (`off` by default; `programs` lets scripts on this machine skip sign-in, `all` also local browsers, development only), `FRONTEND_ORIGINS` (also the origins allowed to send cookie requests). Self-hosting: put HTTPS in front, serve the web UI and the API from the same site, and see the checklist in [AUTH.md](AUTH.md#self-hosting-checklist).
 

@@ -65,11 +65,14 @@ platform and release qualification limits.
   durable history, missed/interrupted states, approval handling, notifications
   and configurable retry of failed runs. A routine never approves actions by
   itself. See [routines](ROUTINES.md).
-- **Owner access and self-hosting.** Use a local desktop, or run a personal
+- **Owner access, teammates and self-hosting.** Use a local desktop, or run a
   server with owner sign-in, paired-device scopes, HTTPS proxy guidance,
-  backups and updates. This is a single-owner product; multi-user organization
-  hosting is not implemented. See [authentication](AUTH.md) and
-  [self-hosting](SELF-HOSTING.md).
+  backups and updates. On a server the owner can invite teammates by one-time
+  link. Each signs in as themselves with a role (owner, admin, member, viewer)
+  and, for a member, chosen permissions: reply, read files, answer commands,
+  save standing rules, manage agents. Everyone shares one workspace; there are
+  no separate workspaces to switch between and no multi-organization hosting.
+  See [authentication](AUTH.md#members) and [self-hosting](SELF-HOSTING.md).
 - **Phone app.** An early, source-only app pairs with your server as a chat-only
   device to list and start conversations, follow answers live, stop one, and
   allow or deny tool calls. No push notifications, no store release, and not yet

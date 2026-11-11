@@ -48,7 +48,7 @@ cannot use connected apps yet.
    already chatting, start a new conversation so it receives the updated tool
    list.
 
-Only the owner can do this. A paired chat device cannot see or change the key
+Only the owner or an admin can do this. A member or a paired chat device cannot see or change the key
 or the connections.
 
 ## What an agent can do

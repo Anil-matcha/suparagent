@@ -23,6 +23,10 @@ a Claude or Codex team lead create it with `create_room`. Choose one to twelve a
 when creating it. You can edit the
 room name, shared instructions, roster and default responder setting later.
 
+In a workspace shared with teammates, a member's post carries their name, so the transcript and the agents
+see who said what, and agents treat a member's lines as another person's, not the owner's. Posting needs the
+**Reply** permission and creating or editing rooms needs **Manage agents** (see [AUTH.md](AUTH.md#members)).
+
 Room settings adds or removes members without deleting the conversation or any
 member's work history. Choose one to twelve distinct live agents you own; agents
 assigned to a team must belong to your team. Removing the default responder

@@ -438,10 +438,11 @@ A stretch with no person's words (only other agents) is skipped. Entries are
 sourced to the room: `- 2026-10-23 · from room "Launch" (noticed) · The launch
 moved to Friday`. The switch, the room and the agent's membership are checked
 again when the batch is captured, and the turns still waiting at a normal
-shutdown are kept as ids and rebuilt from the room at the next start. This app has
-one owner, so another person's lines appear only when a room message carries
-`owner: false` in its author; a room that fewer people can see than the agent
-cannot exist here, so that check has nothing to do. Never read: room hand-offs
+shutdown are kept as ids and rebuilt from the room at the next start. In a
+workspace shared with teammates, another person's lines are the room posts of members
+and non-owner admins: they carry `owner: false` in their author, and the owner's own
+posts do not. A room that fewer people can see than the agent cannot exist here, so
+that check has nothing to do. Never read: room hand-offs
 that carry no person's words, turns that did not succeed and agents whose notes
 or upkeep are off.
 
@@ -621,7 +622,7 @@ adds `agent.memory_upkeep`, `a5c3e8b1d7f2` adds `agent.compaction_summary` and
 ## Not covered
 
 - The model-written compaction summary needs an engine with a quick call here (an OpenAI-compatible endpoint or OpenRouter), or, for an ACP agent, a helper model; without either the excerpt summary stands.
-- About me is one text for the whole installation; there is no per-person profile (the app has one owner).
+- About me is one text for the whole installation; there is no per-person profile. In a workspace shared with teammates everyone shares the same notes, and agents do not learn facts from anyone else's one-to-one chats, only from the owner's (and from chats with no signed-in person behind them, such as the desktop app or a paired phone).
 - Noticed facts need an engine with a quick call here (Claude, OpenAI-compatible, OpenRouter), or a helper model set for Codex and ACP agents; without either they are not read.
 - There is one helper for the installation, not one per agent or per engine; token counts of a helper call are recorded only when its engine reports them (an OpenAI-compatible endpoint does, the Claude CLI's text output does not).
 - Noticed facts come from one conversation at a time, one call each; several quiet conversations are not batched into one call.
