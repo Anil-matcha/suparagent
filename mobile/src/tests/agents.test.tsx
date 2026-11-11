@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
-import Conversations from '../app';
+import { ConversationsList as Conversations } from '@/components/conversations-list';
 import NewConversation from '../app/new';
 import { agentName, agentSummary, approvalModeLabel, type Agent } from '@/lib/agents';
 import { ApiError, createApi, describeApiError } from '@/lib/api';

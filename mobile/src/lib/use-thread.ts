@@ -14,7 +14,7 @@ import { useApi } from './use-api';
 // Events are applied in small batches: opening a long conversation replays every stored event.
 const FLUSH_MS = 40;
 
-export function useThread(threadId: number) {
+export function useThread(threadId: number | null) {
   const api = useApi();
   const { state } = useAuth();
   const revoked = useRevoked();
@@ -34,7 +34,7 @@ export function useThread(threadId: number) {
 
   // The conversation's title and how many events it has, so the screen knows when it has caught up.
   useEffect(() => {
-    if (!api) return;
+    if (!api || !threadId) return;
     let cancelled = false;
     api
       .getThread(threadId)
@@ -52,7 +52,7 @@ export function useThread(threadId: number) {
   // Follow the stream; start over when the app comes back to the foreground, since the OS may have
   // closed the connection while it was away.
   useEffect(() => {
-    if (!server || !token) return;
+    if (!server || !token || !threadId) return;
     const controller = new AbortController();
     let queue: ThreadEvent[] = [];
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -90,7 +90,7 @@ export function useThread(threadId: number) {
 
   const send = useCallback(
     async (text: string, attachmentIds: string[] = []): Promise<boolean> => {
-      if (!api) return false;
+      if (!api || !threadId) return false;
       try {
         await api.sendTurn(threadId, text, attachmentIds);
         setError(null);
@@ -106,7 +106,7 @@ export function useThread(threadId: number) {
   // Opens a picker and uploads what was chosen. Files that are refused are named; the rest still attach.
   const attach = useCallback(
     async (kind: 'photo' | 'file', room: number): Promise<Attachment[]> => {
-      if (!api || room <= 0) return [];
+      if (!api || !threadId || room <= 0) return [];
       const added: Attachment[] = [];
       const problems: string[] = [];
       try {
@@ -132,10 +132,10 @@ export function useThread(threadId: number) {
     [api, threadId],
   );
 
-  const attachmentSource = useCallback((attachmentId: string) => (api ? api.attachmentSource(threadId, attachmentId) : undefined), [api, threadId]);
+  const attachmentSource = useCallback((attachmentId: string) => (api && threadId ? api.attachmentSource(threadId, attachmentId) : undefined), [api, threadId]);
 
   const stop = useCallback(async () => {
-    if (!api) return;
+    if (!api || !threadId) return;
     try {
       await api.stopTurn(threadId);
       setError(null);
@@ -146,7 +146,7 @@ export function useThread(threadId: number) {
 
   const answerApproval = useCallback(
     async (approvalId: string, decision: 'allow' | 'deny'): Promise<boolean> => {
-      if (!api) return false;
+      if (!api || !threadId) return false;
       try {
         await api.answerApproval(threadId, approvalId, decision);
         setError(null);
@@ -159,7 +159,19 @@ export function useThread(threadId: number) {
     [api, threadId],
   );
 
-  const loaded = thread !== null && transcript.lastSeq >= thread.last_seq;
+  const loaded = threadId ? (thread !== null && transcript.lastSeq >= thread.last_seq) : true;
 
-  return { transcript, thread, connection, error, loaded, running: transcript.runningTurnId !== null, send, attach, attachmentSource, stop, answerApproval };
+  return {
+    transcript: threadId ? transcript : emptyTranscript(),
+    thread,
+    connection: threadId ? connection : 'connected',
+    error,
+    loaded,
+    running: threadId ? transcript.runningTurnId !== null : false,
+    send,
+    attach,
+    attachmentSource,
+    stop,
+    answerApproval,
+  };
 }
