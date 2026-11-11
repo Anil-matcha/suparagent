@@ -45,6 +45,7 @@ import { parseSkillCommand, skillErrorText, toggleSkill, learnableTurn, type Ski
 import { RoomList } from "./RoomList";
 import { RoomView } from "./RoomView";
 import { collaboration, type TeamState } from "@/lib/collaboration";
+import { WorkspaceSwitcher } from "@/components/shell/WorkspaceSwitcher";
 import { useSession } from "@/components/AuthGate";
 import { can } from "@/lib/permissions";
 import { onboarding } from "@/lib/onboarding";
@@ -1166,6 +1167,7 @@ export function ChatApp() {
       onEditAgent={session?.scopes.includes("admin") ? agent => { setEditAgent(agent); setAgentsCreate(false); setAgentsOpen(true); } : undefined}
       onDeleteAgent={agents !== null && fullAccess ? (agent) => { setAgentsCreate(false); setDeleteAgentTarget(agent); setAgentsOpen(true); } : undefined}
       onNewAgent={agents !== null && mayManageAgents ? () => { setEditAgent(null); setAgentsCreate(true); setAgentsOpen(true); } : undefined}
+      workspaces={<WorkspaceSwitcher onNavigate={() => setDrawerOpen(false)} />}
       collaboration={ready ? <RoomList selected={roomId} onTeam={() => setTeamOpen(true)} onNavigate={() => setDrawerOpen(false)} /> : undefined}
       onOpenRoutines={ready && fullAccess && agents !== null ? () => setRoutinesOpen(true) : undefined}
       onOpenPlanner={ready && fullAccess && agents !== null ? () => setPlannerOpen(true) : undefined}
