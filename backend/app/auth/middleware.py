@@ -23,10 +23,11 @@ import json
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.auth import credentials, request_info, store, tenancy
+from app.auth import credentials, live, people, request_info, store, tenancy
 from app.db import tenant_schema
-from app.auth.policy import Principal, allows, is_public, required_scope
+from app.auth.policy import Principal, allows, is_public, is_stream, read_only_allows, required_scope
 from app.core.config import settings
+from app.db.models.auth import AuthSession
 from app.desktop import profile
 
 COOKIE_NAME = "od_session"
@@ -120,14 +121,41 @@ class AuthMiddleware:
             principal = principal_of(scope)
             if settings.TENANT_SCHEMAS_ENABLED and principal is not None and principal.tenant_id:
                 with tenant_schema.use_tenant(principal.tenant_id):
-                    await self.app(scope, receive, send)
+                    await self._serve(scope, receive, send, principal)
             else:
-                await self.app(scope, receive, send)
+                await self._serve(scope, receive, send, principal)
         elif scope["type"] == "websocket":
             await _close_socket(receive, send)
         else:
             status, code, message, clear = refusal
             await _refuse(send, status, code, message, clear_cookie=clear)
+
+    async def _serve(self, scope: Scope, receive: Receive, send: Send, principal: Principal | None) -> None:
+        if (
+            scope["type"] == "http"
+            and principal is not None
+            and principal.session_id is not None
+            and is_stream(scope.get("method", "GET").upper(), scope.get("path", ""))
+        ):
+            await live.serve_while_valid(
+                self.app, scope, receive, send, principal.session_id, lambda: self._still_signed_in(principal)
+            )
+        else:
+            await self.app(scope, receive, send)
+
+    async def _still_signed_in(self, principal: Principal) -> bool:
+        """False once the session is revoked or expired, or its person was removed. A database
+        error counts as still signed in: a hiccup must not cut everyone's streams."""
+        try:
+            async with self.sessions()() as db:
+                record = await db.get(AuthSession, principal.session_id)
+                if record is None or record.revoked_at is not None or record.expires_at <= store.utcnow():
+                    return False
+                if principal.person_id is not None:
+                    return await people.get_active_person(db, principal.person_id) is not None
+                return True
+        except Exception:
+            return True
 
     async def _authorize(self, scope: Scope) -> tuple[int, str, str, bool] | None:
         hostname = request_info.request_hostname(scope)
@@ -163,6 +191,12 @@ class AuthMiddleware:
                 session = await store.authenticate(
                     db, bearer if bearer is not None else cookie, kind="device" if bearer is not None else "browser"
                 )
+                person = None
+                if session is not None and session.person_id is not None:
+                    # A member's rights are their role today, not what the session was made with.
+                    person = await people.get_active_person(db, session.person_id)
+                    if person is None:
+                        session = None
             if session is None:
                 return (401, "session_invalid",
                         "This sign-in has expired or was revoked. Sign in or pair this device again.",
@@ -172,11 +206,18 @@ class AuthMiddleware:
                 expected = credentials.csrf_token_for(cookie)
                 if len(presented) != 1 or not hmac.compare_digest(presented[0].encode(), expected.encode()):
                     return (403, "csrf_failed", "Missing or wrong CSRF token. Reload the page.", False)
+            scopes = people.person_scopes(person) if person is not None else session.scopes
             needed = required_scope(method, path)
-            if not allows(session.scopes, needed):
+            if not allows(scopes, needed):
                 return (403, "scope_denied", f"This device needs the {needed} scope for that.", False)
-            set_principal(scope, Principal(kind=session.kind, scopes=session.scopes,
-                                           session_id=session.id, label=session.label))
+            if (person is not None and people.person_read_only(person) and method not in SAFE_METHODS
+                    and not read_only_allows(method, path)):
+                return (403, "read_only", "You can read but not send or change anything here.", False)
+            if person is not None:
+                set_principal(scope, people.principal_for(person, kind=session.kind, session_id=session.id))
+            else:
+                set_principal(scope, Principal(kind=session.kind, scopes=session.scopes,
+                                               session_id=session.id, label=session.label))
             return None
 
         if loopback_trusted(scope):

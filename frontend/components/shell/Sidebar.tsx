@@ -97,6 +97,7 @@ export function Sidebar({
   onOpenRoutines,
   onOpenPlanner,
   onOpenWorkflows,
+  showApps = true,
   onNavigate,
   collaboration,
 }: {
@@ -119,6 +120,8 @@ export function Sidebar({
   onOpenRoutines?: () => void;
   onOpenPlanner?: () => void;
   onOpenWorkflows?: () => void;
+  // The Apps page is for admins; a member is not offered it.
+  showApps?: boolean;
   onNavigate?: () => void;
   collaboration?: React.ReactNode;
 }) {
@@ -264,17 +267,19 @@ export function Sidebar({
               <div className="pt-0.5">
                 {listed.length === 0 && (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onNewAgent?.();
-                        onNavigate?.();
-                      }}
-                      className="flex w-full cursor-pointer items-center gap-2 rounded-field px-2.5 py-1.5 text-left text-xs text-muted transition-colors hover:bg-hover/60 hover:text-ink"
-                    >
-                      <Plus size={13} className="shrink-0 text-muted" />
-                      <span>{t("sidebar.createAgent")}</span>
-                    </button>
+                    {onNewAgent && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onNewAgent();
+                          onNavigate?.();
+                        }}
+                        className="flex w-full cursor-pointer items-center gap-2 rounded-field px-2.5 py-1.5 text-left text-xs text-muted transition-colors hover:bg-hover/60 hover:text-ink"
+                      >
+                        <Plus size={13} className="shrink-0 text-muted" />
+                        <span>{t("sidebar.createAgent")}</span>
+                      </button>
+                    )}
                     {onManageAgents && (
                       <button
                         type="button"
@@ -381,10 +386,12 @@ export function Sidebar({
               <span className="font-medium">Workflows</span>
             </button>
           )}
-          <Link href="/apps/" className={cn(ROW, "hover:bg-hover/60")}>
-            <LayoutGrid size={16} aria-hidden="true" className="shrink-0 text-muted" />
-            <span className="font-medium">{t("sidebar.apps")}</span>
-          </Link>
+          {showApps && (
+            <Link href="/apps/" className={cn(ROW, "hover:bg-hover/60")}>
+              <LayoutGrid size={16} aria-hidden="true" className="shrink-0 text-muted" />
+              <span className="font-medium">{t("sidebar.apps")}</span>
+            </Link>
+          )}
         </div>
 
         {/* Bottom bar with Settings and Theme Toggle */}

@@ -17,7 +17,22 @@ export type SessionInfo = {
   user_id: string | null;
   csrf_token: string | null;
   owner_configured: boolean;
+  // Set when a signed-in member (not a paired device) is acting.
+  person_id?: number | null;
+  role?: PersonRole | null;
+  display_name?: string | null;
+  // What a signed-in member may do; null or missing for a device, the desktop app and the like.
+  permissions?: string[] | null;
 };
+
+export type PersonRole = "owner" | "admin" | "member" | "viewer";
+
+// The invitation arrives in the URL fragment (#token=…&email=…), which never reaches a server log.
+export function inviteFromHash(hash: string): { token: string; email: string } | null {
+  const params = new URLSearchParams(hash.replace(/^#/, ""));
+  const token = params.get("token")?.trim();
+  return token ? { token, email: params.get("email")?.trim() ?? "" } : null;
+}
 
 export type PairingCode = {
   id: number;
@@ -73,8 +88,13 @@ export function safeNextPath(raw: string | null, base = ""): string {
   const chat = `${base}/chat`;
   if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return chat;
   const inside = base && raw.startsWith(`${base}/`) ? raw.slice(base.length) : raw;
-  if (inside.startsWith("/login") || inside.startsWith("/pair")) return chat;
+  if (inside.startsWith("/login") || inside.startsWith("/pair") || inside.startsWith("/join")) return chat;
   return raw;
+}
+
+/** A link an invited person opens. The secret rides in the fragment, as pairing codes do. */
+export function inviteLink(origin: string, basePath: string, invite: { token: string; email: string }): string {
+  return `${origin}${basePath}/join/#token=${encodeURIComponent(invite.token)}&email=${encodeURIComponent(invite.email)}`;
 }
 
 export function pairingCodeFromHash(hash: string): string {

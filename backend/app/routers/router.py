@@ -28,6 +28,7 @@ from app.routers.images import router as images_router
 from app.routers.usage import router as usage_router
 from app.routers.history_export import router as history_export_router
 from app.routers.profile import router as profile_router
+from app.auth.people_routes import join_router as people_join_router, router as people_router
 from app.auth.routes import router as auth_router
 from fastapi import APIRouter
 
@@ -41,6 +42,8 @@ def health():
 
 
 router.include_router(auth_router)
+router.include_router(people_join_router)
+router.include_router(people_router)
 router.include_router(sandbox_router)
 router.include_router(task_router)
 router.include_router(link_router)

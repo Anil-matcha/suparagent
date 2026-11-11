@@ -15,6 +15,11 @@ export const auth = {
     remember(await request<SessionInfo>("/auth/setup", { method: "POST", body: JSON.stringify({ passphrase }) })),
   login: async (passphrase: string) =>
     remember(await request<SessionInfo>("/auth/login", { method: "POST", body: JSON.stringify({ passphrase }) })),
+  // Members of a shared workspace: join by invitation, then sign in with email and password.
+  acceptInvite: async (body: { token: string; email: string; display_name: string; password: string }) =>
+    remember(await request<SessionInfo>("/auth/invites/accept", { method: "POST", body: JSON.stringify(body) })),
+  memberLogin: async (email: string, password: string) =>
+    remember(await request<SessionInfo>("/auth/people/login", { method: "POST", body: JSON.stringify({ email, password }) })),
   logout: async () => {
     try {
       await request<void>("/auth/logout", { method: "POST" });

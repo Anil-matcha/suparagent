@@ -6,7 +6,7 @@ and device tokens and pairing codes as SHA-256 digests of high-entropy values.
 
 from datetime import datetime
 
-from sqlalchemy import Identity, Index, Integer, String, func
+from sqlalchemy import BigInteger, Identity, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -59,6 +59,9 @@ class AuthSession(Base):
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # The person this browser session belongs to (models/people.py). Null for sessions made
+    # before people existed, and for paired devices.
+    person_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
 
 
 class PairingCode(Base):

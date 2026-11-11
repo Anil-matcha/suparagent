@@ -224,6 +224,9 @@ async def send_turn(
         return await rt.send_turn(
             thread_id, payload.prompt_text, attachment_ids=payload.attachment_ids, skills=payload.skills,
             configuration_allowed=principal is None or principal.is_admin,
+            person_id=principal.person_id if principal else None,
+            person_label=principal.label if principal and principal.person_id is not None else None,
+            person_is_owner=principal is None or principal.person_id is None or principal.role == "owner",
         )
     except SkillError as error:
         raise _error(error.status, error.code, error.message)
@@ -273,6 +276,9 @@ async def branch_thread(
         await rt.send_turn(
             branch.id, payload.prompt_text,
             configuration_allowed=principal is None or principal.is_admin,
+            person_id=principal.person_id if principal else None,
+            person_label=principal.label if principal and principal.person_id is not None else None,
+            person_is_owner=principal is None or principal.person_id is None or principal.role == "owner",
         )
     except Exception as exc:
         # Never leave an empty branch behind when the resend could not start.
@@ -426,19 +432,38 @@ async def answer_approval(
     thread_id: int,
     approval_id: str,
     payload: ApprovalAnswerRequest,
+    request: Request,
     rt: ThreadRuntime = Depends(get_runtime),
 ):
     """Allow or deny one tool call. The first answer wins. An approval already
     answered, cancelled or expired, or whose turn is no longer running, answers
     409 and authorizes nothing."""
+    from app.auth.middleware import principal_of
+    from app.auth.policy import has_permission
+
+    principal = principal_of(request.scope)
+    if not has_permission(principal, "approve"):
+        raise _error(403, "permission_denied", "You do not have permission to answer commands. Ask an admin.")
     await _thread_or_404(rt, thread_id)
     async with rt.session() as db:
         approval = await store.get_approval(db, approval_id)
     if approval is None or approval.thread_id != thread_id:
         raise HTTPException(status_code=404, detail="Approval not found")
-    if not await rt.answer_approval(approval_id, payload.decision, remember=payload.remember):
+    # A standing "always allow" rule applies to the whole workspace, so it needs its own permission.
+    # Without it the answer still counts, just once.
+    may_remember = has_permission(principal, "rules")
+    named = principal is not None and principal.person_id is not None
+    if not await rt.answer_approval(
+        approval_id, payload.decision, remember=payload.remember and may_remember,
+        person_id=principal.person_id if named else None, person_label=principal.label if named else None,
+    ):
         raise _error(
             409, "approval_not_waiting", "That request is no longer waiting for an answer."
+        )
+    if payload.remember and payload.decision == "allow" and not may_remember:
+        return ApprovalAnswerResponse(
+            decision=payload.decision,
+            remember_error="Allowed this once. Saving a standing rule needs the owner's permission.",
         )
     if not (payload.remember and payload.decision == "allow"):
         return ApprovalAnswerResponse(decision=payload.decision)

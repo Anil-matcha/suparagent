@@ -46,6 +46,7 @@ import { RoomList } from "./RoomList";
 import { RoomView } from "./RoomView";
 import { collaboration, type TeamState } from "@/lib/collaboration";
 import { useSession } from "@/components/AuthGate";
+import { can } from "@/lib/permissions";
 import { onboarding } from "@/lib/onboarding";
 import { TeamPanel } from "./TeamPanel";
 import { parseRoom, roomHref } from "@/lib/rooms";
@@ -144,6 +145,11 @@ export function ChatApp() {
   const [teamState, setTeamState] = useState<TeamState | null>(null);
   const [editAgent, setEditAgent] = useState<Agent | null>(null);
   const { session } = useSession();
+  // Notifications, "needs you", setup progress and audio settings belong to the workspace's admins: a member's
+  // session is refused them, so the page does not ask. An unknown session (null) behaves as before.
+  const fullAccess = session === null || session.scopes.includes("admin");
+  // Creating and managing agents is its own permission for a member (a reply-only member is not offered it).
+  const mayManageAgents = can(session?.permissions, "agents");
 
   const [gate, setGate] = useState<Gate>({ phase: "loading" });
   // Bumped by "Check again": Claude may have been installed or signed in since.
@@ -239,7 +245,7 @@ export function ChatApp() {
   const [audioUrl, setAudioUrl] = useState("");
   const [audioConsent, setAudioConsent] = useState(false);
   const [audioCapability, setAudioCapability] = useState<{ provider_label: string; available: boolean; retention: string } | null>(null);
-  useEffect(() => { api.audioCapabilities().then(setAudioCapability).catch(() => setAudioCapability(null)); }, []);
+  useEffect(() => { if (fullAccess) api.audioCapabilities().then(setAudioCapability).catch(() => setAudioCapability(null)); }, [fullAccess]);
   const [attachNotice, setAttachNotice] = useState<string | null>(null);
   // Skills picked for the next message only, and the text a Save as skill opened the editor with.
   // Both are tied to the agent they were made for, so another agent starts clean.
@@ -273,13 +279,13 @@ export function ChatApp() {
   const { transcript } = stream;
 
   useEffect(() => {
-    if (params.get("onboarding") !== "1" || threadId !== null) return;
+    if (!fullAccess || params.get("onboarding") !== "1" || threadId !== null) return;
     let live = true;
     onboarding.get().then(value => {
       if (live) setDraft(previous => previous || value.draft.first_request);
     }).catch(() => {});
     return () => { live = false; };
-  }, [params, threadId]);
+  }, [params, threadId, fullAccess]);
 
   useEffect(() => {
     if (threadId === null || transcript.runningTurnId !== null || !transcript.items.some(item => item.kind === "turn_end")) return;
@@ -357,7 +363,7 @@ export function ChatApp() {
   // today's Needs you card). It names the card's chat only on a return or the
   // first visit of the day, and never moves a chat that is already open.
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !fullAccess) return;
     let cancelled = false;
     const ping = () => {
       if (document.visibilityState === "hidden") return;
@@ -375,7 +381,7 @@ export function ChatApp() {
       cancelled = true;
       document.removeEventListener("visibilitychange", ping);
     };
-  }, [ready, router]);
+  }, [ready, router, fullAccess]);
 
   const checkAgain = () => {
     setGate({ phase: "loading" });
@@ -436,7 +442,7 @@ export function ChatApp() {
   }, [ready, agentTick, transcript.runningTurnId]);
 
   useEffect(() => {
-    if (!ready || agents === null || agents.length > 0 || firstAgentRedirecting.current) return;
+    if (!fullAccess || !ready || agents === null || agents.length > 0 || firstAgentRedirecting.current) return;
     let cancelled = false;
     onboarding.get().then((progress) => {
       if (!cancelled && progress.status === "pending" && !progress.existing_agents) {
@@ -445,7 +451,7 @@ export function ChatApp() {
       }
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [agents, ready, router]);
+  }, [agents, ready, router, fullAccess]);
 
   useEffect(() => {
     if (!ready) return;
@@ -1099,17 +1105,17 @@ export function ChatApp() {
             }
           : undefined
       }
-      onApprovals={ready ? () => setApprovalsOpen(true) : undefined}
+      onApprovals={ready && fullAccess ? () => setApprovalsOpen(true) : undefined}
       onFiles={ready && threadId !== null && thread !== null ? () => setFilesOpen(true) : undefined}
-      onUsage={ready ? () => setPanel("usage") : undefined}
-      onToday={ready ? () => void refreshToday() : undefined}
+      onUsage={ready && fullAccess ? () => setPanel("usage") : undefined}
+      onToday={ready && fullAccess ? () => void refreshToday() : undefined}
       onCopyLink={copyLink}
       onUndo={undoOffered ? () => setUndoOpen(true) : undefined}
       usageHint={conversationTotal}
       trailing={
         <>
           <LanguageSelect compact />
-          {ready ? (
+          {ready && fullAccess ? (
             <NotificationBell
               elevated={routinesOpen || panel === "usage"}
               onOpen={() => {
@@ -1151,19 +1157,20 @@ export function ChatApp() {
       actions={listActions}
       error={manageError}
       onNewChat={startChat}
-      onManageAgents={agents !== null ? () => { setEditAgent(null); setAgentsCreate(false); setAgentsOpen(true); } : undefined}
+      onManageAgents={agents !== null && mayManageAgents ? () => { setEditAgent(null); setAgentsCreate(false); setAgentsOpen(true); } : undefined}
       leadAgentId={teamState?.team?.lead_agent_id ?? null}
       onChangeLead={session?.scopes.includes("admin") ? async (agent, remove) => {
         try { setTeamState(await (remove ? collaboration.clearLead(agent.id) : collaboration.lead(agent.id))); setAgentTick(value => value + 1); }
         catch (err) { setManageError(err instanceof ApiError ? err.message : "Could not change the lead."); }
       } : undefined}
       onEditAgent={session?.scopes.includes("admin") ? agent => { setEditAgent(agent); setAgentsCreate(false); setAgentsOpen(true); } : undefined}
-      onDeleteAgent={agents !== null ? (agent) => { setAgentsCreate(false); setDeleteAgentTarget(agent); setAgentsOpen(true); } : undefined}
-      onNewAgent={agents !== null ? () => { setEditAgent(null); setAgentsCreate(true); setAgentsOpen(true); } : undefined}
+      onDeleteAgent={agents !== null && fullAccess ? (agent) => { setAgentsCreate(false); setDeleteAgentTarget(agent); setAgentsOpen(true); } : undefined}
+      onNewAgent={agents !== null && mayManageAgents ? () => { setEditAgent(null); setAgentsCreate(true); setAgentsOpen(true); } : undefined}
       collaboration={ready ? <RoomList selected={roomId} onTeam={() => setTeamOpen(true)} onNavigate={() => setDrawerOpen(false)} /> : undefined}
-      onOpenRoutines={ready && agents !== null ? () => setRoutinesOpen(true) : undefined}
-      onOpenPlanner={ready && agents !== null ? () => setPlannerOpen(true) : undefined}
-      onOpenWorkflows={ready && agents !== null ? () => setWorkflowsOpen(true) : undefined}
+      onOpenRoutines={ready && fullAccess && agents !== null ? () => setRoutinesOpen(true) : undefined}
+      onOpenPlanner={ready && fullAccess && agents !== null ? () => setPlannerOpen(true) : undefined}
+      onOpenWorkflows={ready && fullAccess && agents !== null ? () => setWorkflowsOpen(true) : undefined}
+      showApps={fullAccess}
       onNavigate={() => { setDrawerOpen(false); setModelDraft(null); }}
     />
   );

@@ -70,7 +70,7 @@ def free_port() -> int:
 
 def make_stand_in_ui(folder: Path) -> Path:
     """Just enough pages for the checks, for a run with no web build."""
-    for page in ("", "login", "pair", "chat", "settings"):
+    for page in ("", "login", "pair", "join", "chat", "settings"):
         target = folder / page
         target.mkdir(parents=True, exist_ok=True)
         (target / "index.html").write_text(f"<html><title>{page or 'home'}</title></html>")
@@ -207,7 +207,7 @@ def refuses_public_bind(server: Server) -> None:
 
 @check("the pages load without signing in; a missing page is a 404")
 def pages_load(server: Server) -> None:
-    for path in ("/", "/login/", "/pair/", "/chat/", "/settings/", "/tasks/"):
+    for path in ("/", "/login/", "/pair/", "/join/", "/chat/", "/settings/", "/tasks/"):
         response = server.client.get(path, headers=PROXY)
         assert response.status_code == 200 and "text/html" in response.headers["content-type"], (path, response.status_code)
     assert server.client.get("/no-such-page/", headers=PROXY).status_code == 404
@@ -270,6 +270,43 @@ def pairs_phone(server: Server) -> None:
     assert settings.status_code == 403, f"GET /settings with a chat-only token -> {settings.status_code} {settings.text[:300]}"
     again = server.client.post("/api/v1/auth/pair", json={"code": code, "label": "phone"}, headers=PROXY)
     assert again.status_code in (400, 401, 403, 404, 410), "a pairing code must work only once"
+
+
+@check("a teammate joins by invitation, works as a member, and is cut off when removed")
+def member_joins_and_is_removed(server: Server) -> None:
+    owner, csrf = signed_in(server)
+    write = {**owner, "X-CSRF-Token": csrf}
+    email = "teammate@example.com"
+    # Reply and read files, but not manage agents: what the invitation carries is what the member gets.
+    made = server.client.post("/api/v1/people/invites", headers=write,
+                              json={"email": email, "role": "member", "permissions": ["chat", "files"]})
+    assert made.status_code == 201, made.text
+    token = made.json()["token"]
+    assert server.client.get("/join/", headers=PROXY).status_code == 200
+    with httpx.Client(base_url=server.url, timeout=10) as other:
+        wrong = other.post("/api/v1/auth/invites/accept", headers=PROXY, json={
+            "token": token, "email": "someone-else@example.com", "display_name": "Mallory", "password": "a member password 123"})
+        assert wrong.status_code == 400 and wrong.json()["detail"]["error_code"] == "invite_invalid", wrong.text
+        joined = other.post("/api/v1/auth/invites/accept", headers=PROXY, json={
+            "token": token, "email": email, "display_name": "Teammate", "password": "a member password 123"})
+        assert joined.status_code == 200 and joined.json()["role"] == "member", joined.text
+        assert joined.json()["permissions"] == ["chat", "files"], joined.json()
+        cookie = joined.headers["set-cookie"].split(";")[0]
+        assert "HttpOnly" in joined.headers["set-cookie"] and "Secure" in joined.headers["set-cookie"]
+        member = {**PROXY, "Cookie": cookie}
+        assert other.get("/api/v1/agents", headers=member).status_code == 200
+        refused = other.get("/api/v1/settings", headers=member)
+        assert refused.status_code == 403, f"a member must not read settings: {refused.status_code}"
+        assert other.get("/api/v1/auth/devices", headers=member).status_code == 403
+        no_agents = other.post("/api/v1/agents", json={"name": "nope"}, headers={**member, "X-CSRF-Token": joined.json()["csrf_token"]})
+        assert no_agents.status_code == 403, f"a member without the agents permission created an agent: {no_agents.status_code}"
+        assert other.post("/api/v1/auth/login", json={"passphrase": "not the passphrase"}, headers=PROXY).status_code == 401
+        person_id = joined.json()["person_id"]
+        removed = server.client.delete(f"/api/v1/people/{person_id}", headers=write)
+        assert removed.status_code == 204, removed.text
+        assert other.get("/api/v1/agents", headers=member).status_code == 401, "a removed member must be signed out"
+        again = other.post("/api/v1/auth/people/login", json={"email": email, "password": "a member password 123"}, headers=PROXY)
+        assert again.status_code == 401
 
 
 @check("a proxy that omits forwarded headers is reported once in the log; one that sends them is not")
@@ -346,6 +383,7 @@ def main() -> int:
         signs_in(server)
         agent_id = uses_api(server)
         pairs_phone(server)
+        member_joins_and_is_removed(server)
         warns_about_proxy(server)
         second_server_refused(server)
         stops_on_sigterm(server)

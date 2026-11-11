@@ -13,13 +13,13 @@ UPDATE; the caller learns whether it won from the return value.
 
 Event payloads, so adapters and readers agree:
 
-    turn.started        {"prompt_text", "attachments"?: [{"id", "name", "mime", "bytes", "kind"}]}
+    turn.started        {"prompt_text", "attachments"?: [...], "person"?: {"id", "label"} (the member who sent it)}
     turn.steered        {"text"}
     assistant.message   {"text", "incomplete"?}
     tool.started        {"call_id", "name", "input"}
     tool.completed      {"call_id", "ok", "output", "truncated"}
     approval.requested  {"approval_id", "tool", "kind", "summary", "input"}
-    approval.resolved   {"approval_id", "status"}
+    approval.resolved   {"approval_id", "status", "person"?: {"id", "label"} (the member who answered)}
     turn.completed / turn.failed / turn.cancelled / turn.interrupted
     session.reset
 
@@ -501,6 +501,8 @@ async def start_turn(
     owner_instance: str | None = None,
     attachments: list[dict] | None = None,
     origin: str | None = None,
+    person_id: int | None = None,
+    person_label: str | None = None,
 ) -> Turn:
     """Start the thread's next turn and store its `turn.started` event.
 
@@ -527,6 +529,8 @@ async def start_turn(
         owner_instance=owner_instance,
         engine_phase="preparing",
         origin=origin,
+        person_id=person_id,
+        person_label=person_label,
         heartbeat_at=now,
         started_at=now,
     )
@@ -541,6 +545,8 @@ async def start_turn(
     started = {"prompt_text": prompt_text}
     if attachments:
         started["attachments"] = attachments
+    if person_label:
+        started["person"] = {"id": person_id, "label": person_label}
     await _add_event(db, thread_id, "turn.started", started, turn.id)
     await db.commit()
     return turn
@@ -782,20 +788,23 @@ async def create_approval(
 
 
 async def decide_approval(
-    db: AsyncSession, approval_id: str, decision: str, *, by: dict | None = None
+    db: AsyncSession, approval_id: str, decision: str, *, by: dict | None = None,
+    person_id: int | None = None, person_label: str | None = None,
 ) -> bool:
     """The person's decision. One statement: it wins only if the approval is
     still pending AND its turn is still running. False means nothing changed
     (decided already, cancelled, or the turn is no longer running) and the
     caller must answer 409 and authorize nothing. `by` is added to the
     `approval.resolved` event when something other than a person decided
-    (for example {"by": "saved_rule", "rule_id": 3}), so the chat can say so."""
+    (for example {"by": "saved_rule", "rule_id": 3}), so the chat can say so. A member who answered is
+    recorded on the approval and in the event (`person`), by the name they had then."""
     _check(decision, DECISIONS, "decision")
     await begin_write(db)
     updated = await db.execute(
         update(Approval)
         .where(Approval.id == approval_id, Approval.status == "pending", _turn_is_running())
-        .values(status=decision, decided_at=utcnow())
+        .values(status=decision, decided_at=utcnow(),
+                decided_by_person_id=person_id, decided_by_label=person_label)
         .returning(Approval.thread_id, Approval.turn_id)
         .execution_options(synchronize_session=False)
     )
@@ -805,7 +814,10 @@ async def decide_approval(
         return False
     thread_id, turn_id = row
     await _add_event(
-        db, thread_id, "approval.resolved", {**(by or {}), "approval_id": approval_id, "status": decision}, turn_id
+        db, thread_id, "approval.resolved",
+        {**(by or {}), "approval_id": approval_id, "status": decision,
+         **({"person": {"id": person_id, "label": person_label}} if person_label else {})},
+        turn_id,
     )
     await db.commit()
     return True
