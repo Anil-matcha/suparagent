@@ -70,9 +70,12 @@ platform and release qualification limits.
   backups and updates. On a server the owner can invite teammates by one-time
   link. Each signs in as themselves with a role (owner, admin, member, viewer)
   and, for a member, chosen permissions: reply, read files, answer commands,
-  save standing rules, manage agents. Everyone shares one workspace; there are
-  no separate workspaces to switch between and no multi-organization hosting.
-  See [authentication](AUTH.md#members) and [self-hosting](SELF-HOSTING.md).
+  save standing rules, manage agents. A self-hosted server is one workspace that
+  everyone shares. A hosted deployment can put an account service in front of
+  many such workspaces (one per company) and sign people in with a signed token;
+  the app then shows a workspace switcher and the account service's list of
+  people. See [authentication](AUTH.md#members), [hosted workspace
+  grants](AUTH.md#hosted-workspace-grants) and [self-hosting](SELF-HOSTING.md).
 - **Phone app.** An early, source-only app pairs with your server as a chat-only
   device to list and start conversations, follow answers live, stop one, and
   allow or deny tool calls. No push notifications, no store release, and not yet

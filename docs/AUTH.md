@@ -338,7 +338,11 @@ ownership transfer and member passwords return 409 (`managed_by_workspace_owner`
 authoritative. The server cannot see a removal, so the control plane ends a removed person's open streams. With
 neither setting present nothing changes for self-hosted installs or the desktop app.
 
-In this mode Settings shows the control plane's list of people (names and roles) instead of the local people controls, and hides device pairing, because a pairing code could not be used without a grant.
+In this mode `GET /auth/session` reports `kind: "grant"`. Settings shows the control plane's list of people (names and roles) instead of the local people controls, and hides device pairing, because a pairing code could not be used without a grant. A hosted build also shows a workspace switcher at the top of the sidebar: it asks the account service (`/api/v1/accounts/workspaces`, same origin) which workspaces the person belongs to, with their role; choosing one asks the service to switch, then reopens the page last open in that workspace. It is hidden when the service does not answer, so the desktop app and self-hosted installs never show it. Unsent drafts and the last page are kept per workspace in browser storage.
+
+**Keys.** `HOSTED_GRANT_PUBLIC_KEYS` is JSON (`{"k1": "<key>"}`) or `kid=key,kid=key` (easier in an env file). A key is the base64url raw 32-byte Ed25519 public key. The server accepts several key ids at once, so a rotation does not lock anyone out: publish the new key next to the old one, wait until every workspace trusts both, switch the account service to sign with the new id, and remove the old id once tokens signed with it have expired (at most 60 seconds plus a 30-second skew allowance).
+
+**What a grant contains.** `iss` (`dots-control`), `aud` (the workspace id, which must equal `HOSTED_WORKSPACE_ID`), `sub` (the person's id in the account service), `role`, `name`, `email`, `iat`, `exp`, `jti`, and for a member optionally `perms`. The header is `{"v": 1, "kid": ...}`; the algorithm is not read from the token.
 
 ## Endpoints
 

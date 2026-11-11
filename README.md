@@ -185,8 +185,10 @@ details](backend/README.md#scheduling) and [environment settings](backend/.env.e
 - Suparagent is early and changing. The self-hosted server is experimental. One
   person owns it and can invite teammates to work in the same workspace, with
   roles and per-person permissions; everyone shares the same agents,
-  conversations and memory. It is not a multi-organization service, and there
-  are no separate workspaces to switch between.
+  conversations and memory. A self-hosted server is not a multi-organization
+  service and has no workspaces to switch between; a hosted deployment can run
+  several behind an account service (see
+  [docs/AUTH.md](docs/AUTH.md#hosted-workspace-grants)).
 - Team delegation is new; lead agents need to use Claude or Codex.
 - The phone app has been tried on an Android emulator and an Android phone, not
   on iOS. It has no push notifications or store release.

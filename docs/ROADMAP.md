@@ -147,9 +147,11 @@ polled preview frames.
 ## Deliberate scope
 
 - Self-hosting is one workspace with one owner, who can invite teammates (roles
-  and per-person permissions). Multi-tenant hosting, organization accounts,
-  switching between workspaces and billing are not part of the current
-  desktop/server path.
+  and per-person permissions). Multi-tenant hosting, organization accounts and
+  billing are not part of the self-hosted server. A hosted deployment can run
+  many workspaces behind an account service that signs people in with a token
+  each workspace verifies (see [AUTH.md](AUTH.md#hosted-workspace-grants)); the
+  app's workspace switcher only appears there.
 - Build the core workspace and trust controls before a very broad app catalog.
 - Treat mascots and other cosmetic parity as lower priority than integrations,
   memory correctness and release confidence.
