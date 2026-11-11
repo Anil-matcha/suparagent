@@ -8,6 +8,7 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -61,9 +62,10 @@ def profile_env(directory: Path, binary_dir: Path):
     helper = f"import sys;sys.stderr.write({BROWSER_MARKER!r}+sys.argv[-1]+'\\n')"
     if any(c in sys.executable for c in ("\n", "\r", "%s", os.pathsep)):
         raise InvalidConfig("The Python runtime path cannot safely launch Google sign-in.")
+    browser_cmd = subprocess.list2cmdline([sys.executable, "-c", helper, "--", "%s"]) if sys.platform == "win32" else shlex.join([sys.executable, "-c", helper, "--", "%s"])
     env.update(GEMINI_HOME=str(directory), AGY_ACP_FORCE_FILE_STORAGE="1",
                ANTIGRAVITY_HARNESS_PATH=str(binary_dir / runtime.harness_binary()),
-               BROWSER=shlex.join([sys.executable, "-c", helper, "--", "%s"]), PYTHONUNBUFFERED="1")
+               BROWSER=browser_cmd, PYTHONUNBUFFERED="1")
     return env
 
 

@@ -9,6 +9,7 @@ export type Agent = {
   description: string | null;
   provider: string;
   model: string | null;
+  effort?: string | null;
   approval_mode: string;
   pinned: boolean;
   // Only on a full agent from the server; a list built by an older test or screen may not have them.

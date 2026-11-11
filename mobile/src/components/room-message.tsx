@@ -4,14 +4,16 @@ import { Text } from '@/components/text';
 import { Markdown } from '@/components/markdown';
 import type { RoomItem } from '@/lib/rooms';
 import { radius, useStyles, type Palette } from '@/lib/theme';
+import { useUserProfile } from '@/lib/user-profile';
 
 // Yours on the right; each agent's on the left under its name; roster changes and the like as a muted line.
 export function RoomMessage({ item }: { item: RoomItem }) {
   const styles = useStyles(createStyles);
+  const { getUserBubbleColor } = useUserProfile();
   if (item.kind === 'notice') return <Text style={styles.notice}>{item.text}</Text>;
   if (item.mine) {
     return (
-      <View style={[styles.bubble, styles.mine]}>
+      <View style={[styles.bubble, styles.mine, { backgroundColor: getUserBubbleColor() }]}>
         <Text selectable style={styles.mineText}>
           {item.text}
         </Text>

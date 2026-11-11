@@ -1,21 +1,23 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { FlatList } from 'react-native';
 
-import Conversations from '../app';
+import Index from '../app';
 import Thread from '../app/thread/[id]';
+import { ConversationsList as Conversations } from '@/components/conversations-list';
 import { Composer } from '@/components/composer';
 import { emptyTranscript } from '@/lib/transcript';
 
 const mockPush = jest.fn();
+const mockReplace = jest.fn();
 let mockThreadState: Record<string, unknown> = {};
 let mockParams: Record<string, string> = { id: '3' };
-const mockApi = { listThreads: jest.fn(), createThread: jest.fn(), listAgents: jest.fn() };
+const mockApi = { listThreads: jest.fn(), createThread: jest.fn(), sendTurn: jest.fn(), listAgents: jest.fn() };
 
 jest.mock('expo-router', () => {
   const { useEffect } = jest.requireActual<typeof import('react')>('react');
   return {
     Stack: { Screen: () => null },
-    useRouter: () => ({ push: mockPush }),
+    useRouter: () => ({ push: mockPush, replace: mockReplace }),
     useLocalSearchParams: () => mockParams,
     useFocusEffect: (callback: () => void) => useEffect(callback, [callback]),
   };
@@ -121,6 +123,31 @@ describe('Conversations', () => {
     await render(<Conversations />);
     await fireEvent.press(await screen.findByRole('button', { name: 'New conversation' }));
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith({ pathname: '/thread/[id]', params: { id: '9' } }));
+  });
+});
+
+describe('Default Chat Screen (Index)', () => {
+  it('renders welcome prompt and active composer on launch', async () => {
+    await render(<Index />);
+    expect(screen.getByText("What's on your mind?")).toBeTruthy();
+    expect(screen.getByText('Ask a question, brainstorm, or explore code')).toBeTruthy();
+    expect(screen.getByLabelText('Message')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeTruthy();
+  });
+
+  it('creates a thread on-the-fly and sends turn on first message, navigating to thread', async () => {
+    mockApi.createThread.mockResolvedValue(thread(42, null));
+    mockApi.sendTurn.mockResolvedValue({ id: 1 });
+
+    await render(<Index />);
+    await fireEvent.changeText(screen.getByLabelText('Message'), 'Hello world');
+    await fireEvent.press(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => {
+      expect(mockApi.createThread).toHaveBeenCalled();
+      expect(mockApi.sendTurn).toHaveBeenCalledWith(42, 'Hello world', []);
+      expect(mockReplace).toHaveBeenCalledWith({ pathname: '/thread/[id]', params: { id: '42' } });
+    });
   });
 });
 

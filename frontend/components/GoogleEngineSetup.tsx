@@ -12,8 +12,18 @@ export function GoogleEngineSetup({ engine, onChanged }: { engine: Engine; onCha
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [callback, setCallback] = useState("");
+  const autoOpenedRef = useRef<string | null>(null);
   const changed = useRef(onChanged);
   useEffect(() => { changed.current = onChanged; }, [onChanged]);
+
+  useEffect(() => {
+    if (operation?.phase === "running" && operation.authorization_url && autoOpenedRef.current !== operation.authorization_url) {
+      autoOpenedRef.current = operation.authorization_url;
+      if (window.suparagent?.openGoogleSignIn) {
+        window.suparagent.openGoogleSignIn(operation.authorization_url).catch(() => {});
+      }
+    }
+  }, [operation?.phase, operation?.authorization_url]);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,11 +59,15 @@ export function GoogleEngineSetup({ engine, onChanged }: { engine: Engine; onCha
   const act = async (work: () => Promise<void>) => {
     setBusy(true); setError(null);
     try { await work(); }
-    catch (err) { setError(err instanceof ApiError ? `Could not complete Google setup. ${err.message}` : "Could not complete Google setup."); }
+    catch (err) {
+      const msg = err instanceof ApiError ? err.message : (err instanceof Error ? err.message : String(err));
+      setError(`Could not complete Google setup. ${msg}`);
+    }
     finally { setBusy(false); }
   };
   const running = operation?.phase === "running";
   const start = (kind: "install" | "sign_in" | "models") => void act(async () => {
+    autoOpenedRef.current = null;
     setCallback("");
     setOperation(await api.startGoogleSetup(kind));
   });
@@ -81,9 +95,12 @@ export function GoogleEngineSetup({ engine, onChanged }: { engine: Engine; onCha
       </div>
     )}
     {running && operation.authorization_url && <div className="space-y-2">
-      <Button type="button"  disabled={busy} onClick={() => void act(async () => {
-        if (!window.suparagent?.openGoogleSignIn) throw new Error("Open this setup in the Suparagent desktop app to continue.");
-        await window.suparagent.openGoogleSignIn(operation.authorization_url!);
+      <Button type="button" disabled={busy} onClick={() => void act(async () => {
+        if (window.suparagent?.openGoogleSignIn) {
+          await window.suparagent.openGoogleSignIn(operation.authorization_url!);
+        } else {
+          window.open(operation.authorization_url!, "_blank", "noopener,noreferrer");
+        }
       })}>Continue to Google sign-in</Button>
       <details><summary className="cursor-pointer text-xs">Signing in from another computer?</summary>
         <p className="mt-2 text-xs text-muted">After signing in, copy the complete localhost redirect URL from your browser and paste it below.</p>

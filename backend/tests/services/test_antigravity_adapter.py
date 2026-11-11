@@ -128,7 +128,8 @@ def test_foreign_credentials_removed(fixture, monkeypatch):
     assert "FOREIGN_CANARY" not in str(env)
     assert env["AGY_ACP_FORCE_FILE_STORAGE"] == "1"
     assert env["GEMINI_HOME"] == str(profile_dir(adapter.config))
-    assert profile_dir(adapter.config).stat().st_mode & 0o777 == 0o700
+    if sys.platform != "win32":
+        assert profile_dir(adapter.config).stat().st_mode & 0o777 == 0o700
     assert "TOKEN_CANARY" not in str(adapter.public_config(adapter.config))
     assert not authenticated({"profile": "../../outside"})
 
@@ -233,7 +234,8 @@ def archive(tmp_path, entries):
 def test_verified_extraction(tmp_path):
     path, output, digest = archive(tmp_path, [(name, b"fixture") for name in runtime.MEMBERS])
     assert runtime.extract_archive(path, output, digest) == {name: 7 for name in runtime.MEMBERS}
-    assert (output / runtime.MEMBERS[0]).stat().st_mode & 0o777 == 0o700
+    if sys.platform != "win32":
+        assert (output / runtime.MEMBERS[0]).stat().st_mode & 0o777 == 0o700
 
 @pytest.mark.parametrize("entries", [[("../outside", b"bad")], [("agy_acp_server.par", b"a"), ("agy_acp_server.par", b"b")], [("agy_acp_server.par", b"a"), ("localharness_external", b"b"), ("extra", b"c")]])
 def test_unexpected_archive_members(tmp_path, entries):
@@ -333,7 +335,7 @@ async def test_install_publishes_only_after_validation(tmp_path, monkeypatch, re
     validated = []
     async def validate(candidate):
         assert not runtime.runtime_dir().exists()
-        assert (candidate / "agy_acp_server.par").read_bytes() == b"fixture"
+        assert (candidate / runtime.server_binary()).read_bytes() == b"fixture"
         validated.append(candidate)
         if reject_validation: raise InvalidConfig("Wrong ACP identity")
     if reject_validation:

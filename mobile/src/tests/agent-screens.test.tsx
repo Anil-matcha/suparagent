@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert, StyleSheet } from 'react-native';
 
+import { UserProfileProvider } from '@/lib/user-profile';
 import AgentEditor from '../app/agents/[id]';
 import Agents from '../app/agents';
 import Settings from '../app/settings';
@@ -315,11 +316,58 @@ describe('Settings', () => {
     await fireEvent.press(screen.getByText('Agents'));
     expect(mockPush).toHaveBeenCalledWith('/agents');
   });
+
+  it('renders profile and appearance controls with bubble color selection', async () => {
+    mockScopes = ['chat'];
+    await render(
+      <UserProfileProvider>
+        <Settings />
+      </UserProfileProvider>,
+    );
+    expect(screen.getByText('Profile & Appearance')).toBeTruthy();
+    expect(screen.getByText('Chat bubble color')).toBeTruthy();
+    expect(screen.getByLabelText('Ocean bubble color')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Ocean bubble color'));
+    expect(screen.getByLabelText('Ocean bubble color').props.accessibilityState).toMatchObject({ selected: true });
+  });
 });
 
 describe('form controls', () => {
   const flat = (node: { props: { style?: unknown } }) => StyleSheet.flatten(node.props.style as never) as Record<string, number | undefined>;
   const tall = (node: { props: { style?: unknown } }) => Math.max(flat(node).height ?? 0, flat(node).minHeight ?? 0);
+
+  it('filters options when picker is searchable', async () => {
+    const onChange = jest.fn();
+    const options = [
+      { value: 'gpt-4o', label: 'GPT-4o' },
+      { value: 'claude-3-7-sonnet', label: 'Claude 3.7 Sonnet' },
+      { value: 'gemini-2-flash', label: 'Gemini 2.0 Flash' },
+    ];
+    await render(
+      <PickerField
+        label="Model"
+        title="Model"
+        valueLabel="GPT-4o"
+        options={options}
+        value="gpt-4o"
+        searchable
+        searchPlaceholder="Filter models..."
+        onChange={onChange}
+      />,
+    );
+    // Open picker
+    await fireEvent.press(screen.getByLabelText('Model, GPT-4o'));
+    expect(screen.getByPlaceholderText('Filter models...')).toBeTruthy();
+
+    // Type query
+    await fireEvent.changeText(screen.getByPlaceholderText('Filter models...'), 'Sonnet');
+    expect(screen.getByText('Claude 3.7 Sonnet')).toBeTruthy();
+    expect(screen.queryByText('Gemini 2.0 Flash')).toBeNull();
+
+    // Select filtered option
+    await fireEvent.press(screen.getByText('Claude 3.7 Sonnet'));
+    expect(onChange).toHaveBeenCalledWith('claude-3-7-sonnet');
+  });
 
   it('are at least 44 points tall', async () => {
     await render(

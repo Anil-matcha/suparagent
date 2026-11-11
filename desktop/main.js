@@ -184,6 +184,7 @@ async function main() {
     platform: process.platform,
     getWindow: () => window,
     getOrigin: () => backendOrigin,
+    openExternal: (url) => void shell.openExternal(url),
   });
   if (hasIcon && process.platform === "darwin" && app.dock) app.dock.setIcon(iconPath);
   const nativeControlRoot = app.isPackaged ? path.join(process.resourcesPath, "native-control") : path.join(__dirname, "native-control");
@@ -363,6 +364,7 @@ function setUpWorkspaces(token) {
       platform: process.platform,
       getWindow: () => window,
       getOrigin: () => backendOrigin,
+      openExternal: (url) => void shell.openExternal(url),
       workspace: {
         active: hosted?.current() ?? "local",
         signedIn: state.signedIn,

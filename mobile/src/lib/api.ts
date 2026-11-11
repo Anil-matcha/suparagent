@@ -16,6 +16,7 @@ export type Thread = {
   title: string | null;
   provider: string;
   model: string | null;
+  effort?: string | null;
   session_state: string;
   /** The agent this conversation was started from, or null (none, or since deleted). */
   agent_id?: number | null;
@@ -26,6 +27,24 @@ export type Thread = {
   updated_at: string;
 };
 
+export type CreateThreadOptions = {
+  agentId?: number | null;
+  provider?: string;
+  model?: string | null;
+  effort?: string | null;
+  title?: string | null;
+};
+
+export type UserProfileData = {
+  name: string | null;
+  avatar_url: string | null;
+  bio: string | null;
+  email: string | null;
+  user_id: string | null;
+  is_admin: boolean;
+  updated_at?: string | null;
+};
+
 export type ThreadDetail = Thread & { active_turn_id: number | null };
 
 /** A frame of a thread's stream, or a stored event from the paged list. */
@@ -34,6 +53,8 @@ export type ThreadEvent = {
   type: string;
   turn_id?: number | null;
   data: Record<string, unknown>;
+  ts?: string;
+  created_at?: string;
 };
 
 export type EventsPage = { events: ThreadEvent[]; next_after: number; has_more: boolean };
@@ -128,8 +149,29 @@ export function createApi(session: Session, options: { onRevoked?: () => void; o
     // Titles and messages containing every word, newest first, a page at a time (`offset` is the page's start).
     searchConversations: async (query: string, offset = 0, limit = SEARCH_PAGE_SIZE) =>
       readSearchPage(await request<unknown>('GET', `/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`), query),
-    // Engine and model are left out, so the server's own default (or the agent's) applies.
-    createThread: (agentId?: number) => request<Thread>('POST', '/threads', agentId === undefined ? {} : { agent_id: agentId }),
+    // Engine and model can be passed explicitly, or left out so the server's own default (or the agent's) applies.
+    createThread: (optionsOrAgentId?: number | CreateThreadOptions) => {
+      if (typeof optionsOrAgentId === 'number') {
+        return request<Thread>('POST', '/threads', { agent_id: optionsOrAgentId });
+      }
+      const opts = optionsOrAgentId ?? {};
+      const payload: Record<string, unknown> = {};
+      if (opts.agentId !== undefined && opts.agentId !== null) payload.agent_id = opts.agentId;
+      if (opts.provider) payload.provider = opts.provider;
+      if (opts.model !== undefined && opts.model !== null) payload.model = opts.model;
+      if (opts.effort !== undefined && opts.effort !== null) payload.effort = opts.effort;
+      if (opts.title) payload.title = opts.title;
+      return request<Thread>('POST', '/threads', payload);
+    },
+    // Update thread title, archived status, model, or reasoning effort.
+    updateThread: (
+      id: number,
+      options: { title?: string | null; archived?: boolean; model?: string | null; effort?: string | null },
+    ) => request<Thread>('PATCH', `/threads/${id}`, options),
+    // Live user profile from the server
+    getProfile: () => request<UserProfileData>('GET', '/profile'),
+    updateProfile: (data: { name?: string | null; avatar_url?: string | null; bio?: string | null }) =>
+      request<UserProfileData>('PUT', '/profile', data),
     // Not archived ones, pinned first; with `includeArchived` the archived ones too.
     listAgents: (includeArchived = false) => request<Agent[]>('GET', includeArchived ? '/agents?include_archived=true' : '/agents'),
     getAgent: (id: number) => request<Agent>('GET', `/agents/${id}`),

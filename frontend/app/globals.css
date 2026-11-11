@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+html {
+  scroll-behavior: smooth;
+}
+
 /* Colours are semantic tokens, declared once per theme. <html data-theme="light|dark"> is
    always set before first paint (lib/theme.ts), so there is no media-query fallback to
    keep in step. scripts/check-contrast.mjs reads these blocks and fails CI when a text

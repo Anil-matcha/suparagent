@@ -1,7 +1,14 @@
 // The engines a server has (Claude, Codex, ...) and the models each offers, as the agent editor lists them.
 // Read tolerantly: only what the editor needs is named, unknown fields are ignored and a malformed entry is dropped.
 
-export type EngineModel = { id: string; label: string; isDefault: boolean };
+export type EngineModel = {
+  id: string;
+  label: string;
+  isDefault: boolean;
+  defaultReasoningEffort?: string | null;
+  supportedReasoningEfforts?: string[];
+  reasoningEffortConfigurable?: boolean;
+};
 
 export type Engine = {
   id: string;
@@ -37,7 +44,16 @@ export function readEngines(body: unknown): Engine[] {
       for (const model of record.models) {
         const m = model as Record<string, unknown> | null;
         const modelId = text(m?.id);
-        if (modelId) models.push({ id: modelId, label: text(m?.label) ?? modelId, isDefault: m?.default === true });
+        if (modelId) {
+          const defaultEffort = text(m?.default_reasoning_effort);
+          const rawEfforts = Array.isArray(m?.supported_reasoning_efforts) ? m.supported_reasoning_efforts : [];
+          const supportedEfforts = rawEfforts.filter((e): e is string => typeof e === 'string');
+          const entry: EngineModel = { id: modelId, label: text(m?.label) ?? modelId, isDefault: m?.default === true };
+          if (defaultEffort) entry.defaultReasoningEffort = defaultEffort;
+          if (supportedEfforts.length > 0) entry.supportedReasoningEfforts = supportedEfforts;
+          if (typeof m?.reasoning_effort_configurable === 'boolean') entry.reasoningEffortConfigurable = m.reasoning_effort_configurable;
+          models.push(entry);
+        }
       }
     }
     const capabilities = (record.capabilities ?? {}) as Record<string, unknown>;

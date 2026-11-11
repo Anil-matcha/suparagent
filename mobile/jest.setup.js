@@ -9,3 +9,18 @@ jest.mock('@expo/vector-icons/Feather', () => {
   const Feather = ({ name }) => React.createElement(View, { testID: `icon-${name}` });
   return { __esModule: true, default: Feather };
 });
+
+jest.mock('expo-clipboard', () => ({
+  setStringAsync: jest.fn().mockResolvedValue(true),
+  getStringAsync: jest.fn().mockResolvedValue(''),
+}));
+
+jest.mock('expo-secure-store', () => {
+  const store = new Map();
+  return {
+    WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
+    setItemAsync: jest.fn(async (key, value) => { store.set(key, value); }),
+    getItemAsync: jest.fn(async (key) => store.get(key) || null),
+    deleteItemAsync: jest.fn(async (key) => { store.delete(key); }),
+  };
+});

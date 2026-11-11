@@ -2,6 +2,7 @@
 
 import {
   Archive,
+  BookOpen,
   CalendarClock,
   ChevronDown,
   ChevronRight,

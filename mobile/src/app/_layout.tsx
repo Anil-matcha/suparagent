@@ -1,33 +1,16 @@
 import { useFonts } from 'expo-font';
-import { DarkTheme, DefaultTheme, Link, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, Pressable, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, useColorScheme, View } from 'react-native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { HostedGate } from '@/components/hosted-gate';
 import { PairingLinkHandler } from '@/components/pairing-link-handler';
-import { FontsLoadedContext, Text, useFont } from '@/components/text';
+import { FontsLoadedContext, useFont } from '@/components/text';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
+import { UserProfileProvider } from '@/lib/user-profile';
 import { FONT_FILES } from '@/lib/font-assets';
-import { touch, useTheme } from '@/lib/theme';
-
-// A header link is a full-size touch target around its words, with room on the side facing the title.
-function HeaderLink({ href, label, side }: { href: '/settings' | '/rooms'; label: string; side: 'left' | 'right' }) {
-  const theme = useTheme();
-  return (
-    <Link href={href} asChild>
-      <Pressable accessibilityRole="link" hitSlop={8} style={{ minHeight: touch.min, minWidth: touch.min, justifyContent: 'center', alignItems: side === 'left' ? 'flex-start' : 'flex-end', ...(side === 'left' ? { marginRight: 16 } : {}) }}>
-        {/* Header text grows with the person's text size, but only so far: the title beside it needs room. */}
-        <Text maxFontSizeMultiplier={1.3} style={{ color: theme.accentText, fontWeight: '500', fontSize: 16 }}>
-          {label}
-        </Text>
-      </Pressable>
-    </Link>
-  );
-}
-
-const SettingsLink = () => <HeaderLink href="/settings" label="Settings" side="right" />;
-const RoomsLink = () => <HeaderLink href="/rooms" label="Rooms" side="left" />;
+import { useTheme } from '@/lib/theme';
 
 function RootStack({ ready }: { ready: boolean }) {
   const { state } = useAuth();
@@ -45,7 +28,7 @@ function RootStack({ ready }: { ready: boolean }) {
     <HostedGate>
     <Stack screenOptions={{ headerTitleStyle }}>
       <Stack.Protected guard={paired}>
-        <Stack.Screen name="index" options={{ title: 'Conversations', headerLeft: RoomsLink, headerRight: SettingsLink }} />
+        <Stack.Screen name="index" options={{ title: 'Suparagent' }} />
         <Stack.Screen name="search" options={{ title: 'Search' }} />
         <Stack.Screen name="rooms/index" options={{ title: 'Rooms' }} />
         <Stack.Screen name="rooms/[id]" options={{ title: 'Room' }} />
@@ -85,9 +68,11 @@ export default function RootLayout() {
       <ThemeProvider value={navigationTheme}>
         <FontsLoadedContext.Provider value={loaded}>
           <AuthProvider>
-            <StatusBar style="auto" />
-            <PairingLinkHandler />
-            <RootStack ready={loaded || failed !== null} />
+            <UserProfileProvider>
+              <StatusBar style="auto" />
+              <PairingLinkHandler />
+              <RootStack ready={loaded || failed !== null} />
+            </UserProfileProvider>
           </AuthProvider>
         </FontsLoadedContext.Provider>
       </ThemeProvider>

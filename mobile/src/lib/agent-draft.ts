@@ -24,6 +24,7 @@ export type AgentDraft = {
   provider: string;
   /** null is the engine's own default model. */
   model: string | null;
+  effort: string | null;
   approval_mode: ApprovalMode;
   memory_enabled: boolean;
   /** The agent's first notes; only when creating. */
@@ -39,6 +40,7 @@ export const EMPTY_DRAFT: AgentDraft = {
   instructions: '',
   provider: 'claude',
   model: null,
+  effort: null,
   approval_mode: 'ask',
   memory_enabled: true,
   starter_notes: '',
@@ -58,6 +60,7 @@ export function draftFromAgent(agent: Agent): AgentDraft {
     instructions: agent.instructions ?? '',
     provider: agent.provider,
     model: agent.model,
+    effort: agent.effort ?? null,
     approval_mode: asMode(agent.approval_mode),
     memory_enabled: agent.memory_enabled ?? true,
     starter_notes: '',
@@ -109,6 +112,7 @@ export function toCreateBody(draft: AgentDraft): Record<string, unknown> {
     approval_mode: draft.approval_mode,
     memory_enabled: draft.memory_enabled,
   };
+  if (draft.effort) body.effort = draft.effort;
   if (draft.title.trim()) body.title = draft.title.trim();
   if (draft.description.trim()) body.description = draft.description;
   if (draft.starter_notes.trim()) body.starter_notes = draft.starter_notes;
@@ -132,6 +136,7 @@ export function toUpdateBody(draft: AgentDraft, original: AgentDraft): Record<st
   if (draft.provider !== original.provider) body.provider = draft.provider;
   // A new engine resets the model on the server unless one is named; name it when it was chosen, or when only the model moved.
   if (draft.model !== original.model || draft.provider !== original.provider) body.model = draft.model;
+  if (draft.effort !== original.effort) body.effort = draft.effort;
   if (draft.approval_mode !== original.approval_mode) body.approval_mode = draft.approval_mode;
   if (draft.memory_enabled !== original.memory_enabled) body.memory_enabled = draft.memory_enabled;
   if (draft.fallback_provider !== original.fallback_provider) {

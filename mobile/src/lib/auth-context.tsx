@@ -50,7 +50,7 @@ const HOSTED_ENDED_NOTICE = 'Your hosted sign-in ended. Sign in again to open yo
 /** A phone asks to be given a new workspace token at most this often, so a refusal can never become a loop. */
 const RECOVER_EVERY_MS = 30_000;
 
-const AuthContext = createContext<AuthValue | null>(null);
+export const AuthContext = createContext<AuthValue | null>(null);
 
 export function useAuth(): AuthValue {
   const value = useContext(AuthContext);
