@@ -12,6 +12,10 @@ describe('parseInline', () => {
     expect(parseInline('a **b** *c* `d`')).toEqual([{ text: 'a ' }, { text: 'b', bold: true }, { text: ' ' }, { text: 'c', italic: true }, { text: ' ' }, { text: 'd', code: true }]);
   });
 
+  it('reads strikethrough text', () => {
+    expect(parseInline('~~deleted~~')).toEqual([{ text: 'deleted', del: true }]);
+  });
+
   it('nests italic inside bold', () => {
     expect(parseInline('**a *b* c**')).toEqual([{ text: 'a ', bold: true }, { text: 'b', bold: true, italic: true }, { text: ' c', bold: true }]);
   });
@@ -141,5 +145,18 @@ describe('Markdown', () => {
     await render(<Markdown text="[x](javascript:alert(1))" />);
     await fireEvent.press(screen.getByText(/\[x\]/));
     expect(open).not.toHaveBeenCalled();
+  });
+
+  it('renders a code block with language header and copy button', async () => {
+    await render(<Markdown text={'```python\nprint(\'hello\')\n```'} />);
+    expect(screen.getByText('python')).toBeTruthy();
+    expect(screen.getByText("print('hello')")).toBeTruthy();
+    expect(screen.getByLabelText('Copy code')).toBeTruthy();
+  });
+
+  it('renders a horizontal rule', async () => {
+    await render(<Markdown text={'above\n\n---\n\nbelow'} />);
+    expect(screen.getByText('above')).toBeTruthy();
+    expect(screen.getByText('below')).toBeTruthy();
   });
 });

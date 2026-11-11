@@ -2,20 +2,21 @@
 // paragraphs, bold, italic, inline code, code blocks, bullet and numbered lists, quotes, tables and links.
 // Anything else is shown as the plain text it is. There is no HTML: nothing in a reply can run or load.
 
-export type Span = { text: string; bold?: boolean; italic?: boolean; code?: boolean; href?: string };
+export type Span = { text: string; bold?: boolean; italic?: boolean; code?: boolean; del?: boolean; href?: string };
 
 export type Align = 'left' | 'center' | 'right';
 
 export type Block =
   | { type: 'paragraph'; spans: Span[] }
   | { type: 'heading'; level: number; spans: Span[] }
-  | { type: 'code'; text: string }
+  | { type: 'code'; text: string; lang?: string }
   | { type: 'quote'; spans: Span[] }
   | { type: 'list'; ordered: boolean; items: Span[][] }
-  | { type: 'table'; align: Align[]; header: Span[][]; rows: Span[][][] };
+  | { type: 'table'; align: Align[]; header: Span[][]; rows: Span[][][] }
+  | { type: 'rule' };
 
 const INLINE =
-  /`([^`\n]+)`|\*\*(?=\S)([\s\S]*?\S)\*\*|__(?=\S)([\s\S]*?\S)__|\*(?=[^\s*])([\s\S]*?[^\s*])\*|(?<![A-Za-z0-9])_(?=[^\s_])([\s\S]*?[^\s_])_(?![A-Za-z0-9])|\[([^\]\n]+)\]\(([^)\s]+)\)/g;
+  /`([^`\n]+)`|\*\*(?=\S)([\s\S]*?\S)\*\*|__(?=\S)([\s\S]*?\S)__|\*(?=[^\s*])([\s\S]*?[^\s*])\*|(?<![A-Za-z0-9])_(?=[^\s_])([\s\S]*?[^\s_])_(?![A-Za-z0-9])|~~(?=\S)([\s\S]*?\S)~~|\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 
 /** Only web links are followed. `javascript:`, `intent:`, `file:` and the rest stay plain text. */
 export function isSafeLink(href: string): boolean {
@@ -37,10 +38,11 @@ export function parseInline(source: string, inherited: Omit<Span, 'text'> = {}):
     const index = match.index ?? 0;
     push(source.slice(last, index));
     last = index + match[0].length;
-    const [, code, bold, bold2, italic, italic2, label, href] = match;
+    const [, code, bold, bold2, italic, italic2, del, label, href] = match;
     if (code !== undefined) push(code, { code: true });
     else if (bold !== undefined || bold2 !== undefined) spans.push(...parseInline(bold ?? bold2, { ...inherited, bold: true }));
     else if (italic !== undefined || italic2 !== undefined) spans.push(...parseInline(italic ?? italic2, { ...inherited, italic: true }));
+    else if (del !== undefined) spans.push(...parseInline(del, { ...inherited, del: true }));
     else if (label !== undefined && href !== undefined) {
       if (isSafeLink(href)) spans.push(...parseInline(label, { ...inherited, href }).map((span) => ({ ...span, href })));
       else push(match[0]);
@@ -50,12 +52,13 @@ export function parseInline(source: string, inherited: Omit<Span, 'text'> = {}):
   return spans;
 }
 
-const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
+const FENCE = /^\s{0,3}(`{3,}|~{3,})(.*)$/;
 const HEADING = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
 const QUOTE = /^\s{0,3}>\s?(.*)$/;
 const BULLET = /^\s{0,3}[-*+]\s+(.*)$/;
 const NUMBERED = /^\s{0,3}\d{1,9}[.)]\s+(.*)$/;
 const TABLE_RULE = /^\s{0,3}\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+const HORIZONTAL_RULE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
 
 /** The cells of one table row. A pipe inside backticks or written `\|` stays part of its cell. */
 export function splitTableRow(line: string): string[] {
@@ -104,14 +107,28 @@ export function parseMarkdown(source: string): Block[] {
     if (fence) {
       flush();
       const marker = fence[1];
+      const lang = fence[2]?.trim().split(/\s+/)[0] ?? '';
       const body: string[] = [];
       // A block that is never closed (a reply still being cut off) runs to the end.
       for (i++; i < lines.length && !lines[i].trim().startsWith(marker); i++) body.push(lines[i]);
-      blocks.push({ type: 'code', text: body.join('\n') });
+      const codeBlock: Block = { type: 'code', text: body.join('\n') };
+      if (lang) {
+        Object.defineProperty(codeBlock, 'lang', {
+          value: lang,
+          enumerable: false,
+          writable: true,
+        });
+      }
+      blocks.push(codeBlock);
       continue;
     }
     if (!line.trim()) {
       flush();
+      continue;
+    }
+    if (HORIZONTAL_RULE.test(line)) {
+      flush();
+      blocks.push({ type: 'rule' });
       continue;
     }
     const heading = HEADING.exec(line);

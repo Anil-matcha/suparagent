@@ -1,10 +1,13 @@
-import { Image, type ImageSourcePropType, StyleSheet, View } from 'react-native';
+import Feather from '@expo/vector-icons/Feather';
+import * as Clipboard from 'expo-clipboard';
+import { useState } from 'react';
+import { Image, type ImageSourcePropType, Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/text';
 import { Markdown } from '@/components/markdown';
 import type { Attachment } from '@/lib/attachments';
 import type { TranscriptItem } from '@/lib/transcript';
-import { radius, useStyles, type Palette } from '@/lib/theme';
+import { radius, useStyles, useTheme, type Palette } from '@/lib/theme';
 
 export type Row = TranscriptItem | { kind: 'typing'; key: string; text: string };
 
@@ -42,6 +45,30 @@ function Attachments({ files, source }: { files: Attachment[]; source: Props['at
   );
 }
 
+function CopyButton({ text }: { text: string }) {
+  const styles = useStyles(createStyles);
+  const theme = useTheme();
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    await Clipboard.setStringAsync(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Copy response"
+      hitSlop={8}
+      onPress={() => void copy()}
+      style={styles.copyButton}>
+      <Feather name={copied ? 'check' : 'copy'} size={12} color={copied ? theme.success : theme.muted} />
+      <Text style={[styles.copyText, copied && styles.copyTextSuccess]}>{copied ? 'Copied' : 'Copy'}</Text>
+    </Pressable>
+  );
+}
+
 export function TranscriptRow({ row, attachmentSource }: Props) {
   const styles = useStyles(createStyles);
   switch (row.kind) {
@@ -49,7 +76,7 @@ export function TranscriptRow({ row, attachmentSource }: Props) {
       return (
         <View style={[styles.bubble, styles.user]}>
           {row.attachments.length > 0 ? <Attachments files={row.attachments} source={attachmentSource} /> : null}
-          <Text style={styles.userText}>{row.text}</Text>
+          <Text selectable style={styles.userText}>{row.text}</Text>
         </View>
       );
     case 'assistant':
@@ -57,6 +84,11 @@ export function TranscriptRow({ row, attachmentSource }: Props) {
         <View style={[styles.bubble, styles.assistant]}>
           <Markdown text={row.text} />
           {row.incomplete ? <Text style={styles.muted}>(stopped before it finished)</Text> : null}
+          {row.text ? (
+            <View style={styles.assistantFooter}>
+              <CopyButton text={row.text} />
+            </View>
+          ) : null}
         </View>
       );
     case 'typing':
@@ -100,8 +132,8 @@ const createStyles = (p: Palette) =>
     bubble: { marginVertical: 4 },
     user: { alignSelf: 'flex-end', maxWidth: '88%', backgroundColor: p.bubbleUser, borderRadius: radius.card, borderBottomRightRadius: 6, paddingHorizontal: 14, paddingVertical: 10 },
     assistant: { alignSelf: 'stretch', paddingHorizontal: 4, paddingVertical: 4 },
-    userText: { color: p.text, fontSize: 16 },
-    assistantText: { color: p.text, fontSize: 16 },
+    userText: { color: p.text, fontSize: 16, lineHeight: 22 },
+    assistantText: { color: p.text, fontSize: 16, lineHeight: 22 },
     files: { gap: 6, marginBottom: 6 },
     thumb: { width: 180, height: 180, borderRadius: radius.field, backgroundColor: p.surface },
     fileChip: { color: p.text, fontSize: 13, backgroundColor: p.surface, borderRadius: radius.field, paddingHorizontal: 8, paddingVertical: 4, overflow: 'hidden' },
@@ -109,4 +141,27 @@ const createStyles = (p: Palette) =>
     line: { color: p.muted, fontSize: 13, marginVertical: 3, paddingHorizontal: 4 },
     approval: { alignSelf: 'stretch', borderWidth: 1, borderColor: p.warnBorder, backgroundColor: p.warnBackground, borderRadius: radius.field, padding: 10, marginVertical: 6 },
     approvalTitle: { color: p.warnText, fontSize: 13, fontWeight: '700', marginBottom: 2 },
+    assistantFooter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 6,
+      paddingLeft: 2,
+    },
+    copyButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: radius.card,
+      backgroundColor: p.surface,
+    },
+    copyText: {
+      fontSize: 12,
+      color: p.muted,
+    },
+    copyTextSuccess: {
+      color: p.success,
+      fontWeight: '600',
+    },
   });

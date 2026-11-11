@@ -9,3 +9,8 @@ jest.mock('@expo/vector-icons/Feather', () => {
   const Feather = ({ name }) => React.createElement(View, { testID: `icon-${name}` });
   return { __esModule: true, default: Feather };
 });
+
+jest.mock('expo-clipboard', () => ({
+  setStringAsync: jest.fn().mockResolvedValue(true),
+  getStringAsync: jest.fn().mockResolvedValue(''),
+}));
