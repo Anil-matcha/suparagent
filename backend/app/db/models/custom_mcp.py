@@ -24,6 +24,9 @@ class CustomMcpConnection(Base):
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     tested_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # What the server called itself at the last successful test. Display only.
+    server_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    server_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Non-secret OAuth settings (endpoints, client id, scopes). Tokens and client secrets are never here.
     oauth_config: Mapped[dict | None] = mapped_column(JSONValue, nullable=True)
     tools_snapshot: Mapped[list | None] = mapped_column(JSONValue, nullable=True)

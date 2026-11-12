@@ -16,6 +16,8 @@ export type CustomMcpConnection = {
   oauth_signed_in: boolean;
   oauth_client_id: string | null;
   oauth_scopes: string | null;
+  server_name: string | null;
+  server_version: string | null;
   tool_count: number | null;
   last_tested_at: string | null;
 };

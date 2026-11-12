@@ -188,6 +188,7 @@ async def _out(db: AsyncSession, row: CustomMcpConnection) -> CustomMcpConnectio
         revision=row.revision, state=_state(row, signed_in), last_error_code=row.last_error_code,
         credential_configured=await _credential_configured(db, row.id), oauth_signed_in=signed_in,
         oauth_client_id=settings_.get("client_id"), oauth_scopes=settings_.get("scope"),
+        server_name=row.server_name, server_version=row.server_version,
         tool_count=None if row.tools_snapshot is None else len(row.tools_snapshot),
         last_tested_at=row.last_tested_at,
     )
@@ -235,6 +236,8 @@ def _invalidate(row: CustomMcpConnection) -> None:
     row.tools_digest = None
     row.last_error_code = None
     row.last_tested_at = None
+    row.server_name = None
+    row.server_version = None
 
 
 def _tools_digest(tools: list[dict]) -> str:
@@ -256,17 +259,19 @@ async def _drop_stale_grants(db: AsyncSession, connection_id: str, tools: list[d
     return bool(stale)
 
 
-async def _discover(endpoint: str, token: str | None, header: str | None) -> list[dict]:
+async def _discover(endpoint: str, token: str | None, header: str | None) -> tuple[list[dict], dict | None]:
+    """The server's tools and what it calls itself (display only)."""
     session = mcp.RemoteMcpSession(endpoint, token, header=header)
     try:
         tools = await session.list_tools()
+        identity = session.server_info
     except mcp.McpError:
         raise
     except Exception:
         raise mcp.McpError("remote_unavailable", "The remote MCP server could not be reached.", 502) from None
     finally:
         await session.close()
-    return mcp.reject_credential_in_metadata(tools, token)
+    return mcp.reject_credential_in_metadata(tools, token), identity
 
 
 async def _auth_for(db: AsyncSession, row: CustomMcpConnection) -> tuple[str | None, str | None]:
@@ -422,8 +427,9 @@ async def test_connection(
     token, header = await _auth_for(db, row)
     failure: mcp.McpError | None = None
     tools: list[dict] = []
+    identity: dict | None = None
     try:
-        tools = await _discover(endpoint, token, header)
+        tools, identity = await _discover(endpoint, token, header)
     except mcp.McpError as exc:
         failure = exc
     async with mcp.connection_lock(connection_id):
@@ -435,6 +441,7 @@ async def test_connection(
             current.tested_revision = None
             current.tools_snapshot = None
             current.tools_digest = None
+            current.server_name = current.server_version = None
             current.last_error_code = failure.code
             current.last_tested_at = datetime.now(timezone.utc)
             current.revision += 1
@@ -444,6 +451,8 @@ async def test_connection(
             current.revision += 1
         current.tools_snapshot = tools
         current.tools_digest = _tools_digest(tools)
+        current.server_name = (identity or {}).get("name")
+        current.server_version = (identity or {}).get("version")
         current.tested_revision = current.revision
         current.last_error_code = None
         current.last_tested_at = datetime.now(timezone.utc)
@@ -731,7 +740,7 @@ async def set_grants(
     endpoint = row.endpoint
     token, header = await _auth_for(db, row)
     try:
-        available = await _discover(endpoint, token, header)
+        available, _identity = await _discover(endpoint, token, header)
     except mcp.McpError as exc:
         raise _http(exc) from None
     by_name = {tool["name"]: tool for tool in available}

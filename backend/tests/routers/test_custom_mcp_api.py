@@ -30,13 +30,14 @@ class FakeServer:
     def __init__(self):
         self.tools = [tool("search"), tool("write_note")]
         self.error: mcp.McpError | None = None
+        self.identity: dict | None = {"name": "Fake Notes", "version": "1.2.3"}
         self.seen: list[tuple[str, str | None, str | None]] = []
 
     async def discover(self, endpoint, token, header):
         self.seen.append((endpoint, token, header))
         if self.error is not None:
             raise self.error
-        return mcp.reject_credential_in_metadata(list(self.tools), token)
+        return mcp.reject_credential_in_metadata(list(self.tools), token), self.identity
 
 
 @pytest.fixture
@@ -319,3 +320,26 @@ async def test_signed_out_callers_and_missing_csrf_are_refused(app, factory, ser
         assert (await api.get(f"{PATH}/connections")).status_code in (401, 403)
         await login(api)
         assert (await api.post(f"{PATH}/connections", json={"name": "X", "endpoint": URL})).status_code == 403
+
+
+async def test_the_server_identity_is_shown_after_a_test_and_cleared_when_the_target_changes(admin, server):
+    conn = await make(admin)
+    assert conn["server_name"] is None
+    tested = (await admin.post(f"{PATH}/connections/{conn['id']}/test", json={"revision": conn["revision"]})).json()
+    assert (tested["server_name"], tested["server_version"]) == ("Fake Notes", "1.2.3")
+    moved = await admin.patch(f"{PATH}/connections/{conn['id']}", json={
+        "revision": tested["revision"], "endpoint": "https://other.example.com/mcp"})
+    assert moved.json()["server_name"] is None and moved.json()["server_version"] is None
+
+
+async def test_a_server_that_names_nothing_leaves_the_identity_empty_and_a_failed_test_clears_it(admin, server):
+    server.identity = None
+    conn = await make(admin)
+    tested = (await admin.post(f"{PATH}/connections/{conn['id']}/test", json={"revision": conn["revision"]})).json()
+    assert tested["server_name"] is None
+    server.identity = {"name": "Named", "version": None}
+    again = (await admin.post(f"{PATH}/connections/{conn['id']}/test", json={"revision": tested["revision"]})).json()
+    assert again["server_name"] == "Named" and again["server_version"] is None
+    server.error = mcp.McpError("connect_failed", "down", 502)
+    await admin.post(f"{PATH}/connections/{conn['id']}/test", json={"revision": again["revision"]})
+    assert (await admin.get(f"{PATH}/connections")).json()[0]["server_name"] is None

@@ -183,6 +183,7 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
           : connection.auth_mode !== "none" && ` · ${connection.credential_configured ? "Secret saved" : "No secret saved"}`}
         {connection.tool_count !== null && ` · ${connection.tool_count} tools found`}
       </p>
+      {connection.server_name && <p className="text-xs text-muted">The server says it is “{connection.server_name}”{connection.server_version ? ` ${connection.server_version}` : ""}. This is its own claim; check the address above.</p>}
       {connection.state === "needs_sign_in" && <Banner tone="danger">{connection.auth_mode === "oauth" ? "Sign in to this server to continue." : "The server rejected the saved secret. Replace it, then test again."}</Banner>}
       {connection.state === "unreachable" && <Banner tone="danger">The server could not be reached or answered unexpectedly. Test again when it is back.</Banner>}
       {isEditing ? <div className="space-y-3">
@@ -193,7 +194,7 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
         {connection.auth_mode === "oauth" && (connection.oauth_signed_in
           ? <Button disabled={off} onClick={() => void run(`signout:${connection.id}`, async () => {
               apply(await api.signOutCustomMcp(connection.id, connection.revision)); forget(connection.id);
-              setNotice("Signed out. The server is off and its tool grants were cleared.");
+              setNotice("Signed out here. The server is off and its tool grants were cleared. To remove access completely, also remove Suparagent in that service's connected-apps settings.");
             })}>Sign out</Button>
           : <Button variant="primary" disabled={off || signingIn === connection.id} onClick={() => void signIn(connection)}>{signingIn === connection.id ? "Waiting for sign-in…" : busy === `signin:${connection.id}` ? "Opening…" : "Sign in"}</Button>)}
         <Button disabled={off || (connection.auth_mode === "oauth" ? !connection.oauth_signed_in : connection.auth_mode !== "none" && !connection.credential_configured)} onClick={() => void test(connection)}>{busy === `test:${connection.id}` ? "Testing…" : connection.state === "not_tested" ? "Test connection" : "Test again"}</Button>
@@ -216,7 +217,7 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
       </div>}
       {connection.enabled && list && <div className="space-y-3 border-t border-line pt-4">
         <p className="text-sm font-medium">Tools for each agent</p>
-        <p className="text-xs text-muted">Only checked tools are available to the chosen agent, in person chats with Claude or Codex. Every call asks for your approval and shows the exact arguments. Tool descriptions come from the server and are untrusted.</p>
+        <p className="text-xs text-muted">Only checked tools are available to the chosen agent, in person chats with Claude or Codex. Other engines, routines, rooms and computer sessions do not receive these tools. Every call asks for your approval and shows the exact arguments. Tool descriptions come from the server and are untrusted.</p>
         {agents.length === 0 ? <p className="text-sm text-muted">Create an agent before granting tools.</p> : <>
           <Select value={agentId} onChange={(event) => { if (event.target.value) void loadGrants(connection, Number(event.target.value)); }}>
             <option value="">Choose an agent</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}

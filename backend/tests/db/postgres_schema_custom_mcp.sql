@@ -10,6 +10,8 @@ CREATE TABLE custom_mcp_connection (
 	revision INTEGER DEFAULT '1' NOT NULL,
 	tested_revision INTEGER,
 	last_error_code VARCHAR(64),
+	server_name VARCHAR(100),
+	server_version VARCHAR(100),
 	oauth_config JSON,
 	tools_snapshot JSON,
 	tools_digest VARCHAR(64),

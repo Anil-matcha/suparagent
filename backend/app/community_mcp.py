@@ -526,6 +526,7 @@ class RemoteMcpSession:
             limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
         )
         self.protocol: str | None = None
+        self.server_info: dict | None = None
         self.session_id: str | None = None
         self.request_id = 0
         self.started = False
@@ -658,6 +659,11 @@ class RemoteMcpSession:
         if protocol not in SUPPORTED_PROTOCOLS:
             raise McpError("unsupported_protocol", "The remote MCP server negotiated an unsupported protocol version.", 502)
         self.protocol = protocol
+        info = response.get("serverInfo")
+        if isinstance(info, dict):
+            # Display-only: bounded plain text from the remote server, never trusted for decisions.
+            pick = lambda key: info[key].strip()[:100] if isinstance(info.get(key), str) and info[key].strip() else None  # noqa: E731
+            self.server_info = {"name": pick("name"), "version": pick("version")}
         self.request_id += 1
         await self._post({"jsonrpc": "2.0", "method": "notifications/initialized"}, expect_result=False)
         self.started = True

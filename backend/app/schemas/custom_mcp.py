@@ -49,6 +49,8 @@ class CustomMcpConnectionOut(BaseModel):
     oauth_signed_in: bool = False
     oauth_client_id: str | None = None
     oauth_scopes: str | None = None
+    server_name: str | None = None
+    server_version: str | None = None
     tool_count: int | None
     last_tested_at: datetime | None
 

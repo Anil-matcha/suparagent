@@ -332,9 +332,10 @@ async def is_signed_in(db, owner_id: str, connection_id: str) -> bool:
         UserCredential.user_id == owner_id, UserCredential.provider == provider(connection_id))) is not None
 
 
-async def access_token(owner_id: str, connection_id: str, session_factory=None) -> str:
+async def access_token(owner_id: str, connection_id: str, session_factory=None, *, force: bool = False) -> str:
     """A usable access token, refreshed first when it is about to expire.
 
+    `force` refreshes now even if the token looks valid (the server just rejected it).
     Raises OAuthError("needs_sign_in") when there is no usable sign-in; after an `invalid_grant`
     the stored tokens are deleted so nothing keeps trying a dead refresh token."""
     if session_factory is None:
@@ -351,7 +352,7 @@ async def access_token(owner_id: str, connection_id: str, session_factory=None) 
             raise OAuthError("needs_sign_in", "Sign in to this server again.", 409)
         record, client_secret = unpacked
         expires_at = record.get("expires_at")
-        if expires_at is None or expires_at - REFRESH_MARGIN_SECONDS > time.time():
+        if not force and (expires_at is None or expires_at - REFRESH_MARGIN_SECONDS > time.time()):
             return record["access_token"]
         if not record.get("refresh_token"):
             raise OAuthError("needs_sign_in", "Sign in to this server again.", 409)
