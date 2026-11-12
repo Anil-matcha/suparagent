@@ -677,7 +677,7 @@ async def _complete_sign_in(db: AsyncSession, state: str, code: str, error: str)
     return _finished(True, "Now test the connection in Suparagent to finish.")
 
 
-@router.get("/oauth/callback", name="custom_mcp_oauth_callback", include_in_schema=False)
+@router.get("/oauth/callback", name="custom_mcp_oauth_callback")
 async def oauth_callback(state: str = "", code: str = "", error: str = "", db: AsyncSession = Depends(get_db)):
     """Where the provider sends the browser back (browser and self-hosted installs)."""
     return await _complete_sign_in(db, state, code, error)
