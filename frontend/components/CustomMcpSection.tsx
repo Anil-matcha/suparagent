@@ -42,7 +42,7 @@ function ConnectionForm({ form, setForm, hasSecret, disabled }: {
       {(props) => <Input {...props} value={form.auth_header_name} maxLength={64} disabled={disabled} onChange={(event) => set({ auth_header_name: event.target.value })} />}
     </Field>}
     {form.auth_mode === "oauth" && <>
-      <Field label="Client ID (optional)" hint="Leave blank to let the server register Suparagent automatically.">
+      <Field label="Client ID (optional)" hint="Leave blank to let the server register Suparagent automatically. In the desktop app, a client you register yourself must allow http://127.0.0.1 redirects on any port.">
         {(props) => <Input {...props} value={form.oauth_client_id} maxLength={200} disabled={disabled} onChange={(event) => set({ oauth_client_id: event.target.value })} />}
       </Field>
       <Field label="Scopes (optional)" hint="Separated by spaces. Leave blank for the default.">

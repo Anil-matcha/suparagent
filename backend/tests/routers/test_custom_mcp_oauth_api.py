@@ -332,3 +332,56 @@ async def test_the_callback_needs_a_signed_in_owner(app, factory, idp, owner, mo
     await set_owner(factory)
     async with client(app) as api:
         assert (await api.get(f"{CALLBACK}?state={'a' * 43}&code=x")).status_code in (401, 403)
+
+
+async def raw_get(port: int, target: str):
+    import asyncio
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    writer.write(f"GET {target} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n".encode())
+    await writer.drain()
+    data = await asyncio.wait_for(reader.read(), 10)
+    writer.close()
+    head, _, body = data.partition(b"\r\n\r\n")
+    return int(head.split()[1]), body.decode()
+
+
+@pytest.fixture
+async def desktop(monkeypatch):
+    from types import SimpleNamespace
+    from app import custom_mcp_oauth_loopback as loopback
+    from app.routers import custom_mcp
+    monkeypatch.setattr(custom_mcp, "profile", SimpleNamespace(active=lambda: True))
+    yield
+    for receiver in list(loopback._open.values()):
+        await receiver.close()
+
+
+async def test_desktop_sign_in_returns_to_a_loopback_listener_and_finishes_there(admin, idp, desktop, factory, owner, server):
+    conn = await oauth_connection(admin)
+    url, query = await start(admin, conn, idp)
+    redirect = urlsplit(query["redirect_uri"])
+    assert redirect.scheme == "http" and redirect.hostname == "127.0.0.1" and redirect.path == "/callback" and redirect.port
+    registration = next(body for _, u, body in idp.calls if u == f"{AUTH}/register")
+    assert registration["redirect_uris"] == [query["redirect_uri"]]
+    status, page = await raw_get(redirect.port, f"/callback?state=wrong-state-{'x' * 30}&code={idp.code}")
+    assert status == 400
+    status, page = await raw_get(redirect.port, f"/callback?state={query['state']}&code={idp.code}")
+    assert status == 200 and "Signed in" in page
+    latest = [c for c in (await admin.get(f"{PATH}/connections")).json() if c["id"] == conn["id"]][0]
+    assert latest["oauth_signed_in"] is True and "at-1" not in json.dumps(latest)
+    tested = await admin.post(f"{PATH}/connections/{conn['id']}/test", json={"revision": latest["revision"]})
+    assert tested.status_code == 200 and server.seen[-1][1] == "at-1"
+    try:
+        await raw_get(redirect.port, f"/callback?state={query['state']}&code={idp.code}")
+        closed = False
+    except OSError:
+        closed = True
+    assert closed, "the listener must close after a successful sign-in"
+
+
+async def test_a_failed_discovery_leaves_no_listener_behind(admin, idp, desktop):
+    from app import custom_mcp_oauth_loopback as loopback
+    idp.metadata_overrides = {"code_challenge_methods_supported": ["plain"]}
+    conn = await oauth_connection(admin)
+    refused = await admin.post(f"{PATH}/connections/{conn['id']}/oauth/start", json={"revision": conn["revision"]})
+    assert refused.status_code == 422 and not loopback._open

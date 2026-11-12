@@ -17,11 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import community_mcp as mcp
 from app import custom_mcp_oauth as oauth
+from app import custom_mcp_oauth_loopback as loopback
 from app.core import crypto
 from app.core.config import settings
 from app.db.models import Agent, CustomMcpConnection, CustomMcpOAuthFlow, CustomMcpToolGrant, UserCredential
 from app.db.session import get_db
 from app.db.transactions import begin_write, release_snapshot
+from app.desktop import profile
 from app.routers.integrations import _owner
 from app.schemas.custom_mcp import (
     CustomMcpConnectionOut,
@@ -540,7 +542,21 @@ async def oauth_start(
         raise _fail(409, "oauth_not_selected")
     endpoint, config = row.endpoint, dict(row.oauth_config or {})
     client_secret = await _credential(db, connection_id)
-    redirect_uri = _callback_url(request)
+    receiver = None
+    if profile.active():
+        # The desktop API needs the launch token, which a system browser cannot send: return to a
+        # one-shot loopback listener instead (see custom_mcp_oauth_loopback).
+        factory = async_sessionmaker(bind=db.bind, expire_on_commit=False)
+
+        async def finish(state: str, code: str, error: str) -> tuple[int, bytes, dict[str, str]]:
+            async with factory() as session:
+                page = await _complete_sign_in(session, state, code, error)
+            return page.status_code, bytes(page.body), dict(page.headers)
+
+        receiver = await loopback.open_receiver(connection_id, finish, oauth.FLOW_TTL_SECONDS)
+        redirect_uri = receiver.redirect_uri
+    else:
+        redirect_uri = _callback_url(request)
     try:
         server = await oauth.discover(endpoint)
         manual = config.get("client_id")
@@ -555,14 +571,28 @@ async def oauth_start(
             client = await oauth.register_client(server, redirect_uri)
             client_id, registered_secret = client["client_id"], client["client_secret"]
     except mcp.McpError as exc:
+        if receiver is not None:
+            await receiver.close()
         raise _http(exc) from None
     verifier, challenge = oauth.new_pkce()
     state, digest = oauth.new_state()
     url = oauth.authorization_url(server, client_id=client_id, redirect_uri=redirect_uri, state=state,
                                   challenge=challenge, scope=config.get("scope"))
+    try:
+        return await _store_flow(db, connection_id, payload.revision, server=server, client_id=client_id,
+                                 registered_secret=registered_secret, config=config, redirect_uri=redirect_uri,
+                                 url=url, verifier=verifier, digest=digest)
+    except BaseException:
+        if receiver is not None:
+            await receiver.close()
+        raise
+
+
+async def _store_flow(db, connection_id, revision, *, server, client_id, registered_secret, config, redirect_uri,
+                      url, verifier, digest) -> CustomMcpOAuthStart:
     async with mcp.connection_lock(connection_id):
         await begin_write(db)
-        current = await _locked(db, connection_id, payload.revision)
+        current = await _locked(db, connection_id, revision)
         if registered_secret is not None:
             await _save_credential(db, connection_id, registered_secret)
         current.oauth_config = {**config, "server": server, "effective_client_id": client_id, "redirect_uri": redirect_uri}
@@ -593,9 +623,8 @@ def _finished(ok: bool, message: str, status: int = 200) -> HTMLResponse:
     })
 
 
-@router.get("/oauth/callback", name="custom_mcp_oauth_callback", include_in_schema=False)
-async def oauth_callback(state: str = "", code: str = "", error: str = "", db: AsyncSession = Depends(get_db)):
-    """Where the provider sends the browser back. `state` is one-time and tied to the signed-in owner."""
+async def _complete_sign_in(db: AsyncSession, state: str, code: str, error: str) -> HTMLResponse:
+    """Finish one sign-in. `state` is one-time and tied to the signed-in owner who started it."""
     digest = oauth.state_digest(state)
     if digest is None:
         return _finished(False, "This sign-in link is not valid.", 400)
@@ -637,6 +666,12 @@ async def oauth_callback(state: str = "", code: str = "", error: str = "", db: A
     except HTTPException:
         return _finished(False, "This connection changed while you were signing in. Start again.", 409)
     return _finished(True, "Now test the connection in Suparagent to finish.")
+
+
+@router.get("/oauth/callback", name="custom_mcp_oauth_callback", include_in_schema=False)
+async def oauth_callback(state: str = "", code: str = "", error: str = "", db: AsyncSession = Depends(get_db)):
+    """Where the provider sends the browser back (browser and self-hosted installs)."""
+    return await _complete_sign_in(db, state, code, error)
 
 
 @router.post("/connections/{connection_id}/oauth/sign-out", response_model=CustomMcpConnectionOut)
