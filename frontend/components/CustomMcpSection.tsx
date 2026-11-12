@@ -180,7 +180,7 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
           {agentId !== "" && <>
             <ul className="space-y-2">{list.map((tool) => <li key={tool.name}>
               <Checkbox checked={checked.includes(tool.name)} onChange={(event) => setGranted((old) => ({ ...old, [key]: event.target.checked ? [...checked, tool.name] : checked.filter((name) => name !== tool.name) }))}
-                label={<span><span className="font-medium">{tool.name}</span><span className="block text-xs text-muted">{tool.description}</span></span>} />
+                label={<span><span className="font-medium">{tool.name}</span><span className="line-clamp-3 block text-xs text-muted" title={tool.description}>{tool.description}</span></span>} />
             </li>)}</ul>
             <Button variant="primary" disabled={off} onClick={() => void run(`grants:${key}`, async () => {
               const exact = list.filter((tool) => checked.includes(tool.name)).map(({ name, schema_digest }) => ({ name, schema_digest }));
