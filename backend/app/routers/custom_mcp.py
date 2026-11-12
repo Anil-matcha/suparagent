@@ -8,15 +8,18 @@ encrypted credential store; a connection starts disabled and with no agent grant
 import json
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import community_mcp as mcp
+from app import custom_mcp_oauth as oauth
 from app.core import crypto
-from app.db.models import Agent, CustomMcpConnection, CustomMcpToolGrant, UserCredential
+from app.core.config import settings
+from app.db.models import Agent, CustomMcpConnection, CustomMcpOAuthFlow, CustomMcpToolGrant, UserCredential
 from app.db.session import get_db
 from app.db.transactions import begin_write, release_snapshot
 from app.routers.integrations import _owner
@@ -24,6 +27,7 @@ from app.schemas.custom_mcp import (
     CustomMcpConnectionOut,
     CustomMcpCreate,
     CustomMcpGrantRequest,
+    CustomMcpOAuthStart,
     CustomMcpRevision,
     CustomMcpToolOut,
     CustomMcpUpdate,
@@ -87,6 +91,19 @@ def _clean_header_name(auth_mode: str, value: str | None) -> str | None:
     return name
 
 
+def _clean_oauth(auth_mode: str, client_id: str | None, scopes: str | None) -> dict | None:
+    """The owner's own OAuth settings. Discovered endpoints are added when sign-in starts."""
+    if auth_mode != "oauth":
+        return None
+    client = (client_id or "").strip()
+    scope = " ".join((scopes or "").split())
+    if client and (len(client) > 200 or not client.isascii() or any(not 32 < ord(c) < 127 for c in client)):
+        raise _fail(422, "invalid_oauth_client")
+    if len(scope) > oauth.MAX_SCOPE_LENGTH or not scope.isascii() or any(not 32 <= ord(c) < 127 for c in scope):
+        raise _fail(422, "invalid_oauth_scopes")
+    return {"client_id": client or None, "scope": scope or None}
+
+
 def _clean_credential(auth_mode: str, secret) -> str | None:
     """Return a new secret, or None when blank/omitted (keep the saved one)."""
     if secret is None:
@@ -148,7 +165,9 @@ async def _delete_credential(db: AsyncSession, connection_id: str) -> None:
 
 # ---------------------------------------------------------------- rows
 
-def _state(row: CustomMcpConnection) -> str:
+def _state(row: CustomMcpConnection, signed_in: bool = True) -> str:
+    if row.auth_mode == "oauth" and not signed_in:
+        return "needs_sign_in"
     if row.last_error_code == "authentication_failed":
         return "needs_sign_in"
     if row.last_error_code:
@@ -159,11 +178,14 @@ def _state(row: CustomMcpConnection) -> str:
 
 
 async def _out(db: AsyncSession, row: CustomMcpConnection) -> CustomMcpConnectionOut:
+    signed_in = row.auth_mode == "oauth" and await oauth.is_signed_in(db, LOCAL_OWNER_ID, row.id)
+    settings_ = row.oauth_config or {}
     return CustomMcpConnectionOut(
         id=row.id, name=row.name, transport=row.transport, endpoint=row.endpoint,
         auth_mode=row.auth_mode, auth_header_name=row.auth_header_name, enabled=row.enabled,
-        revision=row.revision, state=_state(row), last_error_code=row.last_error_code,
-        credential_configured=await _credential_configured(db, row.id),
+        revision=row.revision, state=_state(row, signed_in), last_error_code=row.last_error_code,
+        credential_configured=await _credential_configured(db, row.id), oauth_signed_in=signed_in,
+        oauth_client_id=settings_.get("client_id"), oauth_scopes=settings_.get("scope"),
         tool_count=None if row.tools_snapshot is None else len(row.tools_snapshot),
         last_tested_at=row.last_tested_at,
     )
@@ -217,6 +239,10 @@ def _tools_digest(tools: list[dict]) -> str:
     return mcp.digest(sorted((tool["name"], tool["schema_digest"]) for tool in tools))
 
 
+async def _delete_flows(db: AsyncSession, connection_id: str) -> None:
+    await db.execute(delete(CustomMcpOAuthFlow).where(CustomMcpOAuthFlow.connection_id == connection_id))
+
+
 async def _drop_stale_grants(db: AsyncSession, connection_id: str, tools: list[dict]) -> bool:
     current = {tool["name"]: tool["schema_digest"] for tool in tools}
     grants = (await db.scalars(select(CustomMcpToolGrant).where(
@@ -239,6 +265,23 @@ async def _discover(endpoint: str, token: str | None, header: str | None) -> lis
     finally:
         await session.close()
     return mcp.reject_credential_in_metadata(tools, token)
+
+
+async def _auth_for(db: AsyncSession, row: CustomMcpConnection) -> tuple[str | None, str | None]:
+    """(secret to send, header name or None for Bearer) for this connection, or an HTTP error."""
+    if row.auth_mode == "none":
+        return None, None
+    if row.auth_mode == "oauth":
+        factory = async_sessionmaker(bind=db.bind, expire_on_commit=False)
+        await release_snapshot(db)
+        try:
+            return await oauth.access_token(LOCAL_OWNER_ID, row.id, factory), None
+        except oauth.OAuthError as exc:
+            raise _http(exc) from None
+    token = await _credential(db, row.id)
+    if token is None:
+        raise _fail(409, "credential_required")
+    return token, row.auth_header_name if row.auth_mode == "header" else None
 
 
 async def _owned_agent(db: AsyncSession, agent_id: int) -> Agent:
@@ -275,6 +318,7 @@ async def create_connection(payload: CustomMcpCreate, response: Response, db: As
     secret = _clean_credential(payload.auth_mode, payload.credential)
     if secret is not None and secret in endpoint:
         raise _fail(422, "invalid_credential")
+    oauth_config = _clean_oauth(payload.auth_mode, payload.oauth_client_id, payload.oauth_scopes)
     await begin_write(db)
     count = len((await db.scalars(select(CustomMcpConnection.id).where(
         CustomMcpConnection.owner_id == LOCAL_OWNER_ID))).all())
@@ -283,7 +327,7 @@ async def create_connection(payload: CustomMcpCreate, response: Response, db: As
         raise _fail(409, "too_many_connections")
     row = CustomMcpConnection(
         id=str(uuid.uuid4()), owner_id=LOCAL_OWNER_ID, name=name, endpoint=endpoint,
-        auth_mode=payload.auth_mode, auth_header_name=header, enabled=False,
+        auth_mode=payload.auth_mode, auth_header_name=header, enabled=False, oauth_config=oauth_config,
     )
     db.add(row)
     if secret is not None:
@@ -308,16 +352,27 @@ async def update_connection(
     secret = _clean_credential(auth_mode, payload.credential)
     if secret is not None and secret in endpoint:
         raise _fail(422, "invalid_credential")
+    previous = current.oauth_config or {}
+    new_oauth = _clean_oauth(
+        auth_mode,
+        payload.oauth_client_id if payload.oauth_client_id is not None else previous.get("client_id"),
+        payload.oauth_scopes if payload.oauth_scopes is not None else previous.get("scope"),
+    )
+    oauth_changed = (new_oauth or {}).get("client_id") != previous.get("client_id") or (new_oauth or {}).get("scope") != previous.get("scope")
     await release_snapshot(db)
     async with mcp.connection_lock(connection_id):
         await begin_write(db)
         row = await _locked(db, connection_id, payload.revision)
-        target_changed = (endpoint, auth_mode, header) != (row.endpoint, row.auth_mode, row.auth_header_name)
+        target_changed = (endpoint, auth_mode, header) != (row.endpoint, row.auth_mode, row.auth_header_name) or oauth_changed
         if target_changed or secret is not None:
             if secret is None and (endpoint != row.endpoint or auth_mode != row.auth_mode):
                 # A saved secret never follows the connection to another URL or auth method.
                 await _delete_credential(db, row.id)
             row.endpoint, row.auth_mode, row.auth_header_name = endpoint, auth_mode, header
+            row.oauth_config = new_oauth
+            # Whatever was signed in belonged to the old address, client or secret.
+            await oauth.delete_record(db, LOCAL_OWNER_ID, row.id)
+            await _delete_flows(db, row.id)
             if name is not None:
                 row.name = name
             if secret is not None:
@@ -361,15 +416,12 @@ async def test_connection(
     row = await _connection(db, connection_id)
     if row.revision != payload.revision:
         raise _fail(409, "connection_changed")
-    endpoint, auth_mode, header = row.endpoint, row.auth_mode, row.auth_header_name
-    token = await _credential(db, connection_id)
-    if auth_mode != "none" and token is None:
-        raise _fail(409, "credential_required")
+    endpoint = row.endpoint
+    token, header = await _auth_for(db, row)
     failure: mcp.McpError | None = None
     tools: list[dict] = []
     try:
-        tools = await _discover(endpoint, token if auth_mode != "none" else None,
-                                header if auth_mode == "header" else None)
+        tools = await _discover(endpoint, token, header)
     except mcp.McpError as exc:
         failure = exc
     async with mcp.connection_lock(connection_id):
@@ -460,11 +512,159 @@ async def delete_connection(connection_id: str, response: Response, db: AsyncSes
             raise _fail(404, "connection_not_found")
         await _delete_grants(db, row.id)
         await _delete_credential(db, row.id)
+        await oauth.delete_record(db, LOCAL_OWNER_ID, row.id)
+        await _delete_flows(db, row.id)
         await db.execute(delete(CustomMcpConnection).where(
             CustomMcpConnection.id == row.id, CustomMcpConnection.owner_id == LOCAL_OWNER_ID,
         ))
         await db.commit()
     return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+def _callback_url(request: Request) -> str:
+    origin = settings.PUBLIC_ORIGIN or f"{request.url.scheme}://{request.url.netloc}"
+    return origin + request.url_for("custom_mcp_oauth_callback").path
+
+
+@router.post("/connections/{connection_id}/oauth/start", response_model=CustomMcpOAuthStart)
+async def oauth_start(
+    connection_id: str, payload: CustomMcpRevision, request: Request, response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Find the sign-in server, register this app if needed, and return the page to open."""
+    _no_store(response)
+    row = await _connection(db, connection_id)
+    if row.revision != payload.revision:
+        raise _fail(409, "connection_changed")
+    if row.auth_mode != "oauth":
+        raise _fail(409, "oauth_not_selected")
+    endpoint, config = row.endpoint, dict(row.oauth_config or {})
+    client_secret = await _credential(db, connection_id)
+    redirect_uri = _callback_url(request)
+    try:
+        server = await oauth.discover(endpoint)
+        manual = config.get("client_id")
+        reuse = (not manual and config.get("effective_client_id") and config.get("redirect_uri") == redirect_uri
+                 and config.get("server", {}).get("issuer") == server["issuer"])
+        registered_secret = None
+        if manual:
+            client_id = manual
+        elif reuse:
+            client_id = config["effective_client_id"]
+        else:
+            client = await oauth.register_client(server, redirect_uri)
+            client_id, registered_secret = client["client_id"], client["client_secret"]
+    except mcp.McpError as exc:
+        raise _http(exc) from None
+    verifier, challenge = oauth.new_pkce()
+    state, digest = oauth.new_state()
+    url = oauth.authorization_url(server, client_id=client_id, redirect_uri=redirect_uri, state=state,
+                                  challenge=challenge, scope=config.get("scope"))
+    async with mcp.connection_lock(connection_id):
+        await begin_write(db)
+        current = await _locked(db, connection_id, payload.revision)
+        if registered_secret is not None:
+            await _save_credential(db, connection_id, registered_secret)
+        current.oauth_config = {**config, "server": server, "effective_client_id": client_id, "redirect_uri": redirect_uri}
+        now = datetime.now(timezone.utc)
+        await db.execute(delete(CustomMcpOAuthFlow).where(
+            CustomMcpOAuthFlow.connection_id == connection_id, CustomMcpOAuthFlow.expires_at <= now))
+        open_flows = (await db.scalars(select(CustomMcpOAuthFlow).where(
+            CustomMcpOAuthFlow.connection_id == connection_id).order_by(CustomMcpOAuthFlow.created_at))).all()
+        for old in open_flows[:-4]:
+            await db.delete(old)
+        db.add(CustomMcpOAuthFlow(
+            state_digest=digest, connection_id=connection_id, owner_id=LOCAL_OWNER_ID,
+            connection_revision=current.revision, verifier_cipher=crypto.encrypt(verifier),
+            redirect_uri=redirect_uri, expires_at=now + timedelta(seconds=oauth.FLOW_TTL_SECONDS)))
+        await db.commit()
+    return CustomMcpOAuthStart(authorization_url=url)
+
+
+def _finished(ok: bool, message: str, status: int = 200) -> HTMLResponse:
+    title = "Signed in" if ok else "Sign-in did not finish"
+    body = (f"<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+            f"<title>{title}</title><body style='font:16px system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem'>"
+            f"<h1 style='font-size:1.25rem'>{title}</h1><p>{message}</p>"
+            f"<p>You can close this tab and return to Suparagent.</p>")
+    return HTMLResponse(body, status_code=status, headers={
+        "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+    })
+
+
+@router.get("/oauth/callback", name="custom_mcp_oauth_callback", include_in_schema=False)
+async def oauth_callback(state: str = "", code: str = "", error: str = "", db: AsyncSession = Depends(get_db)):
+    """Where the provider sends the browser back. `state` is one-time and tied to the signed-in owner."""
+    digest = oauth.state_digest(state)
+    if digest is None:
+        return _finished(False, "This sign-in link is not valid.", 400)
+    await begin_write(db)
+    flow = await db.scalar(select(CustomMcpOAuthFlow).where(
+        CustomMcpOAuthFlow.state_digest == digest, CustomMcpOAuthFlow.owner_id == LOCAL_OWNER_ID).with_for_update())
+    if flow is None:
+        await db.rollback()
+        return _finished(False, "This sign-in link is not valid or was already used.", 400)
+    snapshot = (flow.connection_id, flow.connection_revision, flow.verifier_cipher, flow.redirect_uri)
+    expired = flow.expires_at <= datetime.now(timezone.utc)
+    await db.delete(flow)  # one use, even when the provider reported an error
+    await db.commit()
+    if expired:
+        return _finished(False, "The sign-in took too long. Start again from Suparagent.", 400)
+    if error or not code or len(code) > 4096:
+        return _finished(False, "The sign-in was cancelled or refused.", 400)
+    connection_id, revision, verifier_cipher, redirect_uri = snapshot
+    row = await _connection(db, connection_id)
+    config = row.oauth_config or {}
+    if row.revision != revision or row.auth_mode != "oauth" or "server" not in config:
+        return _finished(False, "This connection changed while you were signing in. Start again.", 409)
+    client_secret = await _credential(db, connection_id)
+    try:
+        verifier = crypto.decrypt(verifier_cipher)
+        record = await oauth.exchange_code(
+            config["server"], client_id=config["effective_client_id"], client_secret=client_secret,
+            code=code, verifier=verifier, redirect_uri=redirect_uri)
+    except Exception:  # noqa: BLE001 - fixed wording; never repeat what the server said
+        return _finished(False, "The server did not accept the sign-in.", 502)
+    try:
+        async with mcp.connection_lock(connection_id):
+            await begin_write(db)
+            current = await _locked(db, connection_id, revision)
+            await oauth.save_record(db, LOCAL_OWNER_ID, connection_id, record, client_secret)
+            await _delete_grants(db, connection_id)  # a new sign-in may be a different account
+            _invalidate(current)
+            await db.commit()
+    except HTTPException:
+        return _finished(False, "This connection changed while you were signing in. Start again.", 409)
+    return _finished(True, "Now test the connection in Suparagent to finish.")
+
+
+@router.post("/connections/{connection_id}/oauth/sign-out", response_model=CustomMcpConnectionOut)
+async def oauth_sign_out(
+    connection_id: str, payload: CustomMcpRevision, response: Response, db: AsyncSession = Depends(get_db),
+):
+    _no_store(response)
+    row = await _connection(db, connection_id)
+    if row.revision != payload.revision:
+        raise _fail(409, "connection_changed")
+    config = dict(row.oauth_config or {})
+    stored = await db.scalar(select(UserCredential.ciphertext).where(
+        UserCredential.user_id == LOCAL_OWNER_ID, UserCredential.provider == oauth.provider(connection_id)))
+    secret = await _credential(db, connection_id)
+    await release_snapshot(db)
+    unpacked = oauth.unpack(stored) if stored else None
+    if unpacked and "server" in config:
+        await oauth.revoke(config["server"], client_id=config.get("effective_client_id", ""), client_secret=secret, record=unpacked[0])
+    async with mcp.connection_lock(connection_id):
+        await begin_write(db)
+        current = await _locked(db, connection_id, payload.revision)
+        await oauth.delete_record(db, LOCAL_OWNER_ID, connection_id)
+        await _delete_flows(db, connection_id)
+        await _delete_grants(db, connection_id)
+        _invalidate(current)
+        await db.commit()
+        await db.refresh(current)
+    return await _out(db, current)
 
 
 @router.get("/connections/{connection_id}/agents/{agent_id}/grants")
@@ -493,13 +693,10 @@ async def set_grants(
     names = [selection.name for selection in payload.tools]
     if len(set(names)) != len(names):
         raise _fail(422, "invalid_tool_grant")
-    endpoint, auth_mode, header = row.endpoint, row.auth_mode, row.auth_header_name
-    token = await _credential(db, connection_id)
-    if auth_mode != "none" and token is None:
-        raise _fail(409, "credential_required")
+    endpoint = row.endpoint
+    token, header = await _auth_for(db, row)
     try:
-        available = await _discover(endpoint, token if auth_mode != "none" else None,
-                                    header if auth_mode == "header" else None)
+        available = await _discover(endpoint, token, header)
     except mcp.McpError as exc:
         raise _http(exc) from None
     by_name = {tool["name"]: tool for tool in available}

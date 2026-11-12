@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, SecretStr
 
-AuthMode = Literal["none", "bearer", "header"]
+AuthMode = Literal["none", "bearer", "header", "oauth"]
 ConnectionState = Literal["not_tested", "connected", "unreachable", "needs_sign_in", "disabled"]
 
 
@@ -12,8 +12,10 @@ class CustomMcpCreate(BaseModel):
     endpoint: str = Field(min_length=1, max_length=300)
     auth_mode: AuthMode = "none"
     auth_header_name: str | None = Field(default=None, max_length=64)
-    # Write-only. Never returned by any route.
+    # Write-only. Never returned by any route. For OAuth it is the optional client secret.
     credential: SecretStr | None = None
+    oauth_client_id: str | None = Field(default=None, max_length=200)
+    oauth_scopes: str | None = Field(default=None, max_length=500)
 
 
 class CustomMcpUpdate(BaseModel):
@@ -24,6 +26,8 @@ class CustomMcpUpdate(BaseModel):
     auth_header_name: str | None = Field(default=None, max_length=64)
     # Omitted or blank keeps the saved secret; use DELETE .../credential to remove it.
     credential: SecretStr | None = None
+    oauth_client_id: str | None = Field(default=None, max_length=200)
+    oauth_scopes: str | None = Field(default=None, max_length=500)
 
 
 class CustomMcpRevision(BaseModel):
@@ -42,6 +46,9 @@ class CustomMcpConnectionOut(BaseModel):
     state: ConnectionState
     last_error_code: str | None
     credential_configured: bool
+    oauth_signed_in: bool = False
+    oauth_client_id: str | None = None
+    oauth_scopes: str | None = None
     tool_count: int | None
     last_tested_at: datetime | None
 
@@ -61,3 +68,7 @@ class CustomMcpGrantSelection(BaseModel):
 class CustomMcpGrantRequest(BaseModel):
     revision: int = Field(ge=1)
     tools: list[CustomMcpGrantSelection] = Field(max_length=100)
+
+
+class CustomMcpOAuthStart(BaseModel):
+    authorization_url: str

@@ -290,3 +290,71 @@ async def test_marketplace_and_custom_tools_for_one_agent_do_not_collide(world, 
             await db.execute(delete(CommunityMcpToolGrant).where(CommunityMcpToolGrant.agent_id == agent.id))
             await db.execute(delete(CommunityMcpConnection).where(CommunityMcpConnection.id == listing.id))
             await db.commit()
+
+
+async def _make_oauth(sessions, world, owner, *, expires_in=-10):
+    import time
+    from app import custom_mcp_oauth as oauth
+    async with sessions() as db:
+        row = await db.get(CustomMcpConnection, world[3].id)
+        row.auth_mode, row.auth_header_name = "oauth", None
+        row.oauth_config = {"server": {"token_endpoint": "https://auth.example.com/token", "resource": ENDPOINT},
+                            "effective_client_id": "client-1"}
+        await db.execute(delete(UserCredential).where(UserCredential.user_id == owner))
+        await oauth.save_record(db, owner, row.id, {
+            "access_token": "at-old", "refresh_token": "rt-old", "expires_at": int(time.time()) + expires_in}, None)
+        await db.commit()
+
+
+async def test_an_oauth_connection_is_mounted_only_while_signed_in(world, sessions, owner):
+    from app import custom_mcp_oauth as oauth
+    await _make_oauth(sessions, world, owner)
+    assert len(await mounted(world)) == 1
+    async with sessions() as db:
+        await oauth.delete_record(db, owner, world[3].id)
+        await db.commit()
+    assert await mounted(world) == []
+
+
+async def test_an_oauth_call_uses_a_refreshed_token_that_never_reaches_the_provider(world, sessions, remote, owner, monkeypatch):
+    import time
+    from app import custom_mcp_oauth as oauth
+    await _make_oauth(sessions, world, owner)
+    refreshes = []
+
+    async def fake_refresh(config, *, client_id, client_secret, record):
+        refreshes.append(record["refresh_token"])
+        return {"access_token": "at-new", "refresh_token": "rt-new", "expires_at": int(time.time()) + 3600}
+
+    monkeypatch.setattr(oauth, "refresh_tokens", fake_refresh)
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        [alias] = bridge.aliases_allowed
+        await approve(sessions, world[1], alias, {"q": "x"})
+        result = await bridge.execute(alias, {"q": "x"})
+        assert result["content"][0]["text"] == "ok"
+        assert remote.built == [(ENDPOINT, "at-new", None)] and refreshes == ["rt-old"]
+        assert "at-new" not in bridge.tools_path.read_text(encoding="utf-8") and "at-new" not in json.dumps(bridge.launch.args)
+    finally:
+        await bridge.close()
+
+
+async def test_a_refresh_the_server_rejects_stops_the_call_and_signs_the_connection_out(world, sessions, remote, owner, monkeypatch):
+    from app import custom_mcp_oauth as oauth
+    await _make_oauth(sessions, world, owner)
+
+    async def dead(config, *, client_id, client_secret, record):
+        raise oauth.OAuthError("invalid_grant", "dead", 400)
+
+    monkeypatch.setattr(oauth, "refresh_tokens", dead)
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        [alias] = bridge.aliases_allowed
+        await approve(sessions, world[1], alias, {"q": "x"})
+        result = await bridge.execute(alias, {"q": "x"})
+        assert result["code"] == "needs_sign_in" and remote.calls == []
+        async with sessions() as db:
+            row = await db.get(CustomMcpConnection, world[3].id)
+            assert row.enabled is False and not await oauth.is_signed_in(db, owner, row.id)
+    finally:
+        await bridge.close()

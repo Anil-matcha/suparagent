@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 from sqlalchemy import delete, select
 
-from app import community_mcp
+from app import community_mcp, custom_mcp_oauth
 from app.core import tool_timeout
 from app.core.logging import get_logger
 from app.db.models import (
@@ -244,9 +244,14 @@ class CommunityMcpBridge:
         for connection, grant in rows:
             if connection.tested_revision != connection.revision or connection.tools_snapshot is None:
                 continue
-            if connection.auth_mode not in ("none", "bearer", "header"):
+            if connection.auth_mode not in ("none", "bearer", "header", "oauth"):
                 continue
-            if connection.auth_mode != "none":
+            if connection.auth_mode == "oauth":
+                # Mounted only while a sign-in exists; the token itself is fetched (and refreshed) per call.
+                if not (connection.oauth_config or {}).get("server") or not await custom_mcp_oauth.is_signed_in(
+                        db, owner_id, connection.id):
+                    continue
+            elif connection.auth_mode != "none":
                 try:
                     found = await user_credential_service.get_decrypted(
                         db, owner_id, CUSTOM_CREDENTIAL_PREFIX + connection.id)
@@ -578,7 +583,12 @@ class CommunityMcpBridge:
             custom = item.get("kind") == "custom"
             provider = (CUSTOM_CREDENTIAL_PREFIX if custom else "integration:community-mcp:") + str(item["manifest"]["slug"])
             token = None
-            if manifest.get("auth_mode") in ("bearer_token", "bearer", "header"):
+            if custom and manifest.get("auth_mode") == "oauth":
+                try:
+                    token = await custom_mcp_oauth.access_token(self.runtime.owner_id, item["connection_id"], self.runtime.session)
+                except community_mcp.McpError:
+                    return {"error": "Sign in to this server again in Settings.", "code": "needs_sign_in"}
+            elif manifest.get("auth_mode") in ("bearer_token", "bearer", "header"):
                 async with self.runtime.session() as db:
                     found = await user_credential_service.get_decrypted(db, self.runtime.owner_id, provider)
                 if found is None:

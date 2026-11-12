@@ -32,7 +32,7 @@ NOTICE_TABLES = {"team_notice"}
 PLANNER_TABLES = {"work_board", "work_column", "work_item"}
 WORK_EXECUTION_TABLES = {"work_item_run", "work_item_event"}
 COMMUNITY_MCP_TABLES = {"community_mcp_connection", "community_mcp_tool_grant"}
-CUSTOM_MCP_TABLES = {"custom_mcp_connection", "custom_mcp_tool_grant"}
+CUSTOM_MCP_TABLES = {"custom_mcp_connection", "custom_mcp_tool_grant", "custom_mcp_oauth_flow"}
 WORKFLOW_TABLES = {"workflow", "workflow_run"}
 PEOPLE_TABLES = {"person", "person_invite", "people_audit"}
 
