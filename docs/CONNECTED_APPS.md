@@ -187,6 +187,24 @@ was made in it. No automated tests were run for the Codex increment. A
 packaged installer, Gmail or Calendar live calls from Codex, Linux and its
 sandbox, a real lost-answer failure, and revocation at GitHub remain unchecked.
 
+## Custom MCP servers
+
+Apps → MCP Marketplace → **Custom MCP servers** lets you add a remote MCP server that is not in the marketplace.
+
+1. **Save as a draft.** Give it a name and a public `https://` address (no port, query string or login in the URL). Choose how it signs you in: none, a bearer token, a custom header, or browser sign-in (OAuth). A new server is off and no agent can use it.
+2. **Test it.** Suparagent connects, shows what the server calls itself (its own claim) and lists its tools. A failed test leaves it off.
+3. **Turn it on, then grant tools.** Choose an agent and check the exact tools it may use. A changed address, sign-in method, secret or tool definition clears the affected grants.
+
+Secrets and sign-in tokens are write-only: they are stored encrypted, are never shown again, and never reach the agent or the engine's own configuration. They are in a database backup only in encrypted form, and the backup does not contain the key. Tool descriptions and results come from the server and are treated as untrusted data.
+
+**Where agents can use them.** Claude and Codex, in a person's chat. Every call asks for your approval and shows the server, tool and exact arguments; an approval is used once, and a call whose result is uncertain is never repeated. Other engines, routines, webhooks, rooms and computer or browser sessions do not receive custom tools.
+
+**Browser sign-in.** Suparagent finds the sign-in server from the MCP address, registers itself when the server allows it (or uses the client ID you enter), and signs in with PKCE (S256). It refreshes tokens before they expire; if the provider rejects the refresh, the server is turned off and shows "Needs sign-in". Sign out revokes the tokens where the provider supports it and clears all grants for that server; also remove Suparagent in the service's own connected-apps settings to be sure. In the desktop app the sign-in returns to a short-lived listener on `127.0.0.1` (a client you register yourself must allow loopback redirects on any port); web and self-hosted installs return to the server. A hosted workspace relay is not built yet.
+
+**Limits.** Public https servers only, on the standard port. Local command (stdio) servers are not supported. A person-owned connection is the single owner's; sharing a connection with teammates is not built.
+
+**What has been checked.** Automated tests cover the connection rules, secrets, grants, approvals, the Claude/Codex bridge and the OAuth flow against a fake authorization server. By hand on Windows, against live services: a public no-auth server (connect, list, call), and Notion's OAuth (browser sign-in, tool list, token refresh and sign-out) in the browser, plus sign-in, tool list and sign-out in the desktop app through the loopback listener. **Not checked**: a real Claude or Codex turn calling a custom tool, whether Notion revoked the tokens on sign-out, macOS, Linux, the packaged installers, PostgreSQL against a real server, and the hosted service.
+
 ## Routine-specific app access
 
 With Uninterrupted access off, the routine editor binds exact actions to stable connected account IDs. Grants
