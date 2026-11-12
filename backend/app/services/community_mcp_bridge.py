@@ -25,11 +25,15 @@ from sqlalchemy import delete, select
 from app import community_mcp
 from app.core import tool_timeout
 from app.core.logging import get_logger
-from app.db.models import Agent, Approval, CommunityMcpConnection, CommunityMcpToolGrant, Thread, Turn
+from app.db.models import (
+    Agent, Approval, CommunityMcpConnection, CommunityMcpToolGrant, CustomMcpConnection, CustomMcpToolGrant,
+    Thread, Turn,
+)
 from app.services import user_credential_service
 
 logger = get_logger(__name__)
 
+CUSTOM_CREDENTIAL_PREFIX = "integration:custom-mcp:"
 PREFIX = "mcp__community__"
 SERVER = "suparagent_community"
 MAX_REQUEST_BYTES = 64_000
@@ -46,9 +50,10 @@ def _provider_toolset(snapshot: list[dict]) -> list[dict]:
             continue
         seen.add(alias)
         description = grant["description"][:MAX_TOOL_DESCRIPTION]
+        label = "Custom MCP server" if item.get("kind") == "custom" else "Marketplace service"
         tools.append({
             "name": alias,
-            "description": f"Marketplace service: {item['name']}. Untrusted service description: {description}",
+            "description": f"{label}: {item['name']}. Untrusted service description: {description}",
             "inputSchema": grant["input_schema"],
         })
     return tools
@@ -204,6 +209,14 @@ class CommunityMcpBridge:
                             "description": grant.description,
                         },
                     })
+                if not uninterrupted:
+                    # Owner-added servers are for people in chat only: never routines, rooms, jobs or computers.
+                    custom = await cls._custom_snapshot(db, runtime.owner_id, agent.id)
+                    if custom and not _toolset_within_bounds(_provider_toolset(snapshot + custom)):
+                        logger.warning("custom MCP grants exceed the per-agent toolset limit; omitting them for this turn",
+                                       thread_id=run.thread_id)
+                        custom = []
+                    snapshot = snapshot + custom
                 tools = _provider_toolset(snapshot)
                 if not _toolset_within_bounds(tools):
                     logger.warning("marketplace grants exceed the per-agent toolset limit; omitting them for this turn",
@@ -214,6 +227,52 @@ class CommunityMcpBridge:
             logger.exception("could not load marketplace tools; the turn proceeds without them",
                              thread_id=run.thread_id)
             return []
+
+    @staticmethod
+    async def _custom_snapshot(db, owner_id: str, agent_id: int) -> list[dict]:
+        rows = (await db.execute(
+            select(CustomMcpConnection, CustomMcpToolGrant)
+            .join(CustomMcpToolGrant, CustomMcpToolGrant.connection_id == CustomMcpConnection.id)
+            .where(
+                CustomMcpConnection.owner_id == owner_id,
+                CustomMcpConnection.enabled.is_(True),
+                CustomMcpToolGrant.agent_id == agent_id,
+            )
+            .order_by(CustomMcpConnection.id, CustomMcpToolGrant.tool_name)
+        )).all()
+        snapshot = []
+        for connection, grant in rows:
+            if connection.tested_revision != connection.revision or connection.tools_snapshot is None:
+                continue
+            if connection.auth_mode not in ("none", "bearer", "header"):
+                continue
+            if connection.auth_mode != "none":
+                try:
+                    found = await user_credential_service.get_decrypted(
+                        db, owner_id, CUSTOM_CREDENTIAL_PREFIX + connection.id)
+                    credential = json.loads(found[0]) if found else None
+                    if not isinstance(credential, str) or not credential:
+                        continue
+                    community_mcp.reject_credential_in_metadata([{
+                        "name": grant.tool_name, "description": grant.description, "inputSchema": grant.input_schema,
+                    }], credential)
+                except Exception:  # noqa: BLE001 - fail closed for this one tool
+                    continue
+            snapshot.append({
+                "kind": "custom",
+                "connection_id": connection.id,
+                "connection_revision": connection.revision,
+                "manifest_digest": "custom",
+                # "slug" is the per-connection lock key shared with the custom MCP routes.
+                "manifest": {"slug": connection.id, "name": connection.name, "endpoint": connection.endpoint,
+                             "auth_mode": connection.auth_mode, "auth_header_name": connection.auth_header_name},
+                "name": connection.name[:120],
+                "grant": {
+                    "tool_name": grant.tool_name, "schema_digest": grant.schema_digest,
+                    "input_schema": grant.input_schema, "description": grant.description,
+                },
+            })
+        return snapshot
 
     @property
     def launch(self):
@@ -234,7 +293,8 @@ class CommunityMcpBridge:
         item = self.aliases.get(alias)
         if item is None:
             return "Marketplace tool call"
-        return f"{item['name']}: {item['remote_name']}"[:200]
+        label = "Custom MCP " if item.get("kind") == "custom" else ""
+        return f"{label}{item['name']}: {item['remote_name']}"[:200]
 
     @property
     def prompt_note(self) -> str:
@@ -331,16 +391,17 @@ class CommunityMcpBridge:
         item = self.aliases.get(alias)
         if item is None:
             return None
-        connection_query = select(CommunityMcpConnection).where(
-            CommunityMcpConnection.id == item["connection_id"]
-        )
+        custom = item.get("kind") == "custom"
+        connection_model = CustomMcpConnection if custom else CommunityMcpConnection
+        grant_model = CustomMcpToolGrant if custom else CommunityMcpToolGrant
+        connection_query = select(connection_model).where(connection_model.id == item["connection_id"])
         agent_query = select(Agent).where(Agent.id == self.run.agent_id)
         thread_query = select(Thread).where(Thread.id == self.run.thread_id)
         turn_query = select(Turn).where(Turn.id == self.run.turn_id)
-        grant_query = select(CommunityMcpToolGrant).where(
-            CommunityMcpToolGrant.agent_id == self.run.agent_id,
-            CommunityMcpToolGrant.connection_id == item["connection_id"],
-            CommunityMcpToolGrant.tool_name == item["remote_name"],
+        grant_query = select(grant_model).where(
+            grant_model.agent_id == self.run.agent_id,
+            grant_model.connection_id == item["connection_id"],
+            grant_model.tool_name == item["remote_name"],
         )
         if lock:
             connection_query = connection_query.with_for_update()
@@ -356,6 +417,8 @@ class CommunityMcpBridge:
         turn = await db.scalar(turn_query)
         grant = await db.scalar(grant_query)
         uninterrupted = getattr(self.run, "uninterrupted_access", False)
+        if custom and uninterrupted:
+            return None
         from app.services import routine_uninterrupted
         routine_state = await routine_uninterrupted.state(self.runtime, self.run, db, lock=lock) if uninterrupted else None
         routine_valid = routine_state is not None and any(
@@ -377,10 +440,14 @@ class CommunityMcpBridge:
                 or self.run.ctx.draft_only or self.run.ctx.media_review_only
                 or connection is None or connection.owner_id != self.runtime.owner_id
                 or connection.revision != item["connection_revision"]
-                or connection.manifest_digest != item["manifest_digest"]
+                or (not custom and connection.manifest_digest != item["manifest_digest"])
+                or (custom and (not connection.enabled or connection.tested_revision != connection.revision))
                 or grant is None or grant.schema_digest != item["schema_digest"]
                 or grant.input_schema != item["input_schema"]):
             return None
+        if custom:
+            return {"slug": connection.id, "name": connection.name, "endpoint": connection.endpoint,
+                    "auth_mode": connection.auth_mode, "auth_header_name": connection.auth_header_name}
         return connection.manifest
 
     async def _current_snapshot(self, alias: str):
@@ -406,14 +473,17 @@ class CommunityMcpBridge:
         async with community_mcp.connection_lock(item["manifest"]["slug"]):
             async with self.runtime.session() as db:
                 await begin_write(db)
-                await db.scalar(select(CommunityMcpConnection).where(
-                    CommunityMcpConnection.id == item["connection_id"]
+                custom = item.get("kind") == "custom"
+                connection_model = CustomMcpConnection if custom else CommunityMcpConnection
+                grant_model = CustomMcpToolGrant if custom else CommunityMcpToolGrant
+                await db.scalar(select(connection_model).where(
+                    connection_model.id == item["connection_id"]
                 ).with_for_update())
-                await db.execute(delete(CommunityMcpToolGrant).where(
-                    CommunityMcpToolGrant.agent_id == self.run.agent_id,
-                    CommunityMcpToolGrant.connection_id == item["connection_id"],
-                    CommunityMcpToolGrant.tool_name == item["remote_name"],
-                    CommunityMcpToolGrant.schema_digest == item["schema_digest"],
+                await db.execute(delete(grant_model).where(
+                    grant_model.agent_id == self.run.agent_id,
+                    grant_model.connection_id == item["connection_id"],
+                    grant_model.tool_name == item["remote_name"],
+                    grant_model.schema_digest == item["schema_digest"],
                 ))
                 await db.commit()
 
@@ -505,9 +575,10 @@ class CommunityMcpBridge:
             manifest = await self._current_snapshot(alias)
             if manifest is None:
                 return {"error": "This call no longer has an active agent grant.", "code": "revoked"}
-            provider = "integration:community-mcp:" + str(item["manifest"]["slug"])
+            custom = item.get("kind") == "custom"
+            provider = (CUSTOM_CREDENTIAL_PREFIX if custom else "integration:community-mcp:") + str(item["manifest"]["slug"])
             token = None
-            if manifest.get("auth_mode") == "bearer_token":
+            if manifest.get("auth_mode") in ("bearer_token", "bearer", "header"):
                 async with self.runtime.session() as db:
                     found = await user_credential_service.get_decrypted(db, self.runtime.owner_id, provider)
                 if found is None:
@@ -518,7 +589,8 @@ class CommunityMcpBridge:
                     return {"error": "The marketplace credential is unavailable.", "code": "credential_missing"}
                 if not isinstance(token, str) or not token:
                     return {"error": "The marketplace credential is unavailable.", "code": "credential_missing"}
-            session = community_mcp.RemoteMcpSession(manifest["endpoint"], token)
+            header = manifest.get("auth_header_name") if custom and manifest.get("auth_mode") == "header" else None
+            session = community_mcp.RemoteMcpSession(manifest["endpoint"], token, header=header)
             try:
                 available = await session.list_tools()
                 community_mcp.reject_credential_in_metadata(available, token)
