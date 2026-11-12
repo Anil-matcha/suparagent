@@ -1,0 +1,208 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { api } from "@/lib/api";
+import {
+  buildUpdate, describeError, stateLabel,
+  type CustomMcpAuthMode, type CustomMcpConnection, type CustomMcpTool,
+} from "@/lib/custom-mcp";
+import type { MarketplaceAgent } from "@/lib/marketplace";
+import { Badge } from "@/components/ui/Badge";
+import { Banner } from "@/components/ui/Banner";
+import { Button } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
+import { Field, Input, Select } from "@/components/ui/Input";
+import { SkeletonList } from "@/components/ui/Skeleton";
+
+type Form = { name: string; endpoint: string; auth_mode: CustomMcpAuthMode; auth_header_name: string; credential: string };
+const EMPTY: Form = { name: "", endpoint: "", auth_mode: "none", auth_header_name: "", credential: "" };
+const AUTH_LABEL: Record<CustomMcpAuthMode, string> = { none: "No authentication", bearer: "Bearer token", header: "Custom header" };
+
+function tone(connection: CustomMcpConnection) {
+  if (connection.enabled && connection.state === "connected") return "success" as const;
+  if (connection.state === "unreachable" || connection.state === "needs_sign_in") return "danger" as const;
+  return "neutral" as const;
+}
+
+function ConnectionForm({ form, setForm, hasSecret, disabled }: {
+  form: Form; setForm: (next: Form) => void; hasSecret?: boolean; disabled: boolean;
+}) {
+  const set = (patch: Partial<Form>) => setForm({ ...form, ...patch });
+  return <div className="grid gap-3 sm:grid-cols-2">
+    <Field label="Name">{(props) => <Input {...props} value={form.name} maxLength={100} disabled={disabled} onChange={(event) => set({ name: event.target.value })} />}</Field>
+    <Field label="MCP address" hint="A public https:// address. No port, query string, or login in the URL.">
+      {(props) => <Input {...props} type="url" inputMode="url" placeholder="https://example.com/mcp" value={form.endpoint} maxLength={300} disabled={disabled} onChange={(event) => set({ endpoint: event.target.value })} />}
+    </Field>
+    <Field label="Authentication">
+      {(props) => <Select {...props} value={form.auth_mode} disabled={disabled} onChange={(event) => set({ auth_mode: event.target.value as CustomMcpAuthMode })}>
+        <option value="none">None</option><option value="bearer">Bearer token</option><option value="header">Custom header</option>
+      </Select>}
+    </Field>
+    {form.auth_mode === "header" && <Field label="Header name" hint="For example X-Api-Key.">
+      {(props) => <Input {...props} value={form.auth_header_name} maxLength={64} disabled={disabled} onChange={(event) => set({ auth_header_name: event.target.value })} />}
+    </Field>}
+    {form.auth_mode !== "none" && <Field label={hasSecret ? "Replace secret" : "Secret"}
+      hint={hasSecret ? "Leave blank to keep the saved secret. It is never shown again." : "Sent only by this app's backend to the address above. It is never shown again and never given to the agent."}>
+      {(props) => <Input {...props} type="password" autoComplete="new-password" value={form.credential} disabled={disabled} onChange={(event) => set({ credential: event.target.value })} />}
+    </Field>}
+  </div>;
+}
+
+export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
+  const [connections, setConnections] = useState<CustomMcpConnection[] | null>(null);
+  const [tools, setTools] = useState<Record<string, CustomMcpTool[]>>({});
+  const [draft, setDraft] = useState<Form>(EMPTY);
+  const [editing, setEditing] = useState<{ id: string; form: Form } | null>(null);
+  const [agentFor, setAgentFor] = useState<Record<string, number | "">>({});
+  const [granted, setGranted] = useState<Record<string, string[]>>({});
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const apply = (next: CustomMcpConnection) =>
+    setConnections((old) => (old ?? []).map((item) => item.id === next.id ? next : item));
+  const forget = (id: string) => {
+    setTools((old) => { const copy = { ...old }; delete copy[id]; return copy; });
+    setGranted((old) => Object.fromEntries(Object.entries(old).filter(([key]) => !key.startsWith(`${id}:`))));
+    setAgentFor((old) => { const copy = { ...old }; delete copy[id]; return copy; });
+  };
+  const run = async (key: string, action: () => Promise<void>) => {
+    setBusy(key); setError(null); setNotice(null);
+    try { await action(); } catch (reason) { setError(describeError(reason)); } finally { setBusy(null); }
+  };
+
+  const reload = useCallback(async () => setConnections(await api.listCustomMcp()), []);
+  useEffect(() => {
+    let live = true;
+    api.listCustomMcp().then((list) => { if (live) setConnections(list); })
+      .catch((reason: unknown) => { if (live) { setError(describeError(reason)); setConnections([]); } });
+    return () => { live = false; };
+  }, []);
+
+  const loadTools = async (connection: CustomMcpConnection) => {
+    const found = await api.getCustomMcpTools(connection.id);
+    setTools((old) => ({ ...old, [connection.id]: found }));
+  };
+
+  const create = () => run("create", async () => {
+    const body = {
+      name: draft.name.trim(), endpoint: draft.endpoint.trim(), auth_mode: draft.auth_mode,
+      ...(draft.auth_mode === "header" ? { auth_header_name: draft.auth_header_name.trim() } : {}),
+      ...(draft.auth_mode !== "none" && draft.credential ? { credential: draft.credential } : {}),
+    };
+    await api.createCustomMcp(body);
+    setDraft(EMPTY); await reload();
+    setNotice("Saved as a draft. It is off and no agent can use it. Test it, then turn it on and choose tools for each agent.");
+  });
+
+  const test = (connection: CustomMcpConnection) => run(`test:${connection.id}`, async () => {
+    forget(connection.id);
+    try {
+      const next = await api.testCustomMcp(connection.id, connection.revision);
+      apply(next); await loadTools(next);
+      setNotice(`Connected. Found ${next.tool_count ?? 0} tools. Turn it on to choose which tools each agent gets.`);
+    } catch (reason) { await reload().catch(() => undefined); throw reason; }
+  });
+
+  const toggle = (connection: CustomMcpConnection, enabled: boolean) => run(`toggle:${connection.id}`, async () => {
+    const next = await api.setCustomMcpEnabled(connection.id, connection.revision, enabled);
+    apply(next); if (enabled) await loadTools(next);
+    setNotice(enabled ? "Turned on. Agents still have no tools until you grant them below." : "Turned off. No agent can call it now.");
+  });
+
+  const save = (connection: CustomMcpConnection, form: Form) => run(`save:${connection.id}`, async () => {
+    const body = buildUpdate(connection, form);
+    if (body === null) { setEditing(null); return; }
+    const moved = "endpoint" in body || "auth_mode" in body || "credential" in body || "auth_header_name" in body;
+    const next = await api.updateCustomMcp(connection.id, body);
+    apply(next); setEditing(null);
+    if (moved) { forget(connection.id); setNotice("Saved. The server is off and its tool grants were cleared. Test it again to continue."); }
+    else setNotice("Saved.");
+  });
+
+  const loadGrants = async (connection: CustomMcpConnection, agentId: number) => {
+    setAgentFor((old) => ({ ...old, [connection.id]: agentId }));
+    try {
+      const result = await api.getCustomMcpGrants(connection.id, agentId);
+      setGranted((old) => ({ ...old, [`${connection.id}:${agentId}`]: result.tool_names }));
+    } catch (reason) { setError(describeError(reason)); }
+  };
+
+  const card = (connection: CustomMcpConnection) => {
+    const isEditing = editing?.id === connection.id;
+    const list = tools[connection.id];
+    const agentId = agentFor[connection.id] ?? "";
+    const key = agentId === "" ? "" : `${connection.id}:${agentId}`;
+    const checked = key ? granted[key] ?? [] : [];
+    const off = busy !== null;
+    return <article key={connection.id} className="space-y-4 rounded-lg border border-line p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0"><h3 className="font-semibold">{connection.name}</h3><p className="mt-1 break-all text-xs"><code>{connection.endpoint}</code></p></div>
+        <Badge tone={tone(connection)}>{stateLabel(connection)}</Badge>
+      </div>
+      <p className="text-xs text-muted">
+        {AUTH_LABEL[connection.auth_mode]}{connection.auth_mode === "header" && connection.auth_header_name ? ` (${connection.auth_header_name})` : ""}
+        {connection.auth_mode !== "none" && ` · ${connection.credential_configured ? "Secret saved" : "No secret saved"}`}
+        {connection.tool_count !== null && ` · ${connection.tool_count} tools found`}
+      </p>
+      {connection.state === "needs_sign_in" && <Banner tone="danger">The server rejected the saved secret. Replace it, then test again.</Banner>}
+      {connection.state === "unreachable" && <Banner tone="danger">The server could not be reached or answered unexpectedly. Test again when it is back.</Banner>}
+      {isEditing ? <div className="space-y-3">
+        <ConnectionForm form={editing.form} setForm={(form) => setEditing({ id: connection.id, form })} hasSecret={connection.credential_configured} disabled={off} />
+        <p className="text-xs text-muted">Changing the address, authentication or secret turns the server off, clears its tool grants, and needs a new test.</p>
+        <div className="flex gap-2"><Button variant="primary" disabled={off} onClick={() => void save(connection, editing.form)}>Save changes</Button><Button disabled={off} onClick={() => setEditing(null)}>Cancel</Button></div>
+      </div> : <div className="flex flex-wrap gap-2">
+        <Button disabled={off || (connection.auth_mode !== "none" && !connection.credential_configured)} onClick={() => void test(connection)}>{busy === `test:${connection.id}` ? "Testing…" : connection.state === "not_tested" ? "Test connection" : "Test again"}</Button>
+        {connection.enabled
+          ? <Button disabled={off} onClick={() => void toggle(connection, false)}>Turn off</Button>
+          : connection.state !== "not_tested" && connection.state !== "unreachable" && connection.state !== "needs_sign_in" && <Button variant="primary" disabled={off} onClick={() => void toggle(connection, true)}>Turn on</Button>}
+        <Button disabled={off} onClick={() => setEditing({ id: connection.id, form: {
+          name: connection.name, endpoint: connection.endpoint, auth_mode: connection.auth_mode,
+          auth_header_name: connection.auth_header_name ?? "", credential: "" } })}>Edit</Button>
+        {connection.credential_configured && <Button disabled={off} onClick={() => void run(`secret:${connection.id}`, async () => {
+          apply(await api.removeCustomMcpCredential(connection.id, connection.revision)); forget(connection.id);
+          setNotice("Secret removed. The server is off and its tool grants were cleared.");
+        })}>Remove secret</Button>}
+        {confirmRemove === connection.id
+          ? <><Button variant="danger" disabled={off} onClick={() => void run(`delete:${connection.id}`, async () => {
+              await api.deleteCustomMcp(connection.id); forget(connection.id); setConfirmRemove(null); await reload(); setNotice(`${connection.name} removed with its secret and grants.`);
+            })}>Confirm remove</Button><Button disabled={off} onClick={() => setConfirmRemove(null)}>Keep</Button></>
+          : <Button disabled={off} onClick={() => setConfirmRemove(connection.id)}>Remove</Button>}
+      </div>}
+      {connection.enabled && list && <div className="space-y-3 border-t border-line pt-4">
+        <p className="text-sm font-medium">Tools for each agent</p>
+        <p className="text-xs text-muted">Only checked tools are available to the chosen agent, in person chats with Claude or Codex. Every call asks for your approval and shows the exact arguments. Tool descriptions come from the server and are untrusted.</p>
+        {agents.length === 0 ? <p className="text-sm text-muted">Create an agent before granting tools.</p> : <>
+          <Select value={agentId} onChange={(event) => { if (event.target.value) void loadGrants(connection, Number(event.target.value)); }}>
+            <option value="">Choose an agent</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+          </Select>
+          {agentId !== "" && <>
+            <ul className="space-y-2">{list.map((tool) => <li key={tool.name}>
+              <Checkbox checked={checked.includes(tool.name)} onChange={(event) => setGranted((old) => ({ ...old, [key]: event.target.checked ? [...checked, tool.name] : checked.filter((name) => name !== tool.name) }))}
+                label={<span><span className="font-medium">{tool.name}</span><span className="block text-xs text-muted">{tool.description}</span></span>} />
+            </li>)}</ul>
+            <Button variant="primary" disabled={off} onClick={() => void run(`grants:${key}`, async () => {
+              const exact = list.filter((tool) => checked.includes(tool.name)).map(({ name, schema_digest }) => ({ name, schema_digest }));
+              await api.saveCustomMcpGrants(connection.id, Number(agentId), connection.revision, exact);
+              await reload(); setNotice("Tool grants saved.");
+            })}>{busy === `grants:${key}` ? "Saving…" : "Save grants"}</Button>
+          </>}
+        </>}
+      </div>}
+    </article>;
+  };
+
+  return <section className="space-y-3" aria-labelledby="custom-mcp-heading">
+    <div><h2 id="custom-mcp-heading" className="text-lg font-semibold">Custom MCP servers</h2>
+      <p className="mt-1 text-sm text-muted">Add your own remote MCP server. A new server starts off, and no agent can use it until you test it, turn it on and grant specific tools. Only public https:// servers are supported; local commands are not.</p></div>
+    {error && <Banner tone="danger">{error}</Banner>}{notice && <p role="status" className="text-sm text-muted">{notice}</p>}
+    <div className="space-y-3 rounded-lg border border-line p-4">
+      <p className="text-sm font-medium">Add a server</p>
+      <ConnectionForm form={draft} setForm={setDraft} disabled={busy !== null} />
+      <Button variant="primary" disabled={busy !== null || !draft.name.trim() || !draft.endpoint.trim()} onClick={() => void create()}>{busy === "create" ? "Saving…" : "Save as draft"}</Button>
+    </div>
+    {connections === null ? <SkeletonList rows={2} /> : connections.map(card)}
+    {connections?.length === 0 && <p className="text-sm text-muted">No custom servers yet.</p>}
+  </section>;
+}

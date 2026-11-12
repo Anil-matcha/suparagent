@@ -2,6 +2,7 @@ import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview
 import type { TemplateCatalog, TemplateSkill } from "./templates";
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
+import type { CustomMcpConnection, CustomMcpDraft, CustomMcpTool } from "./custom-mcp";
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
@@ -1197,6 +1198,30 @@ export const api = {
   saveMarketplaceAgentGrants: (connectionId: string, agentId: number, tools: { name: string; schema_digest: string }[]) =>
     request<{ tool_names: string[] }>(`/integrations/marketplace/connections/${encodeURIComponent(connectionId)}/agents/${agentId}/grants`, {
       method: "PUT", body: JSON.stringify({ tools }),
+    }),
+  // Owner-added custom MCP servers. Secrets are write-only: no route ever returns one.
+  listCustomMcp: () => request<CustomMcpConnection[]>("/integrations/custom-mcp/connections"),
+  createCustomMcp: (draft: CustomMcpDraft) =>
+    request<CustomMcpConnection>("/integrations/custom-mcp/connections", { method: "POST", body: JSON.stringify(draft) }),
+  updateCustomMcp: (id: string, body: Record<string, unknown>) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
+  testCustomMcp: (id: string, revision: number) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/test`, { method: "POST", body: JSON.stringify({ revision }) }),
+  setCustomMcpEnabled: (id: string, revision: number, enabled: boolean) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/${enabled ? "enable" : "disable"}`, {
+      method: "POST", body: JSON.stringify({ revision }),
+    }),
+  removeCustomMcpCredential: (id: string, revision: number) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/credential?revision=${revision}`, { method: "DELETE" }),
+  deleteCustomMcp: (id: string) =>
+    request<void>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  getCustomMcpTools: (id: string) =>
+    request<CustomMcpTool[]>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/tools`),
+  getCustomMcpGrants: (id: string, agentId: number) =>
+    request<{ tool_names: string[] }>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/agents/${agentId}/grants`),
+  saveCustomMcpGrants: (id: string, agentId: number, revision: number, tools: { name: string; schema_digest: string }[]) =>
+    request<{ tool_names: string[] }>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/agents/${agentId}/grants`, {
+      method: "PUT", body: JSON.stringify({ revision, tools }),
     }),
   getDesktopSettings: () => request<DesktopSettings>("/settings"),
   saveDesktopSetting: (key: string, value: unknown, expectedVersion: number) =>
