@@ -512,8 +512,10 @@ class PinnedHTTPSTransport(httpx.AsyncBaseTransport):
 
 
 class RemoteMcpSession:
-    def __init__(self, endpoint: str, token: str | None = None):
+    def __init__(self, endpoint: str, token: str | None = None, *, header: str | None = None):
+        """`header` names a header that carries the secret instead of `Authorization: Bearer`."""
         self.endpoint = endpoint
+        self.header = header
         self.host, _path, self.port = _validate_public_url(endpoint, "endpoint", require_standard_port=True)
         self.token = token
         self.client = httpx.AsyncClient(
@@ -534,7 +536,9 @@ class RemoteMcpSession:
             headers["MCP-Protocol-Version"] = self.protocol
         if self.session_id:
             headers["Mcp-Session-Id"] = self.session_id
-        if self.token:
+        if self.token and self.header:
+            headers[self.header] = self.token
+        elif self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
