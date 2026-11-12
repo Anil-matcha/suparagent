@@ -36,3 +36,20 @@ test('known causes get plain wording and unknown ones keep the backend message',
   assert.equal(describeError(new Error('boom')), 'boom');
   assert.equal(describeError('odd'), 'The request failed.');
 });
+
+test('OAuth settings are sent only for oauth connections and only when they changed', () => {
+  const oauth = { revision: 2, name: 'N', endpoint: 'https://a.example.com/mcp', auth_mode: 'oauth', auth_header_name: null, oauth_client_id: 'c1', oauth_scopes: 'read' };
+  const form = { name: 'N', endpoint: 'https://a.example.com/mcp', auth_mode: 'oauth', auth_header_name: '', credential: '', oauth_client_id: 'c1', oauth_scopes: 'read' };
+  assert.equal(buildUpdate(oauth, form), null);
+  assert.deepEqual(buildUpdate(oauth, { ...form, oauth_scopes: '  read   write ' }), { revision: 2, oauth_scopes: 'read write' });
+  assert.deepEqual(buildUpdate(oauth, { ...form, oauth_client_id: '' }), { revision: 2, oauth_client_id: '' });
+  // Switching away from oauth never sends oauth fields.
+  const away = buildUpdate(oauth, { ...form, auth_mode: 'bearer', oauth_client_id: 'zzz' });
+  assert.deepEqual(away, { revision: 2, auth_mode: 'bearer' });
+});
+
+test('sign-in problems have plain wording', () => {
+  assert.match(describeError({ code: 'oauth_not_supported' }), /PKCE/);
+  assert.match(describeError({ code: 'oauth_client_required' }), /client ID/);
+  assert.match(describeError({ code: 'needs_sign_in' }), /Sign in/);
+});

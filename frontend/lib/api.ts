@@ -1211,6 +1211,14 @@ export const api = {
     request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/${enabled ? "enable" : "disable"}`, {
       method: "POST", body: JSON.stringify({ revision }),
     }),
+  startCustomMcpSignIn: (id: string, revision: number) =>
+    request<{ authorization_url: string }>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/oauth/start`, {
+      method: "POST", body: JSON.stringify({ revision }),
+    }),
+  signOutCustomMcp: (id: string, revision: number) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/oauth/sign-out`, {
+      method: "POST", body: JSON.stringify({ revision }),
+    }),
   removeCustomMcpCredential: (id: string, revision: number) =>
     request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/credential?revision=${revision}`, { method: "DELETE" }),
   deleteCustomMcp: (id: string) =>

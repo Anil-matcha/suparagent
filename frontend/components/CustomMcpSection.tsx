@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import {
   buildUpdate, describeError, stateLabel,
@@ -14,9 +14,9 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { Field, Input, Select } from "@/components/ui/Input";
 import { SkeletonList } from "@/components/ui/Skeleton";
 
-type Form = { name: string; endpoint: string; auth_mode: CustomMcpAuthMode; auth_header_name: string; credential: string };
-const EMPTY: Form = { name: "", endpoint: "", auth_mode: "none", auth_header_name: "", credential: "" };
-const AUTH_LABEL: Record<CustomMcpAuthMode, string> = { none: "No authentication", bearer: "Bearer token", header: "Custom header" };
+type Form = { name: string; endpoint: string; auth_mode: CustomMcpAuthMode; auth_header_name: string; credential: string; oauth_client_id: string; oauth_scopes: string };
+const EMPTY: Form = { name: "", endpoint: "", auth_mode: "none", auth_header_name: "", credential: "", oauth_client_id: "", oauth_scopes: "" };
+const AUTH_LABEL: Record<CustomMcpAuthMode, string> = { none: "No authentication", bearer: "Bearer token", header: "Custom header", oauth: "Browser sign-in (OAuth)" };
 
 function tone(connection: CustomMcpConnection) {
   if (connection.enabled && connection.state === "connected") return "success" as const;
@@ -35,13 +35,21 @@ function ConnectionForm({ form, setForm, hasSecret, disabled }: {
     </Field>
     <Field label="Authentication">
       {(props) => <Select {...props} value={form.auth_mode} disabled={disabled} onChange={(event) => set({ auth_mode: event.target.value as CustomMcpAuthMode })}>
-        <option value="none">None</option><option value="bearer">Bearer token</option><option value="header">Custom header</option>
+        <option value="none">None</option><option value="bearer">Bearer token</option><option value="header">Custom header</option><option value="oauth">Browser sign-in (OAuth)</option>
       </Select>}
     </Field>
     {form.auth_mode === "header" && <Field label="Header name" hint="For example X-Api-Key.">
       {(props) => <Input {...props} value={form.auth_header_name} maxLength={64} disabled={disabled} onChange={(event) => set({ auth_header_name: event.target.value })} />}
     </Field>}
-    {form.auth_mode !== "none" && <Field label={hasSecret ? "Replace secret" : "Secret"}
+    {form.auth_mode === "oauth" && <>
+      <Field label="Client ID (optional)" hint="Leave blank to let the server register Suparagent automatically.">
+        {(props) => <Input {...props} value={form.oauth_client_id} maxLength={200} disabled={disabled} onChange={(event) => set({ oauth_client_id: event.target.value })} />}
+      </Field>
+      <Field label="Scopes (optional)" hint="Separated by spaces. Leave blank for the default.">
+        {(props) => <Input {...props} value={form.oauth_scopes} maxLength={500} disabled={disabled} onChange={(event) => set({ oauth_scopes: event.target.value })} />}
+      </Field>
+    </>}
+    {form.auth_mode !== "none" && <Field label={form.auth_mode === "oauth" ? (hasSecret ? "Replace client secret (optional)" : "Client secret (optional)") : hasSecret ? "Replace secret" : "Secret"}
       hint={hasSecret ? "Leave blank to keep the saved secret. It is never shown again." : "Sent only by this app's backend to the address above. It is never shown again and never given to the agent."}>
       {(props) => <Input {...props} type="password" autoComplete="new-password" value={form.credential} disabled={disabled} onChange={(event) => set({ credential: event.target.value })} />}
     </Field>}
@@ -73,6 +81,23 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
   };
 
   const reload = useCallback(async () => setConnections(await api.listCustomMcp()), []);
+  const [signingIn, setSigningIn] = useState<string | null>(null);
+  const waited = useRef(0);
+  // While a provider tab is open, look for the finished sign-in every couple of seconds (up to 10 minutes).
+  useEffect(() => {
+    if (!signingIn) return;
+    waited.current = 0;
+    const timer = setInterval(() => {
+      waited.current += 2;
+      api.listCustomMcp().then((list) => {
+        setConnections(list);
+        const found = list.find((item) => item.id === signingIn);
+        if (!found || found.oauth_signed_in) { setSigningIn(null); if (found) setNotice("Signed in. Now test the connection."); }
+        else if (waited.current >= 600) { setSigningIn(null); setNotice("Sign-in timed out. Start again."); }
+      }).catch(() => undefined);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [signingIn]);
   useEffect(() => {
     let live = true;
     api.listCustomMcp().then((list) => { if (live) setConnections(list); })
@@ -90,6 +115,7 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
       name: draft.name.trim(), endpoint: draft.endpoint.trim(), auth_mode: draft.auth_mode,
       ...(draft.auth_mode === "header" ? { auth_header_name: draft.auth_header_name.trim() } : {}),
       ...(draft.auth_mode !== "none" && draft.credential ? { credential: draft.credential } : {}),
+      ...(draft.auth_mode === "oauth" ? { oauth_client_id: draft.oauth_client_id.trim(), oauth_scopes: draft.oauth_scopes.trim() } : {}),
     };
     await api.createCustomMcp(body);
     setDraft(EMPTY); await reload();
@@ -103,6 +129,15 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
       apply(next); await loadTools(next);
       setNotice(`Connected. Found ${next.tool_count ?? 0} tools. Turn it on to choose which tools each agent gets.`);
     } catch (reason) { await reload().catch(() => undefined); throw reason; }
+  });
+
+  const signIn = (connection: CustomMcpConnection) => run(`signin:${connection.id}`, async () => {
+    const { authorization_url: url } = await api.startCustomMcpSignIn(connection.id, connection.revision);
+    // Only an https address from the sign-in server is ever opened.
+    if (!url.startsWith("https://")) throw new Error("The sign-in address was not https.");
+    window.open(url, "_blank", "noopener");
+    setSigningIn(connection.id);
+    setNotice("Finish signing in in the new tab. This page updates by itself.");
   });
 
   const toggle = (connection: CustomMcpConnection, enabled: boolean) => run(`toggle:${connection.id}`, async () => {
@@ -143,24 +178,33 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
       </div>
       <p className="text-xs text-muted">
         {AUTH_LABEL[connection.auth_mode]}{connection.auth_mode === "header" && connection.auth_header_name ? ` (${connection.auth_header_name})` : ""}
-        {connection.auth_mode !== "none" && ` · ${connection.credential_configured ? "Secret saved" : "No secret saved"}`}
+        {connection.auth_mode === "oauth"
+          ? ` · ${connection.oauth_signed_in ? "Signed in" : "Not signed in"}${connection.credential_configured ? " · Client secret saved" : ""}`
+          : connection.auth_mode !== "none" && ` · ${connection.credential_configured ? "Secret saved" : "No secret saved"}`}
         {connection.tool_count !== null && ` · ${connection.tool_count} tools found`}
       </p>
-      {connection.state === "needs_sign_in" && <Banner tone="danger">The server rejected the saved secret. Replace it, then test again.</Banner>}
+      {connection.state === "needs_sign_in" && <Banner tone="danger">{connection.auth_mode === "oauth" ? "Sign in to this server to continue." : "The server rejected the saved secret. Replace it, then test again."}</Banner>}
       {connection.state === "unreachable" && <Banner tone="danger">The server could not be reached or answered unexpectedly. Test again when it is back.</Banner>}
       {isEditing ? <div className="space-y-3">
         <ConnectionForm form={editing.form} setForm={(form) => setEditing({ id: connection.id, form })} hasSecret={connection.credential_configured} disabled={off} />
         <p className="text-xs text-muted">Changing the address, authentication or secret turns the server off, clears its tool grants, and needs a new test.</p>
         <div className="flex gap-2"><Button variant="primary" disabled={off} onClick={() => void save(connection, editing.form)}>Save changes</Button><Button disabled={off} onClick={() => setEditing(null)}>Cancel</Button></div>
       </div> : <div className="flex flex-wrap gap-2">
-        <Button disabled={off || (connection.auth_mode !== "none" && !connection.credential_configured)} onClick={() => void test(connection)}>{busy === `test:${connection.id}` ? "Testing…" : connection.state === "not_tested" ? "Test connection" : "Test again"}</Button>
+        {connection.auth_mode === "oauth" && (connection.oauth_signed_in
+          ? <Button disabled={off} onClick={() => void run(`signout:${connection.id}`, async () => {
+              apply(await api.signOutCustomMcp(connection.id, connection.revision)); forget(connection.id);
+              setNotice("Signed out. The server is off and its tool grants were cleared.");
+            })}>Sign out</Button>
+          : <Button variant="primary" disabled={off || signingIn === connection.id} onClick={() => void signIn(connection)}>{signingIn === connection.id ? "Waiting for sign-in…" : busy === `signin:${connection.id}` ? "Opening…" : "Sign in"}</Button>)}
+        <Button disabled={off || (connection.auth_mode === "oauth" ? !connection.oauth_signed_in : connection.auth_mode !== "none" && !connection.credential_configured)} onClick={() => void test(connection)}>{busy === `test:${connection.id}` ? "Testing…" : connection.state === "not_tested" ? "Test connection" : "Test again"}</Button>
         {connection.enabled
           ? <Button disabled={off} onClick={() => void toggle(connection, false)}>Turn off</Button>
           : connection.state !== "not_tested" && connection.state !== "unreachable" && connection.state !== "needs_sign_in" && <Button variant="primary" disabled={off} onClick={() => void toggle(connection, true)}>Turn on</Button>}
         <Button disabled={off} onClick={() => setEditing({ id: connection.id, form: {
           name: connection.name, endpoint: connection.endpoint, auth_mode: connection.auth_mode,
-          auth_header_name: connection.auth_header_name ?? "", credential: "" } })}>Edit</Button>
-        {connection.credential_configured && <Button disabled={off} onClick={() => void run(`secret:${connection.id}`, async () => {
+          auth_header_name: connection.auth_header_name ?? "", credential: "",
+          oauth_client_id: connection.oauth_client_id ?? "", oauth_scopes: connection.oauth_scopes ?? "" } })}>Edit</Button>
+        {connection.credential_configured && connection.auth_mode !== "oauth" && <Button disabled={off} onClick={() => void run(`secret:${connection.id}`, async () => {
           apply(await api.removeCustomMcpCredential(connection.id, connection.revision)); forget(connection.id);
           setNotice("Secret removed. The server is off and its tool grants were cleared.");
         })}>Remove secret</Button>}
