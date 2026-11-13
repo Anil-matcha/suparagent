@@ -9,7 +9,7 @@ import { AgentImage } from "./AgentImage";
 
 const FIELD = "w-full rounded-field border border-line bg-raised px-2 py-1.5 text-sm text-ink";
 
-// Make a picture for one agent from a description, then keep it or discard it.
+// Make a picture for one agent from a description, then apply or close the preview.
 export function AgentImageGenerator({ agent, onChanged }: { agent: Agent; onChanged: () => void }) {
   const toast = useToast();
   const [providers, setProviders] = useState<ImageProvider[] | null>(null);
@@ -90,7 +90,7 @@ export function AgentImageGenerator({ agent, onChanged }: { agent: Agent; onChan
     <div className="space-y-3">
       <div className="flex items-center gap-3">
         <AgentImage agentId={agent.id} name={agent.name} size="lg" tick={tick} />
-        <p className="min-w-0 flex-1 text-sm text-muted">Describe a picture for {agent.name}. The result is shown here first and is only kept if you choose it.</p>
+        <p className="min-w-0 flex-1 text-sm text-muted">Describe a picture for {agent.name}. Generated images are stored on the server, including previews you close. Choose one to use it as the agent&apos;s picture.</p>
         <Button size="sm" variant="ghost" onClick={remove} disabled={busy}>Remove picture</Button>
       </div>
       {providers && !providers.some((p) => p.available) && (
@@ -126,7 +126,7 @@ export function AgentImageGenerator({ agent, onChanged }: { agent: Agent; onChan
           <img src={result.url} alt="Generated preview" className="mx-auto max-h-64 rounded-field object-contain" />
           <div className="flex gap-2">
             <Button size="sm" onClick={use} disabled={busy}>Use as picture</Button>
-            <Button size="sm" variant="ghost" onClick={() => setResult(null)} disabled={busy}>Discard</Button>
+            <Button size="sm" variant="ghost" onClick={() => setResult(null)} disabled={busy}>Close preview</Button>
           </div>
         </div>
       )}
