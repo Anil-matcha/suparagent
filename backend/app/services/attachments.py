@@ -207,20 +207,19 @@ def extract_document_text(data: bytes, ext: str, name: str) -> str:
         except Exception as e:
             raise AttachmentError(422, "corrupt_document", f"{name} is not a valid Word document (.docx) or is corrupted: {e}") from e
 
-        paras = [p.text for p in doc.paragraphs if p.text.strip()]
-        table_texts = []
-        for table in doc.tables:
-            rows = []
-            for row in table.rows:
-                cells = [cell.text.strip() for cell in row.cells]
-                if any(cells):
-                    rows.append(" | ".join(cells))
-            if rows:
-                table_texts.append("\n".join(rows))
-
-        parts = paras
-        if table_texts:
-            parts.append("\n--- Tables ---\n" + "\n\n".join(table_texts))
+        parts = []
+        for block in doc.iter_inner_content():
+            if isinstance(block, docx.text.paragraph.Paragraph):
+                if block.text.strip():
+                    parts.append(block.text)
+            else:
+                rows = []
+                for row in block.rows:
+                    cells = [cell.text.strip() for cell in row.cells]
+                    if any(cells):
+                        rows.append(" | ".join(cells))
+                if rows:
+                    parts.append("--- Table ---\n" + "\n".join(rows))
 
         if not parts:
             return f"[Word document {name}: Document has no text content.]"

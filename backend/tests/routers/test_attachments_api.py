@@ -196,6 +196,28 @@ async def test_a_text_file_reaches_the_engine_inside_the_prompt(api, cli, tools_
     assert cli.log("prompt")[0]["prompt"] == "Read it\n\nAttached file todo.txt:\n```\nbuy milk\n```"
 
 
+async def test_docx_table_stays_between_surrounding_paragraphs(api, cli, tools_on, sessions, owner, tmp_path):
+    import io
+    import docx
+
+    document = docx.Document()
+    document.add_paragraph("Before the table")
+    table = document.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "Item"
+    table.cell(0, 1).text = "Value"
+    document.add_paragraph("After the table")
+    data = io.BytesIO()
+    document.save(data)
+    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
+    response = await upload(api, thread.id, "report.docx", data.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    assert response.status_code == 201, response.text
+    sent = await api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "Read it", "attachment_ids": [response.json()["id"]]})
+    assert sent.status_code == 202, sent.text
+    await finished(sessions, thread.id)
+    prompt = cli.log("prompt")[0]["prompt"]
+    assert prompt.index("Before the table") < prompt.index("Item | Value") < prompt.index("After the table")
+
+
 async def test_an_engine_without_images_refuses_them_before_the_turn(api, sessions, owner, tmp_path):
     thread = await new_thread(sessions, owner, provider="textonly", workspace_path=str(tmp_path))
     meta = (await upload(api, thread.id, "cat.png", png_bytes(), "image/png")).json()
