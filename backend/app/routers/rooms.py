@@ -23,7 +23,7 @@ class CreateRoom(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     member_ids: list[int] = Field(min_length=1, max_length=12)
     bulletin: str = Field(default='', max_length=12000)
-    default_responder_kind: Literal['member', 'everyone', 'mentions'] = 'member'
+    default_responder_kind: Literal['member', 'everyone', 'mentions', 'auto'] = 'member'
     default_responder_agent_id: int | None = None
 
 
@@ -33,7 +33,7 @@ class UpdateRoom(BaseModel):
     expected_member_ids: list[StrictInt] | None = Field(default=None, min_length=1, max_length=12)
     name: str | None = Field(default=None, min_length=1, max_length=80)
     bulletin: str | None = Field(default=None, max_length=12000)
-    default_responder_kind: Literal['member', 'everyone', 'mentions'] | None = None
+    default_responder_kind: Literal['member', 'everyone', 'mentions', 'auto'] | None = None
     default_responder_agent_id: int | None = None
 
 
@@ -61,7 +61,10 @@ async def list_rooms(rt=Depends(get_runtime)):
 @router.post('', status_code=201)
 async def create_room(payload: CreateRoom, rt=Depends(get_runtime)):
     try:
-        return await rt.rooms.create(payload.model_dump(exclude_none=True))
+        data = payload.model_dump(exclude_none=True)
+        if payload.default_responder_kind == 'auto' and 'default_responder_agent_id' in payload.model_fields_set:
+            data['default_responder_agent_id'] = payload.default_responder_agent_id
+        return await rt.rooms.create(data)
     except TeamError as exc:
         raise error(exc) from None
 

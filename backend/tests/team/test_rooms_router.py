@@ -51,6 +51,25 @@ async def test_validation_and_missing(api, harness):
     assert (await api.post('/rooms/9999/messages', json={'text': 'hi'})).status_code == 404
 
 
+async def test_auto_routing_can_be_created_and_updated(api, harness):
+    _, _, lead, worker = harness
+    room = await make_room(api, harness, default_responder_kind='auto', default_responder_agent_id=None)
+    assert room['default_responder_kind'] == 'auto'
+    assert room['default_responder_agent_id'] is None
+    updated = await api.patch(f"/rooms/{room['id']}", json={
+        'default_responder_kind': 'auto', 'default_responder_agent_id': worker.id,
+    })
+    assert updated.status_code == 200
+    assert updated.json()['default_responder_agent_id'] == worker.id
+    cleared = await api.patch(f"/rooms/{room['id']}", json={'default_responder_agent_id': None})
+    assert cleared.status_code == 200
+    assert cleared.json()['default_responder_agent_id'] is None
+    invalid = await api.patch(f"/rooms/{room['id']}", json={'default_responder_kind': 'unknown'})
+    assert invalid.status_code == 422
+    with_fallback = await make_room(api, harness, name='Fallback', default_responder_kind='auto', default_responder_agent_id=lead.id)
+    assert with_fallback['default_responder_agent_id'] == lead.id
+
+
 async def test_post_messages_read_and_export(api, harness):
     rt, engine, lead, worker = harness
     room = await make_room(api, harness)

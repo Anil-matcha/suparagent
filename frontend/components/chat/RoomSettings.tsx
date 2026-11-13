@@ -38,7 +38,11 @@ export function RoomSettings({ room, agents, onSaved, onCancel }: { room?: Room;
     <fieldset className="space-y-2">
       <legend className="mb-2 text-sm">{t("room.members")}</legend>
       {choices.map(agent => <label key={agent.id} className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={members.includes(agent.id)} onChange={event => setMembers(previous => event.target.checked ? [...previous, agent.id] : previous.filter(id => id !== agent.id))} />
+        <input type="checkbox" checked={members.includes(agent.id)} onChange={event => {
+          const checked = event.target.checked;
+          setMembers(previous => checked ? [...previous, agent.id] : previous.filter(id => id !== agent.id));
+          if (!checked && responder === agent.id) setResponder(null);
+        }} />
         {agent.name}
       </label>)}
       <p className="text-xs text-muted">{t("room.memberLimit")}</p>
