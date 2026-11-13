@@ -87,6 +87,7 @@ export const it: Record<MessageKey, string> = {
   "notifications.markAll": "Segna tutte come lette",
   "notifications.empty": "Nessuna notifica per ora.",
   "notifications.loadError": "Impossibile caricare le notifiche.",
+  "notifications.markError": "Impossibile contrassegnare le notifiche come lette.",
   "chat.copy": "Copia messaggio",
   "chat.copied": "Copiato",
   "chat.working.thinking": "Sta ragionando",

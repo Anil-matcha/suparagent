@@ -87,6 +87,7 @@ export const ja: Record<MessageKey, string> = {
   "notifications.markAll": "すべて既読にする",
   "notifications.empty": "通知はまだありません。",
   "notifications.loadError": "通知を読み込めませんでした。",
+  "notifications.markError": "通知を既読にできませんでした。",
   "chat.copy": "メッセージをコピー",
   "chat.copied": "コピーしました",
   "chat.working.thinking": "考えています",

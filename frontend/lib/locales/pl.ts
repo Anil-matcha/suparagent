@@ -87,6 +87,7 @@ export const pl: Record<MessageKey, string> = {
   "notifications.markAll": "Oznacz wszystkie jako przeczytane",
   "notifications.empty": "Brak powiadomień.",
   "notifications.loadError": "Nie udało się wczytać powiadomień.",
+  "notifications.markError": "Nie udało się oznaczyć powiadomień jako przeczytanych.",
   "chat.copy": "Kopiuj wiadomość",
   "chat.copied": "Skopiowano",
   "chat.working.thinking": "Myśli",

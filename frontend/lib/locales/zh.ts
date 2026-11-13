@@ -87,6 +87,7 @@ export const zh: Record<MessageKey, string> = {
   "notifications.markAll": "全部标为已读",
   "notifications.empty": "暂无通知。",
   "notifications.loadError": "无法加载通知。",
+  "notifications.markError": "无法将通知标为已读。",
   "chat.copy": "复制消息",
   "chat.copied": "已复制",
   "chat.working.thinking": "正在思考",

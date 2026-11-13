@@ -27,6 +27,7 @@ export function NotificationBell({
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<AppNotification[] | null>(null);
   const [feedFailed, setFeedFailed] = useState(false);
+  const [markFailed, setMarkFailed] = useState(false);
   const [failed, setFailed] = useState(false);
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
   const opener = useRef<HTMLButtonElement>(null);
@@ -111,9 +112,14 @@ export function NotificationBell({
   };
 
   const readAll = async () => {
-    await api.readAllNotifications().catch(() => undefined);
-    setItems((current) => current?.map((item) => ({ ...item, read_at: item.read_at ?? new Date().toISOString() })) ?? null);
-    refresh();
+    try {
+      await api.readAllNotifications();
+      setItems((current) => current?.map((item) => ({ ...item, read_at: item.read_at ?? new Date().toISOString() })) ?? null);
+      setMarkFailed(false);
+      refresh();
+    } catch {
+      setMarkFailed(true);
+    }
   };
 
   if (failed && unread === 0 && !open) return null; // an older backend without the feed
@@ -142,6 +148,7 @@ export function NotificationBell({
             <p className="flex-1 text-xs font-semibold">{t("notifications.title")}</p>
             <button onClick={() => void readAll()} className="cursor-pointer text-xs text-accent underline">{t("notifications.markAll")}</button>
           </div>
+          {markFailed && <p role="alert" className="px-3 py-2 text-xs text-danger">{t("notifications.markError")}</p>}
           <ul className="max-h-96 overflow-y-auto">
             {feedFailed ? (
               <li role="alert" className="p-3 text-xs text-danger">{t("notifications.loadError")}</li>
