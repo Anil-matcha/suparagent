@@ -172,6 +172,7 @@ export const ja: Record<MessageKey, string> = {
   "search.anyAgent": "すべてのエージェント",
   "search.results": "検索結果",
   "search.searching": "検索中…",
+  "search.loadMore": "さらに結果を表示",
   "search.noResults": "一致する会話はありません。",
   "composer.pastedList": "貼り付けたテキスト",
   "composer.skillsForMessage": "このメッセージで使うスキル",

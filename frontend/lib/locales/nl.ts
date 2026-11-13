@@ -172,6 +172,7 @@ export const nl: Record<MessageKey, string> = {
   "search.anyAgent": "Elke agent",
   "search.results": "Zoekresultaten",
   "search.searching": "Zoeken…",
+  "search.loadMore": "Meer resultaten laden",
   "search.noResults": "Geen overeenkomende gesprekken.",
   "composer.pastedList": "Geplakte tekst",
   "composer.skillsForMessage": "Skills voor dit bericht",

@@ -1757,7 +1757,7 @@ export const api = {
   usageCsv: (month: string) => requestText(`/usage.csv?month=${encodeURIComponent(month)}`),
 };
 
-export type SearchFilter = { agentId?: number | null; since?: string; until?: string; includeArchived?: boolean; limit?: number };
+export type SearchFilter = { agentId?: number | null; since?: string; until?: string; includeArchived?: boolean; limit?: number; offset?: number };
 
 export function searchQuery(query: string, filter: SearchFilter = {}): string {
   const params = new URLSearchParams({ q: query });
@@ -1766,6 +1766,7 @@ export function searchQuery(query: string, filter: SearchFilter = {}): string {
   if (filter.until) params.set("until", filter.until);
   if (filter.includeArchived) params.set("include_archived", "true");
   if (filter.limit != null) params.set("limit", String(filter.limit));
+  if (filter.offset != null) params.set("offset", String(filter.offset));
   return `?${params.toString()}`;
 }
 
@@ -1783,7 +1784,7 @@ export type SearchHit = {
   turn_id: number | null;
 };
 
-export type SearchResponse = { query: string; hits: SearchHit[] };
+export type SearchResponse = { query: string; hits: SearchHit[]; has_more: boolean; next_offset: number | null };
 
 export type UploadedAttachment = { id: string; name: string; mime: string; bytes: number; kind: "image" | "text" | "audio" };
 

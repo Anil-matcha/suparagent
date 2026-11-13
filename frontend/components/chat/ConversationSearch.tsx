@@ -36,7 +36,10 @@ export function ConversationSearch({
   const [agentId, setAgentId] = useState<number | null>(null);
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const generation = useRef(0);
 
   const q = query.trim();
   const active = q.length >= MIN_CHARS;
@@ -46,22 +49,53 @@ export function ConversationSearch({
   useEffect(() => {
     if (!active) return;
     let alive = true;
+    const current = generation.current;
     const timer = setTimeout(() => {
       setError(null);
       api
         .searchConversations(q, { includeArchived: archived, agentId, limit: 40 })
-        .then((response) => alive && setHits(response.hits))
+        .then((response) => {
+          if (!alive || generation.current !== current) return;
+          setHits(response.hits);
+          setNextOffset(response.has_more ? response.next_offset : null);
+        })
         .catch((err) => {
-          if (!alive) return;
+          if (!alive || generation.current !== current) return;
           setHits([]);
           setError(err instanceof ApiError ? err.message : "Could not reach the backend to search.");
         });
     }, WAIT_MS);
     return () => {
       alive = false;
+      generation.current += 1;
       clearTimeout(timer);
     };
   }, [q, active, archived, agentId]);
+
+  const resetResults = () => {
+    generation.current += 1;
+    setHits(null);
+    setNextOffset(null);
+    setLoadingMore(false);
+    setError(null);
+  };
+
+  const loadMore = async () => {
+    if (nextOffset === null || loadingMore) return;
+    const current = generation.current;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const response = await api.searchConversations(q, { includeArchived: archived, agentId, limit: 40, offset: nextOffset });
+      if (generation.current !== current) return;
+      setHits((previous) => [...(previous ?? []), ...response.hits]);
+      setNextOffset(response.has_more ? response.next_offset : null);
+    } catch (err) {
+      if (generation.current === current) setError(err instanceof ApiError ? err.message : "Could not reach the backend to search.");
+    } finally {
+      if (generation.current === current) setLoadingMore(false);
+    }
+  };
 
   return (
     <>
@@ -79,8 +113,9 @@ export function ConversationSearch({
             autoComplete="off"
             value={query}
             onChange={(e) => {
-              setQuery(e.target.value);
-              setHits(null);
+              const value = e.target.value;
+              if (value.trim() !== q) resetResults();
+              setQuery(value);
             }}
             onKeyDown={(e) => e.key === "Escape" && setQuery("")}
             placeholder={t("search.placeholder")}
@@ -98,14 +133,14 @@ export function ConversationSearch({
                 <input
                   type="checkbox"
                   checked={archived}
-                  onChange={(e) => setArchived(e.target.checked)}
+                  onChange={(e) => { setArchived(e.target.checked); resetResults(); }}
                 />
                 <span>{t("search.includeArchived")}</span>
               </label>
               {agentNames && agentNames.size > 0 && (
                 <Select
                   value={agentId ?? ""}
-                  onChange={(e) => setAgentId(e.target.value === "" ? null : Number(e.target.value))}
+                  onChange={(e) => { setAgentId(e.target.value === "" ? null : Number(e.target.value)); resetResults(); }}
                   aria-label={t("search.onlyAgent")}
                   className="max-w-36 truncate rounded border border-line bg-raised px-1 py-0.5"
                 >
@@ -166,6 +201,11 @@ export function ConversationSearch({
                 </li>
               ))}
             </ul>
+            {nextOffset !== null && (
+              <button type="button" disabled={loadingMore} onClick={() => void loadMore()} className="px-2.5 py-1.5 text-xs text-accent disabled:opacity-50">
+                {loadingMore ? t("search.searching") : t("search.loadMore")}
+              </button>
+            )}
           </div>
         ) : (
           children
