@@ -33,10 +33,14 @@ sign-out is pending. Pending sign-in also blocks sign-out for the same account
 folder. The CLI must confirm that it is signed out; an environment API key can
 keep it connected and cause an unconfirmed result. No raw CLI output is shown.
 
-To switch accounts, sign out explicitly, then use the existing sign-in button.
-There is one shared account per CLI, with no named-account selector. Existing
-provider sessions may need a new conversation after changing accounts. Real
-account switching, Windows and installed-app behavior have not been qualified.
+The default Claude and Codex CLI accounts are shared with the server user.
+Claude also supports up to ten separate named accounts: the owner adds and
+signs them in through the account API, then can select one for an agent in
+**Agents → Model and approvals**. New conversations use the selected account;
+its credentials stay in a separate config folder. Codex has no named-account
+selector. Existing provider sessions may need a new conversation after an
+account change. Real account switching, Windows and installed-app behavior
+have not been qualified.
 
 For ACP, save the command and optional display name. For an OpenAI-compatible
 endpoint, save its base URL (including `/v1` when required), optional default

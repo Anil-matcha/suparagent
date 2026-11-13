@@ -277,9 +277,10 @@ CLI to remove the shared server account, which can also affect terminal use.
 Stop active conversations first. Sign-out refuses pending/active turns and
 same-account sign-in; new turns refuse while sign-out runs. A CLI status check
 must confirm sign-out. An environment API key may keep the engine connected.
-To switch, sign out explicitly and start the normal sign-in flow again;
-existing provider sessions may require a new conversation. Named accounts are
-not supported.
+To switch the default account, sign out explicitly and start the normal
+sign-in flow again; existing provider sessions may require a new conversation.
+Claude also supports separate named accounts managed through the owner API;
+see [ENGINES.md](ENGINES.md) for their selection and limits.
 Real-account, Windows and packaged sign-in remain unqualified. Other CLI
 browser sign-ins still run from a terminal as the account
 running Suparagent; API keys are another option on headless servers. OpenRouter
