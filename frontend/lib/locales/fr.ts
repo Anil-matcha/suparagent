@@ -376,7 +376,7 @@ export const fr: Record<MessageKey, string> = {
   "room.working": "en cours",
   "room.queued": "En file d’attente",
   "room.routeFollowUp": "Relance",
-  "room.unread": "{count} messages non lus",
+  "room.unread": "Messages non lus",
   "room.saving": "Enregistrement…",
   "team.stopError": "Impossible d’arrêter cette tâche.",
   "team.loadError": "Impossible de charger l’équipe.",

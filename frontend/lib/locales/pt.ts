@@ -376,7 +376,7 @@ export const pt: Record<MessageKey, string> = {
   "room.working": "trabalhando",
   "room.queued": "Na fila",
   "room.routeFollowUp": "Continuação",
-  "room.unread": "{count} mensagens não lidas",
+  "room.unread": "Mensagens não lidas",
   "room.saving": "Salvando…",
   "team.stopError": "Não foi possível parar esta tarefa.",
   "team.loadError": "Não foi possível carregar a equipe.",

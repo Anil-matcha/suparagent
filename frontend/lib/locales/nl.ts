@@ -376,7 +376,7 @@ export const nl: Record<MessageKey, string> = {
   "room.working": "bezig",
   "room.queued": "In wachtrij",
   "room.routeFollowUp": "Vervolg",
-  "room.unread": "{count} ongelezen berichten",
+  "room.unread": "Ongelezen berichten",
   "room.saving": "Opslaan…",
   "team.stopError": "Deze taak kan niet worden gestopt.",
   "team.loadError": "Het team kan niet worden geladen.",

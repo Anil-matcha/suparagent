@@ -376,7 +376,7 @@ export const ru: Record<MessageKey, string> = {
   "room.working": "работает",
   "room.queued": "В очереди",
   "room.routeFollowUp": "Продолжение",
-  "room.unread": "Непрочитанных сообщений: {count}",
+  "room.unread": "Непрочитанные сообщения",
   "room.saving": "Сохранение…",
   "team.stopError": "Не удалось остановить эту задачу.",
   "team.loadError": "Не удалось загрузить команду.",

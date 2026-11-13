@@ -376,7 +376,7 @@ export const tr: Record<MessageKey, string> = {
   "room.working": "çalışıyor",
   "room.queued": "Kuyrukta",
   "room.routeFollowUp": "Devam yanıtı",
-  "room.unread": "Okunmamış mesaj: {count}",
+  "room.unread": "Okunmamış mesajlar",
   "room.saving": "Kaydediliyor…",
   "team.stopError": "Bu iş durdurulamadı.",
   "team.loadError": "Ekip yüklenemedi.",

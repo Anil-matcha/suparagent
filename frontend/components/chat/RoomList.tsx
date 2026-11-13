@@ -176,13 +176,11 @@ export function RoomList({
                         {room.dispatches.some((item) => item.status === "running") && (
                           <span className="animate-pulse text-xs text-warning">{t("room.working")}</span>
                         )}
-                        {room.unread > 0 && (
+                        {room.unread && (
                           <span
-                            className="rounded-full bg-accent px-1.5 py-0.2 text-[11px] font-medium text-accent-fg"
-                            aria-label={t("room.unread", { count: room.unread })}
-                          >
-                            {room.unread}
-                          </span>
+                            className="size-2 shrink-0 rounded-full bg-accent"
+                            aria-label={t("room.unread")}
+                          />
                         )}
                       </Link>
                     </li>

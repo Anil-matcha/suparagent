@@ -376,7 +376,7 @@ export const zh: Record<MessageKey, string> = {
   "room.working": "工作中",
   "room.queued": "排队中",
   "room.routeFollowUp": "后续回复",
-  "room.unread": "{count} 条未读消息",
+  "room.unread": "未读消息",
   "room.saving": "正在保存…",
   "team.stopError": "无法停止此任务。",
   "team.loadError": "无法加载团队。",
