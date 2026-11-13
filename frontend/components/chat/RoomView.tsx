@@ -51,6 +51,7 @@ export function RoomView({ roomId, agents, onClose, onSelect, onTitleChange }: {
   const detailsTrigger = useRef<HTMLButtonElement>(null);
   const detailsClose = useRef<HTMLButtonElement>(null);
   const following = useRef(true);
+  const refreshOrder = useRef({ sequence: 0, applied: 0 });
   const orderedWork = useMemo(
     () => (room?.dispatches ?? []).filter(item => ACTIVE_DISPATCH_STATES.includes(item.status)).sort((a, b) => a.id - b.id),
     [room?.dispatches],
@@ -93,17 +94,28 @@ export function RoomView({ roomId, agents, onClose, onSelect, onTitleChange }: {
 
   const refresh = useCallback(async () => {
     if (roomId === "new") return;
-    const [saved, history, waiting] = await Promise.all([collaboration.room(roomId), collaboration.messages(roomId), collaboration.roomApprovals(roomId)]);
-    setRoom(saved); onTitleChange(saved.name); setMessages(history); setApprovals(waiting);
-    const seen = history.at(-1)?.seq;
-    if (seen && saved.unread > 0 && !document.hidden) await collaboration.readRoom(saved.id, seen);
+    const order = refreshOrder.current;
+    const sequence = ++order.sequence;
+    try {
+      const [saved, history, waiting] = await Promise.all([collaboration.room(roomId), collaboration.messages(roomId), collaboration.roomApprovals(roomId)]);
+      if (sequence <= order.applied) return;
+      order.applied = sequence;
+      setRoom(saved); onTitleChange(saved.name); setMessages(history); setApprovals(waiting);
+      const seen = history.at(-1)?.seq;
+      if (seen && saved.unread > 0 && !document.hidden) await collaboration.readRoom(saved.id, seen);
+    } catch (error) {
+      if (sequence < order.applied) return;
+      order.applied = sequence;
+      throw error;
+    }
   }, [onTitleChange, roomId]);
 
   useEffect(() => {
     let stopped = false;
+    const order = refreshOrder.current;
     const load = () => { if (!document.hidden) void refresh().catch(err => { if (!stopped) setError(err instanceof ApiError ? err.message : t("room.loadError")); }); };
     load(); const timer = setInterval(load, 2000); document.addEventListener("visibilitychange", load);
-    return () => { stopped = true; clearInterval(timer); document.removeEventListener("visibilitychange", load); };
+    return () => { stopped = true; order.applied = ++order.sequence; clearInterval(timer); document.removeEventListener("visibilitychange", load); };
   }, [refresh, t]);
 
   useEffect(() => { if (following.current && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight; }, [messages.length, pendingApprovals.length]);
