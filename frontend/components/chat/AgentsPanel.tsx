@@ -18,6 +18,7 @@ import {
   agentFileHasNotes,
   agentFileText,
   approvalModeLabel,
+  agentFileHasSkills,
   memoryGauge,
   modelLabel,
   parseAgentFile,
@@ -481,7 +482,7 @@ export function AgentsPanel({
       const parsedAgent = parsed.agent as Record<string, unknown> | undefined;
       const name = typeof parsedAgent?.name === "string" ? parsedAgent.name : file.name;
       const hasNotes = agentFileHasNotes(parsed);
-      const hasSkills = Array.isArray(parsedAgent?.skills) && parsedAgent.skills.length > 0;
+      const hasSkills = agentFileHasSkills(parsed);
       setImporting({ document: parsed, name, hasNotes, hasSkills, includeNotes: false, includeSkills: false });
     } catch (err) {
       setError(errorText(err));
