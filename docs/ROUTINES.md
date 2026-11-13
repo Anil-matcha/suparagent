@@ -55,7 +55,9 @@ schedule poller), checking every `ROUTINE_POLL_SECONDS` (default 5).
    latest occurrence that is due is found. If it is no more than
    `catch_up_minutes` (plus two minutes of scheduling slack) late it is
    queued; otherwise a `missed` run is recorded for it. Earlier occurrences that were also missed (the app was not running)
-   are recorded once, as one `missed` run that says how many. `next_run_at`
+   are recorded once, as one `missed` run that says how many. For a very long
+   backlog the count is a lower bound, labelled "at least"; the newest due
+   occurrence is still evaluated. `next_run_at`
    then moves to the first occurrence after now: missed work is never
    replayed one by one.
 2. **Skip if still running.** If the routine already has a run that is

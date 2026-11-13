@@ -922,7 +922,7 @@ class RoutineScheduler:
         kind, spec, tz = routine.schedule_kind, routine.schedule_spec, routine.timezone
         first = routine.next_run_at
         try:
-            latest, passed = schedules.latest_due(kind, spec, tz, first, now)
+            latest, passed, count_is_lower_bound = schedules.latest_due(kind, spec, tz, first, now)
             routine.next_run_at = schedules.next_after(kind, spec, tz, now)
         except (schedules.InvalidSchedule, KeyError, ValueError) as exc:
             routine.paused, routine.next_run_at = True, None
@@ -934,7 +934,7 @@ class RoutineScheduler:
             missed = RoutineRun(
                 routine_id=routine.id, trigger="schedule", state="missed", scheduled_for=first,
                 finished_at=now,
-                error=f"{passed} earlier occurrence{'s' if passed != 1 else ''} from "
+                error=f"{'At least ' if count_is_lower_bound else ''}{passed} earlier occurrence{'s' if passed != 1 else ''} from "
                 f"{_local(first, tz)} on were missed while the app was not running.",
             )
             if await self._record(db, missed):

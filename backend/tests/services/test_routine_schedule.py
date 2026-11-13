@@ -125,11 +125,43 @@ def test_interval_ignores_clock_changes():
 def test_latest_due_collapses_a_backlog():
     spec = s.normalize("cron", {"expression": "* * * * *"}, "UTC", now=NOW)
     first = datetime(2026, 10, 17, 11, 50, tzinfo=UTC)
-    latest, passed = s.latest_due("cron", spec, "UTC", first, NOW + timedelta(seconds=20))
+    latest, passed, capped = s.latest_due("cron", spec, "UTC", first, NOW + timedelta(seconds=20))
+    assert not capped
     assert latest == NOW and passed == 10
     interval = s.normalize("interval", {"every_minutes": 15, "anchor": "2026-10-17T10:00:00Z"}, "UTC", now=NOW)
-    latest, passed = s.latest_due("interval", interval, "UTC", datetime(2026, 10, 17, 10, 0, tzinfo=UTC), NOW)
+    latest, passed, capped = s.latest_due("interval", interval, "UTC", datetime(2026, 10, 17, 10, 0, tzinfo=UTC), NOW)
+    assert not capped
     assert latest == NOW and passed == 8
+
+
+def test_latest_due_keeps_newest_when_count_budget_is_exhausted():
+    spec = s.normalize("cron", {"expression": "* * * * *"}, "UTC", now=NOW)
+    first = NOW - timedelta(days=10)
+    latest, passed, capped = s.latest_due("cron", spec, "UTC", first, NOW, limit=3)
+    assert latest == NOW
+    assert (passed, capped) == (4, True)
+
+
+def test_latest_due_keeps_exact_count_at_budget_boundary():
+    spec = s.normalize("cron", {"expression": "* * * * *"}, "UTC", now=NOW)
+    latest, passed, capped = s.latest_due("cron", spec, "UTC", NOW - timedelta(minutes=3), NOW, limit=3)
+    assert (latest, passed, capped) == (NOW, 3, False)
+
+
+@pytest.mark.parametrize(
+    "first, now, expected",
+    [
+        ("2026-03-28T00:30:00+00:00", "2026-03-31T01:45:00+00:00", "2026-03-31T00:30:00+00:00"),
+        ("2026-10-24T00:30:00+00:00", "2026-10-27T03:00:00+00:00", "2026-10-27T01:30:00+00:00"),
+    ],
+)
+def test_capped_backlog_finds_latest_across_clock_changes(first, now, expected):
+    spec = s.normalize("cron", {"expression": "30 2 * * *"}, "Europe/Berlin", now=NOW)
+    latest, passed, capped = s.latest_due(
+        "cron", spec, "Europe/Berlin", datetime.fromisoformat(first), datetime.fromisoformat(now), limit=1
+    )
+    assert latest == datetime.fromisoformat(expected)
+    assert (passed, capped) == (2, True)
 
 
 @pytest.mark.parametrize(

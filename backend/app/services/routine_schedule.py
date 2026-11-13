@@ -203,20 +203,41 @@ def next_dates(kind: str, spec: dict, timezone: str, after: datetime, count: int
 
 def latest_due(
     kind: str, spec: dict, timezone: str, first_due: datetime, now: datetime, limit: int = 10_000
-) -> tuple[datetime, int]:
+) -> tuple[datetime, int, bool]:
     """The newest occurrence at or before `now`, starting from `first_due`, and
-    how many occurrences before it were passed over. `first_due` must be due."""
+    how many earlier occurrences were passed over. The final flag means the
+    count is a lower bound. `first_due` must be due."""
     latest, passed = first_due, 0
     if kind == "interval":
         step = timedelta(minutes=spec["every_minutes"])
         skipped = (now - first_due) // step
-        return first_due + skipped * step, int(skipped)
+        return first_due + skipped * step, int(skipped), False
     while passed < limit:
         upcoming = next_after(kind, spec, timezone, latest)
         if upcoming is None or upcoming > now:
             break
         latest, passed = upcoming, passed + 1
-    return latest, passed
+    upcoming = next_after(kind, spec, timezone, latest)
+    if upcoming is None or upcoming > now:
+        return latest, passed, False
+
+    # A long outage can exceed the counting budget. Find the actual latest
+    # occurrence with bounded searches rather than treating the cap as the
+    # newest occurrence and dropping a fresh run. At least the occurrences
+    # counted above, plus `latest`, are earlier than the true latest.
+    passed += 1
+    low, high = latest, now
+    newest = upcoming
+    tick = timedelta(microseconds=1)
+    while high - low > tick:
+        middle = low + (high - low) // 2
+        candidate = next_after(kind, spec, timezone, middle - tick)
+        if candidate is not None and candidate <= now:
+            newest = candidate
+            low = max(middle, candidate)
+        else:
+            high = middle
+    return newest, passed, True
 
 
 def _day_list(days: list[int]) -> str:
