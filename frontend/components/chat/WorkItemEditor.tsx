@@ -67,6 +67,7 @@ export function WorkItemEditor({ item, board, agents, threads, team, seedDate, s
     if (draft.deadlineKind === "date") {
       if (!draft.date) { setError("Choose a deadline date."); return; }
       dueDate = draft.date;
+      if (item?.due_date === draft.date) savedZone = item.timezone;
     } else if (draft.deadlineKind === "time") {
       if (!draft.time) { setError("Choose a deadline date and time."); return; }
       if (item?.due_at && localDateTime(item.due_at) === draft.time) {
