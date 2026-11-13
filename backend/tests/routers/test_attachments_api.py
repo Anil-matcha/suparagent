@@ -196,42 +196,6 @@ async def test_a_text_file_reaches_the_engine_inside_the_prompt(api, cli, tools_
     assert cli.log("prompt")[0]["prompt"] == "Read it\n\nAttached file todo.txt:\n```\nbuy milk\n```"
 
 
-async def test_reordered_presentation_reaches_engine_in_presentation_order(api, cli, tools_on, sessions, owner, tmp_path):
-    from pathlib import Path
-
-    data = Path(__file__).with_name("reordered-slides.pptx").read_bytes()
-    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
-    response = await upload(api, thread.id, "slides.pptx", data, "application/vnd.openxmlformats-officedocument.presentationml.presentation")
-    assert response.status_code == 201, response.text
-    sent = await api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "Read it", "attachment_ids": [response.json()["id"]]})
-    assert sent.status_code == 202, sent.text
-    await finished(sessions, thread.id)
-    prompt = cli.log("prompt")[0]["prompt"]
-    assert prompt.index("Second slide") < prompt.index("First slide")
-
-
-def test_presentation_follows_slide_list_and_ignores_unlisted_slides(attachments_dir):
-    import io
-    import zipfile
-    import xml.etree.ElementTree as ET
-    from pathlib import Path
-
-    data = Path(__file__).with_name("reordered-slides.pptx").read_bytes()
-    output = io.BytesIO()
-    with zipfile.ZipFile(io.BytesIO(data)) as source, zipfile.ZipFile(output, "w") as target:
-        for entry in source.infolist():
-            content = source.read(entry.filename)
-            if entry.filename == "ppt/presentation.xml":
-                root = ET.fromstring(content)
-                slides = root.find("{http://schemas.openxmlformats.org/presentationml/2006/main}sldIdLst")
-                slides.remove(slides[0])  # Keep the first slide in the original deck only.
-                content = ET.tostring(root)
-            target.writestr(entry, content)
-    result = attachments.extract_document_text(output.getvalue(), ".pptx", "slides.pptx")
-    assert "--- Slide 1 ---\nFirst slide" in result
-    assert "Second slide" not in result
-
-
 async def test_an_engine_without_images_refuses_them_before_the_turn(api, sessions, owner, tmp_path):
     thread = await new_thread(sessions, owner, provider="textonly", workspace_path=str(tmp_path))
     meta = (await upload(api, thread.id, "cat.png", png_bytes(), "image/png")).json()
@@ -445,6 +409,42 @@ def test_corrupted_document_is_refused_with_clear_error(attachments_dir):
         attachments.save(1, "corrupt.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", b"not a docx")
     assert exc_docx.value.status == 422
     assert exc_docx.value.code == "corrupt_document"
+
+
+async def test_reordered_presentation_reaches_engine_in_presentation_order(api, cli, tools_on, sessions, owner, tmp_path):
+    from pathlib import Path
+
+    data = Path(__file__).with_name("reordered-slides.pptx").read_bytes()
+    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
+    response = await upload(api, thread.id, "slides.pptx", data, "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+    assert response.status_code == 201, response.text
+    sent = await api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "Read it", "attachment_ids": [response.json()["id"]]})
+    assert sent.status_code == 202, sent.text
+    await finished(sessions, thread.id)
+    prompt = cli.log("prompt")[0]["prompt"]
+    assert prompt.index("Second slide") < prompt.index("First slide")
+
+
+def test_presentation_follows_slide_list_and_ignores_unlisted_slides(attachments_dir):
+    import io
+    import zipfile
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+
+    data = Path(__file__).with_name("reordered-slides.pptx").read_bytes()
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(data)) as source, zipfile.ZipFile(output, "w") as target:
+        for entry in source.infolist():
+            content = source.read(entry.filename)
+            if entry.filename == "ppt/presentation.xml":
+                root = ET.fromstring(content)
+                slides = root.find("{http://schemas.openxmlformats.org/presentationml/2006/main}sldIdLst")
+                slides.remove(slides[0])  # Keep the first slide in the original deck only.
+                content = ET.tostring(root)
+            target.writestr(entry, content)
+    result = attachments.extract_document_text(output.getvalue(), ".pptx", "slides.pptx")
+    assert "--- Slide 1 ---\nFirst slide" in result
+    assert "Second slide" not in result
 
 
 def test_video_attachment_classification_and_prompt(attachments_dir):
