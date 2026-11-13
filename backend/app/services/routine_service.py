@@ -1149,7 +1149,9 @@ class RoutineScheduler:
                 uninterrupted = bool(current and current.uninterrupted_access and run.trigger in ("schedule", "manual"))
                 capabilities = await routine_uninterrupted.snapshot(db, self.owner_id, routine.agent_id) if uninterrupted else {}
             thread = await rt.create_thread(agent_id=agent.id, title=title)
-            await self._set(run.id, thread_id=thread.id, prompt=prompt_text, connected_app_grants=(
+            # Keep the queued prompt as the retry input; the turn records the
+            # actual prompt with any generated quiet-reporting instruction.
+            await self._set(run.id, thread_id=thread.id, connected_app_grants=(
                 routine.connected_app_grants if not uninterrupted and run.trigger in ("schedule", "manual") else []
             ), uninterrupted_access=uninterrupted, capability_snapshot=capabilities)
             turn = await rt.send_turn(
