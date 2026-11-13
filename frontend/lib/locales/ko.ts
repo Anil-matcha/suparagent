@@ -376,7 +376,7 @@ export const ko: Record<MessageKey, string> = {
   "room.working": "작업 중",
   "room.queued": "대기 중",
   "room.routeFollowUp": "후속 응답",
-  "room.unread": "읽지 않은 메시지 {count}개",
+  "room.unread": "읽지 않은 메시지",
   "room.saving": "저장 중…",
   "team.stopError": "이 작업을 중지할 수 없습니다.",
   "team.loadError": "팀을 불러올 수 없습니다.",

@@ -390,7 +390,7 @@ export function TeamPanel({ agents, onClose, onChanged }: { agents: Agent[]; onC
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted">
                     {room.dispatches.some((dispatch) => dispatch.status === "running") && <Badge tone="accent">{t("room.working")}</Badge>}
-                    {room.unread > 0 && <Badge tone="warning">{t("room.unread", { count: room.unread })}</Badge>}
+                    {room.unread && <Badge tone="warning">{t("room.unread")}</Badge>}
                   </div>
                 </Link>
               ))}

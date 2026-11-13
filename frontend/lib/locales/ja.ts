@@ -376,7 +376,7 @@ export const ja: Record<MessageKey, string> = {
   "room.working": "作業中",
   "room.queued": "待機中",
   "room.routeFollowUp": "続きの応答",
-  "room.unread": "未読メッセージ {count} 件",
+  "room.unread": "未読メッセージ",
   "room.saving": "保存中…",
   "team.stopError": "このジョブを停止できませんでした。",
   "team.loadError": "チームを読み込めませんでした。",

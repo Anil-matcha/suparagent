@@ -96,7 +96,7 @@ export function RoomView({ roomId, agents, onClose, onSelect, onTitleChange }: {
     const [saved, history, waiting] = await Promise.all([collaboration.room(roomId), collaboration.messages(roomId), collaboration.roomApprovals(roomId)]);
     setRoom(saved); onTitleChange(saved.name); setMessages(history); setApprovals(waiting);
     const seen = history.at(-1)?.seq;
-    if (seen && saved.unread > 0 && !document.hidden) await collaboration.readRoom(saved.id, seen);
+    if (seen && saved.unread && !document.hidden) await collaboration.readRoom(saved.id, seen);
   }, [onTitleChange, roomId]);
 
   useEffect(() => {
