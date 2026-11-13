@@ -113,3 +113,18 @@ def test_the_credential_is_redacted_in_common_encodings():
     secret = 'tok/en"1'
     text = f"{secret} tok%2Fen%221 {base64.b64encode(secret.encode()).decode()} tok/en\\\"1"
     assert secret not in _redact(text, secret) and "tok%2Fen" not in _redact(text, secret)
+
+
+@pytest.mark.asyncio
+async def test_the_servers_own_name_is_kept_as_bounded_display_text(monkeypatch):
+    s = session()
+
+    async def post(message, *, expect_result):
+        if message.get("method") == "initialize":
+            return {"protocolVersion": "2025-06-18", "serverInfo": {"name": "  Notes  " + "x" * 300, "version": 7}}
+        return None
+
+    monkeypatch.setattr(s, "_post", post)
+    await s.start()
+    assert s.server_info["name"].startswith("Notes") and len(s.server_info["name"]) == 100
+    assert s.server_info["version"] is None

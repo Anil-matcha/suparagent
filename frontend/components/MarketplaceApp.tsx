@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { Input, Select } from "@/components/ui/Input";
 import { Banner } from "@/components/ui/Banner";
 import { SkeletonList } from "@/components/ui/Skeleton";
+import { CustomMcpSection } from "@/components/CustomMcpSection";
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : "The marketplace request failed.";
 
@@ -177,6 +178,7 @@ export function MarketplaceApp() {
     <header className="flex h-12 items-center gap-4 border-b border-line px-4"><Link href="/apps/" className="text-sm text-muted hover:underline">← Apps</Link><h1 className="text-sm font-semibold">MCP Marketplace</h1></header>
     <main className="mx-auto max-w-3xl space-y-8 px-5 py-8">
       <div><h2 className="text-xl font-semibold">MCP Marketplace</h2><p className="mt-2 text-sm text-muted">Install remote MCP services, then grant specific tools to each agent. Every call asks for your approval before it runs.</p></div>
+      <CustomMcpSection agents={agents} />
       {error && <Banner tone="danger">{error}</Banner>}{notice && <p role="status" className="text-sm text-muted">{notice}</p>}
       {!catalog ? <SkeletonList rows={3} /> : ([
         ["Tested by Suparagent", "tested", catalog.tested], ["Community", "community", catalog.community],

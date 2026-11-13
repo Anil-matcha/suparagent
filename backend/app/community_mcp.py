@@ -32,6 +32,9 @@ MAX_RESULT_BYTES = 1_000_000
 MAX_REQUEST_BYTES = 64_000
 MAX_TOOLS = 100
 MAX_TOOLSET_BYTES = 512_000
+# Owner-added servers may be larger; agents reach them through bounded search (stage 8), not by mounting every tool.
+CUSTOM_MAX_TOOLS = 500
+CUSTOM_MAX_TOOLSET_BYTES = 2_000_000
 MAX_PAGES = 20
 MAX_DEPTH = 8
 CATALOG_TTL_SECONDS = 300
@@ -512,8 +515,10 @@ class PinnedHTTPSTransport(httpx.AsyncBaseTransport):
 
 
 class RemoteMcpSession:
-    def __init__(self, endpoint: str, token: str | None = None):
+    def __init__(self, endpoint: str, token: str | None = None, *, header: str | None = None):
+        """`header` names a header that carries the secret instead of `Authorization: Bearer`."""
         self.endpoint = endpoint
+        self.header = header
         self.host, _path, self.port = _validate_public_url(endpoint, "endpoint", require_standard_port=True)
         self.token = token
         self.client = httpx.AsyncClient(
@@ -523,7 +528,10 @@ class RemoteMcpSession:
             trust_env=False,
             limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
         )
+        self.max_tools = MAX_TOOLS
+        self.max_toolset_bytes = MAX_TOOLSET_BYTES
         self.protocol: str | None = None
+        self.server_info: dict | None = None
         self.session_id: str | None = None
         self.request_id = 0
         self.started = False
@@ -534,7 +542,9 @@ class RemoteMcpSession:
             headers["MCP-Protocol-Version"] = self.protocol
         if self.session_id:
             headers["Mcp-Session-Id"] = self.session_id
-        if self.token:
+        if self.token and self.header:
+            headers[self.header] = self.token
+        elif self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
@@ -654,6 +664,11 @@ class RemoteMcpSession:
         if protocol not in SUPPORTED_PROTOCOLS:
             raise McpError("unsupported_protocol", "The remote MCP server negotiated an unsupported protocol version.", 502)
         self.protocol = protocol
+        info = response.get("serverInfo")
+        if isinstance(info, dict):
+            # Display-only: bounded plain text from the remote server, never trusted for decisions.
+            pick = lambda key: info[key].strip()[:100] if isinstance(info.get(key), str) and info[key].strip() else None  # noqa: E731
+            self.server_info = {"name": pick("name"), "version": pick("version")}
         self.request_id += 1
         await self._post({"jsonrpc": "2.0", "method": "notifications/initialized"}, expect_result=False)
         self.started = True
@@ -684,13 +699,13 @@ class RemoteMcpSession:
                 except McpError:
                     continue  # one tool Suparagent cannot validate must not hide the rest
                 total_bytes += len(canonical(tool).encode("utf-8"))
-                if total_bytes > MAX_TOOLSET_BYTES:
+                if total_bytes > self.max_toolset_bytes:
                     raise McpError("toolset_too_large", "This remote server exposes too much tool metadata.", 502)
                 if tool["name"] in seen:
                     raise McpError("invalid_response", "The remote MCP server returned duplicate tool names.", 502)
                 seen.add(tool["name"])
                 tools.append(tool)
-                if len(tools) > MAX_TOOLS:
+                if len(tools) > self.max_tools:
                     raise McpError("too_many_tools", "This remote server exposes too many tools.", 502)
             cursor = result.get("nextCursor")
             if cursor is None:

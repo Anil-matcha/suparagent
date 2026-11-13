@@ -20,6 +20,9 @@ def automatic(tool, mode, run, arguments):
         # allowed, and plan mode cannot execute them even if a card is answered.
         if tool.removeprefix('mcp__community__') not in getattr(run.ctx, 'community_tools', []):
             return 'denied', 'marketplace_tool_not_granted'
+        if tool == 'mcp__community__custom_search':
+            # Searches only the index of tools this agent was already granted; nothing leaves the backend.
+            return 'allowed', 'community_search'
         return ('denied', 'plan_mode') if mode == 'plan' else None
     if tool.startswith(composio_policy.PREFIX):
         # Connected apps (composio_bridge.py): decided here, never by a saved command rule.

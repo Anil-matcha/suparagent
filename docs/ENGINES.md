@@ -266,8 +266,8 @@ is killed. A missing Codex thread on resume marks the session `broken`.
 
 Cursor's **Approve for me** mode passes its native `--auto-review` flag before
 `acp`. Claude's mode uses its native `--permission-mode auto` reviewer
-for local CLI tools. Turns with connected apps, marketplace tools, team tools,
-or computer/browser controls use Ask so those tools keep their app-level approval
+for local CLI tools. Turns with connected apps, marketplace tools, custom MCP
+servers, team tools, or computer/browser controls use Ask so those tools keep their app-level approval
 gates. Claude may report that `auto` is unavailable for the selected model or
 account; in that case its normal Ask behavior applies. Engines without a native
 reviewer do not offer this mode and treat a stored/API-supplied value as Ask.

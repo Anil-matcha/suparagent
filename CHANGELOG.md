@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Add your own remote MCP server from Apps → MCP Marketplace → Custom MCP servers. A new server starts off with no agent access: you test it, turn it on, then grant exact tools to each agent. Sign in with none, a bearer token, a custom header, or browser sign-in (OAuth with PKCE). Secrets are write-only and stored encrypted. Claude and Codex can call granted tools in person chats; every call asks for your approval. Routines, rooms, computer sessions and other engines do not receive them. Only public https:// servers on port 443 are supported; local commands are not.
+- In a workspace with other people, a custom MCP connection is private to whoever added it until they choose Share with workspace. Private connections and their sign-ins cannot be used, tested or granted by anyone else; the workspace owner can still switch off or remove them.
+- `SUPARAGENT_OAUTH_CALLBACK_ORIGIN` sets where a browser returns after signing in to a custom MCP server when the server is only reachable through a gateway (a hosted workspace). The custom server form shows the redirect address to register for a client you create yourself.
+- Grant an agent up to 500 tools from a custom MCP server. Above 25 granted tools the agent searches your granted tools and calls one by reference instead of receiving them all; calls still need approval. The grant list has a filter and "check shown".
+- The desktop app finishes browser sign-in through a short-lived loopback listener on 127.0.0.1 that answers only the sign-in return and closes after one success.
+
 ## 0.8.6 - 2026-11-11
 
 Phone app 0.4.0: chat is now the default screen, with a sidebar of conversations, date dividers, timestamps, copy buttons, Markdown, code blocks and tables like the desktop app, a desktop-style composer, and an in-chat model and reasoning-effort switcher.

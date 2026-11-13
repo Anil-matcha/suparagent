@@ -176,7 +176,12 @@ def restore(workspace: str | Path, store: Path, snap_id: str) -> dict:
         if not (blobs / entry["sha"]).is_file():
             raise SnapshotError("snapshot_damaged", "That snapshot's files are no longer available.", 409)
     # Make undo undoable. Cap errors are not a reason to refuse: the caller asked to go back.
-    undo_id = f"undo-{int(time.time() * 1000)}"
+    # A name that is already taken would overwrite the snapshot being restored (two restores in one
+    # millisecond), and pruning would then delete the files that restore still needs.
+    stamp = int(time.time() * 1000)
+    while _manifest_path(store, f"undo-{stamp}").exists():
+        stamp += 1
+    undo_id = f"undo-{stamp}"
     try:
         snapshot(root, store, undo_id, f"Before undo to {snap_id}")
     except SnapshotError:
