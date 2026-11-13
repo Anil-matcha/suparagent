@@ -86,6 +86,8 @@ export const de: Record<MessageKey, string> = {
   "notifications.unread": "Benachrichtigungen, {count} ungelesen",
   "notifications.markAll": "Alle als gelesen markieren",
   "notifications.empty": "Noch keine Benachrichtigungen.",
+  "notifications.loadError": "Benachrichtigungen konnten nicht geladen werden.",
+  "notifications.markError": "Benachrichtigungen konnten nicht als gelesen markiert werden.",
   "chat.copy": "Nachricht kopieren",
   "chat.copied": "Kopiert",
   "chat.working.thinking": "Denkt nach",

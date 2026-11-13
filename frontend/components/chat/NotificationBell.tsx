@@ -26,16 +26,26 @@ export function NotificationBell({
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<AppNotification[] | null>(null);
+  const [feedFailed, setFeedFailed] = useState(false);
+  const [markFailed, setMarkFailed] = useState(false);
   const [failed, setFailed] = useState(false);
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
   const opener = useRef<HTMLButtonElement>(null);
   const seenNotificationIds = useRef<Set<number> | null>(null);
+  const preferenceFailed = useRef(false);
+  const preferenceRetrying = useRef(false);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   useEffect(() => {
     let alive = true;
     api.getNotificationPreferences().then((prefs) => {
       if (alive) setPreferences(prefs);
-    }).catch(() => {});
+    }).catch(() => { if (alive) preferenceFailed.current = true; });
     return () => { alive = false; };
   }, []);
 
@@ -50,6 +60,15 @@ export function NotificationBell({
   }, [router]);
 
   const refresh = useCallback(() => {
+    if (!preferences && preferenceFailed.current && !preferenceRetrying.current) {
+      preferenceRetrying.current = true;
+      void api.getNotificationPreferences().then((prefs) => {
+        if (mounted.current) {
+          preferenceFailed.current = false;
+          setPreferences(prefs);
+        }
+      }).catch(() => {}).finally(() => { preferenceRetrying.current = false; });
+    }
     api.unreadNotifications()
       .then((r) => {
         setUnread(r.unread);
@@ -58,8 +77,15 @@ export function NotificationBell({
         // The first successful list establishes a baseline without alerting old unread items.
         void api.listNotifications(200).then((latest) => {
           const seenIds = seenNotificationIds.current;
+          if (!seenIds) {
+            seenNotificationIds.current = new Set(latest.map((item) => item.id));
+            return;
+          }
+          // Keep the baseline while preferences are loading so new alerts can
+          // be evaluated when their category and quiet-hour settings arrive.
+          if (!preferences) return;
           seenNotificationIds.current = new Set(latest.map((item) => item.id));
-          if (!seenIds || !preferences?.desktop_enabled) return;
+          if (!preferences.desktop_enabled) return;
           for (const item of getNewUnreadNotifications(latest, seenIds)) {
             dispatchNotification(item, preferences, (threadId) => {
               router.push(`/chat?thread=${threadId}`);
@@ -78,7 +104,16 @@ export function NotificationBell({
 
   useEffect(() => {
     if (!open) return;
-    api.listNotifications().then(setItems).catch(() => setItems([]));
+    let active = true;
+    api.listNotifications().then((list) => {
+      if (active) {
+        setItems(list);
+        setFeedFailed(false);
+      }
+    }).catch(() => {
+      if (active) setFeedFailed(true);
+    });
+    return () => { active = false; };
   }, [open, unread]);
 
   // Escape closes the feed and puts focus back on the bell, wherever focus is inside it.
@@ -94,16 +129,32 @@ export function NotificationBell({
   }, [open]);
 
   const choose = async (item: AppNotification) => {
-    if (!item.read_at) await api.readNotification(item.id).catch(() => undefined);
+    if (!item.read_at) {
+      try {
+        await api.readNotification(item.id);
+        setMarkFailed(false);
+      } catch {
+        setMarkFailed(true);
+        if (item.thread_id !== null) router.push(`/chat?thread=${item.thread_id}`);
+        return;
+      }
+    }
     setOpen(false);
     refresh();
     if (item.thread_id !== null) router.push(`/chat?thread=${item.thread_id}`);
   };
 
   const readAll = async () => {
-    await api.readAllNotifications().catch(() => undefined);
-    setItems((current) => current?.map((item) => ({ ...item, read_at: item.read_at ?? new Date().toISOString() })) ?? null);
-    refresh();
+    const displayedIds = new Set(items?.map((item) => item.id));
+    try {
+      await api.readAllNotifications();
+      setItems((current) => current?.map((item) => displayedIds.has(item.id)
+        ? { ...item, read_at: item.read_at ?? new Date().toISOString() } : item) ?? null);
+      setMarkFailed(false);
+      refresh();
+    } catch {
+      setMarkFailed(true);
+    }
   };
 
   if (failed && unread === 0 && !open) return null; // an older backend without the feed
@@ -132,8 +183,11 @@ export function NotificationBell({
             <p className="flex-1 text-xs font-semibold">{t("notifications.title")}</p>
             <button onClick={() => void readAll()} className="cursor-pointer text-xs text-accent underline">{t("notifications.markAll")}</button>
           </div>
+          {markFailed && <p role="alert" className="px-3 py-2 text-xs text-danger">{t("notifications.markError")}</p>}
           <ul className="max-h-96 overflow-y-auto">
-            {items === null ? (
+            {feedFailed ? (
+              <li role="alert" className="p-3 text-xs text-danger">{t("notifications.loadError")}</li>
+            ) : items === null ? (
               <li className="p-3"><LoadingState rows={3} /></li>
             ) : items.length === 0 ? (
               <li><EmptyPanel title={t("notifications.empty")} /></li>

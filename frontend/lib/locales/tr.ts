@@ -86,6 +86,8 @@ export const tr: Record<MessageKey, string> = {
   "notifications.unread": "Bildirimler, okunmamış: {count}",
   "notifications.markAll": "Tümünü okundu olarak işaretle",
   "notifications.empty": "Henüz bildirim yok.",
+  "notifications.loadError": "Bildirimler yüklenemedi.",
+  "notifications.markError": "Bildirimler okundu olarak işaretlenemedi.",
   "chat.copy": "Mesajı kopyala",
   "chat.copied": "Kopyalandı",
   "chat.working.thinking": "Düşünüyor",
