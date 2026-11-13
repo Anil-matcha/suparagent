@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Hash, Plus, Users } from "lucide-react";
 import { ApiError } from "@/lib/api";
@@ -23,6 +23,7 @@ export function RoomList({
   const [rooms, setRooms] = useState<Room[] | null>(null);
   const [teamReady, setTeamReady] = useState(false);
   const [collapsed, setCollapsed] = useState(() => selected === null);
+  const userToggled = useRef(false);
   const { session } = useSession();
   const admin = session?.scopes.includes("admin") === true;
 
@@ -36,7 +37,7 @@ export function RoomList({
           if (!cancelled) {
             setRooms(value);
             // If there are active rooms or user is currently viewing a room, keep expanded
-            if (value && value.length > 0) setCollapsed(false);
+            if (value.length > 0 && !userToggled.current) setCollapsed(false);
           }
         })
         .catch((err) => {
@@ -70,7 +71,7 @@ export function RoomList({
       <div className="flex items-center justify-between px-3 pb-1 pt-1">
         <button
           type="button"
-          onClick={() => setCollapsed((c) => !c)}
+          onClick={() => { userToggled.current = true; setCollapsed((c) => !c); }}
           aria-expanded={!collapsed}
           className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted hover:text-ink cursor-pointer select-none transition-colors"
         >
