@@ -20,8 +20,11 @@ export function AgentHistory({ agent, onRestored }: { agent: Agent; onRestored: 
     try {
       setRevisions(await api.listAgentRevisions(agent.id));
       setError(null);
+      return null;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load the history.");
+      const message = e instanceof Error ? e.message : "Could not load the history.";
+      setError(message);
+      return message;
     }
   }, [agent.id]);
   useEffect(() => {
@@ -43,9 +46,10 @@ export function AgentHistory({ agent, onRestored }: { agent: Agent; onRestored: 
       onRestored();
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not restore that version.");
       setTarget(null);
-      await load();
+      const loadError = await load();
+      const restoreError = e instanceof Error ? e.message : "Could not restore that version.";
+      setError(loadError ? `${restoreError} ${loadError}` : restoreError);
     } finally {
       setBusy(false);
     }
