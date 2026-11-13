@@ -91,8 +91,8 @@ def _attachment_metadata(thread_id: int) -> list[dict]:
             found.append({key: meta[key] for key in ("id", "name", "mime", "bytes", "kind", "sha256")})
         except (OSError, ValueError, KeyError, TypeError):
             continue
-        if len(found) >= MAX_ATTACHMENT_ENTRIES:
-            break
+        if len(found) > MAX_ATTACHMENT_ENTRIES:
+            raise ExportError(413, "export_too_large", f"A conversation has more than {MAX_ATTACHMENT_ENTRIES} attachments; its history cannot be exported in one file.")
     return found
 
 

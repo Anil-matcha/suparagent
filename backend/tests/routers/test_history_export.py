@@ -109,6 +109,27 @@ async def test_attachment_metadata_without_file_contents(api, sessions, owner, t
 
 
 @pytest.mark.asyncio
+async def test_export_refuses_incomplete_attachment_metadata(api, sessions, owner, tmp_path, monkeypatch):
+    monkeypatch.setattr(attachments, "root_dir", lambda: tmp_path)
+    monkeypatch.setattr(history_export, "MAX_ATTACHMENT_ENTRIES", 2)
+    mine, theirs = await seed(sessions, owner, owner + "_other")
+    try:
+        for index in range(2):
+            attachments.save(mine.id, f"{index}.txt", "text/plain", b"x")
+        complete = await api.get("/api/v1/history/export")
+        assert complete.status_code == 200
+        assert len(json.loads(read_zip(complete).read(f"threads/{mine.id}/attachments.json"))) == 2
+        attachments.save(mine.id, "extra.txt", "text/plain", b"x")
+        incomplete = await api.get("/api/v1/history/export")
+        assert incomplete.status_code == 413
+        assert incomplete.json()["detail"]["error_code"] == "export_too_large"
+    finally:
+        async with sessions() as db:
+            await store.delete_thread(db, theirs.id)
+            await store.delete_thread(db, mine.id)
+
+
+@pytest.mark.asyncio
 async def test_size_limit_and_concurrent_export(api, sessions, owner, monkeypatch):
     mine, theirs = await seed(sessions, owner, owner + "_other")
     try:
