@@ -196,47 +196,6 @@ async def test_a_text_file_reaches_the_engine_inside_the_prompt(api, cli, tools_
     assert cli.log("prompt")[0]["prompt"] == "Read it\n\nAttached file todo.txt:\n```\nbuy milk\n```"
 
 
-async def test_xlsx_uncached_formula_reaches_engine(api, cli, tools_on, sessions, owner, tmp_path):
-    import io
-    import openpyxl
-
-    workbook = openpyxl.Workbook()
-    workbook.active.append(["Total", "=SUM(2,3)"])
-    data = io.BytesIO()
-    workbook.save(data)
-    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
-    response = await upload(api, thread.id, "budget.xlsx", data.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    assert response.status_code == 201, response.text
-    sent = await api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "Read it", "attachment_ids": [response.json()["id"]]})
-    assert sent.status_code == 202, sent.text
-    await finished(sessions, thread.id)
-    prompt = cli.log("prompt")[0]["prompt"]
-    assert "Total\t=SUM(2,3)" in prompt
-
-
-def test_xlsx_formula_with_cached_result_uses_result(attachments_dir):
-    import io
-    import zipfile
-    import openpyxl
-
-    workbook = openpyxl.Workbook()
-    workbook.active.append(["Total", "=SUM(2,3)"])
-    original = io.BytesIO()
-    workbook.save(original)
-    with zipfile.ZipFile(io.BytesIO(original.getvalue())) as source:
-        cached = io.BytesIO()
-        with zipfile.ZipFile(cached, "w") as target:
-            for entry in source.infolist():
-                data = source.read(entry.filename)
-                if entry.filename == "xl/worksheets/sheet1.xml":
-                    assert b"<f>SUM(2,3)</f><v></v>" in data
-                    data = data.replace(b"<f>SUM(2,3)</f><v></v>", b"<f>SUM(2,3)</f><v>5</v>")
-                target.writestr(entry, data)
-    saved = attachments.save(4, "budget.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", cached.getvalue())
-    assert "Total\t5" in saved.extracted_text
-    assert "no cached result" not in saved.extracted_text
-
-
 async def test_an_engine_without_images_refuses_them_before_the_turn(api, sessions, owner, tmp_path):
     thread = await new_thread(sessions, owner, provider="textonly", workspace_path=str(tmp_path))
     meta = (await upload(api, thread.id, "cat.png", png_bytes(), "image/png")).json()
@@ -402,6 +361,47 @@ def test_docx_document_extraction(attachments_dir):
     assert "Project Overview" in saved.extracted_text
     assert "This is the design specification" in saved.extracted_text
     assert "Metric | Score" in saved.extracted_text
+
+
+async def test_xlsx_uncached_formula_reaches_engine(api, cli, tools_on, sessions, owner, tmp_path):
+    import io
+    import openpyxl
+
+    workbook = openpyxl.Workbook()
+    workbook.active.append(["Total", "=SUM(2,3)"])
+    data = io.BytesIO()
+    workbook.save(data)
+    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
+    response = await upload(api, thread.id, "budget.xlsx", data.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    assert response.status_code == 201, response.text
+    sent = await api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "Read it", "attachment_ids": [response.json()["id"]]})
+    assert sent.status_code == 202, sent.text
+    await finished(sessions, thread.id)
+    prompt = cli.log("prompt")[0]["prompt"]
+    assert "Total\t=SUM(2,3)" in prompt
+
+
+def test_xlsx_formula_with_cached_result_uses_result(attachments_dir):
+    import io
+    import zipfile
+    import openpyxl
+
+    workbook = openpyxl.Workbook()
+    workbook.active.append(["Total", "=SUM(2,3)"])
+    original = io.BytesIO()
+    workbook.save(original)
+    with zipfile.ZipFile(io.BytesIO(original.getvalue())) as source:
+        cached = io.BytesIO()
+        with zipfile.ZipFile(cached, "w") as target:
+            for entry in source.infolist():
+                data = source.read(entry.filename)
+                if entry.filename == "xl/worksheets/sheet1.xml":
+                    assert b"<f>SUM(2,3)</f><v></v>" in data
+                    data = data.replace(b"<f>SUM(2,3)</f><v></v>", b"<f>SUM(2,3)</f><v>5</v>")
+                target.writestr(entry, data)
+    saved = attachments.save(4, "budget.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", cached.getvalue())
+    assert "Total\t5" in saved.extracted_text
+    assert "no cached result" not in saved.extracted_text
 
 
 def test_xlsx_spreadsheet_extraction(attachments_dir):
