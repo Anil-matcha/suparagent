@@ -198,6 +198,48 @@ async def test_an_export_lists_the_topic_notes_it_had_to_leave_out(api):
     assert (await api.post("/api/v1/agents/import", json={"document": body["document"]})).status_code == 201
 
 
+async def test_large_valid_agent_export_can_be_imported(api):
+    from app.services import agent_memory, agent_skills
+
+    agent = await make(api)
+    agent_memory.write_memory(agent["id"], "m" * 240_000)
+    for index in range(10):
+        memory_topics.write_topic(agent["id"], f"t{index:02d}.md", "t" * 60_000)
+    for index in range(6):
+        agent_skills.write_skill(agent["id"], f"skill-{index}", "A skill", "s" * 30_000)
+    exported = await api.get(f"/api/v1/agents/{agent['id']}/export", params={"include_notes": "true", "include_skills": "true"})
+    assert exported.status_code == 200
+    package = exported.json()
+    imported = await api.post("/api/v1/agents/import", json={"document": package["document"]})
+    assert imported.status_code == 201, imported.text
+    included = {item["name"] for item in package["document"].get("skills", [])}
+    assert set(package["skipped"]) == {f"skill skill-{index}" for index in range(6) if f"skill-{index}" not in included}
+    assert package["skipped"]
+
+
+async def test_export_accounts_for_json_escaping_in_notes(api):
+    from app.services import agent_memory
+
+    agent = await make(api)
+    agent_memory.write_memory(agent["id"], "\\" * 240_000)
+    for index in range(10):
+        memory_topics.write_topic(agent["id"], f"t{index:02d}.md", "t" * 60_000)
+    exported = (await api.get(f"/api/v1/agents/{agent['id']}/export", params={"include_notes": "true"})).json()
+    assert exported["skipped"]
+    assert (await api.post("/api/v1/agents/import", json={"document": exported["document"]})).status_code == 201
+
+
+async def test_export_reports_notes_that_alone_exceed_json_budget(api):
+    from app.services import agent_memory
+
+    agent = await make(api)
+    agent_memory.write_memory(agent["id"], "\x01" * 170_000)
+    exported = (await api.get(f"/api/v1/agents/{agent['id']}/export", params={"include_notes": "true"})).json()
+    assert "MEMORY.md" in exported["skipped"]
+    assert "notes" not in exported["document"]
+    assert (await api.post("/api/v1/agents/import", json={"document": exported["document"]})).status_code == 201
+
+
 def test_memory_routes_are_admin_only():
     for method, path in (
         ("GET", "/api/v1/agents/1/memory/topics"),
