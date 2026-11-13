@@ -354,6 +354,7 @@ export const ko: Record<MessageKey, string> = {
   "room.tagToReply": "멤버를 멘션해 답변 요청…",
   "room.message": "룸에 메시지 보내기",
   "room.writeMessage": "메시지를 쓰거나 멤버를 멘션…",
+  "room.sentRefreshError": "메시지는 전송되었지만 룸을 새로 고치지 못했습니다. 다시 보내기 전에 새로 고쳐 주세요.",
   "room.mention": "멘션…",
   "room.send": "메시지 보내기",
   "room.sending": "전송 중…",

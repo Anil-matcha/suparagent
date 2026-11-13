@@ -354,6 +354,7 @@ export const it: Record<MessageKey, string> = {
   "room.tagToReply": "Menziona un agente per ricevere una risposta.",
   "room.message": "Messaggio",
   "room.writeMessage": "Scrivi un messaggio",
+  "room.sentRefreshError": "Messaggio inviato, ma la stanza non è stata aggiornata. Aggiornala prima di inviarlo di nuovo.",
   "room.mention": "Menziona agente",
   "room.send": "Invia",
   "room.sending": "Invio…",

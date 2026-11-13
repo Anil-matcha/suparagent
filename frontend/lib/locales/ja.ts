@@ -354,6 +354,7 @@ export const ja: Record<MessageKey, string> = {
   "room.tagToReply": "メンバーにメンションして返信を依頼…",
   "room.message": "ルームにメッセージ",
   "room.writeMessage": "メッセージを書くか、メンバーにメンション…",
+  "room.sentRefreshError": "メッセージは送信されましたが、ルームを更新できませんでした。再送する前に更新してください。",
   "room.mention": "メンション…",
   "room.send": "メッセージを送信",
   "room.sending": "送信中…",

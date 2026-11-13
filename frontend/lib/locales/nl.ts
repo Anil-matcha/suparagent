@@ -354,6 +354,7 @@ export const nl: Record<MessageKey, string> = {
   "room.tagToReply": "Noem een agent om een antwoord te krijgen.",
   "room.message": "Bericht",
   "room.writeMessage": "Schrijf een bericht",
+  "room.sentRefreshError": "Bericht verzonden, maar de ruimte kon niet worden vernieuwd. Vernieuw voordat je het opnieuw verzendt.",
   "room.mention": "Agent noemen",
   "room.send": "Verzenden",
   "room.sending": "Verzenden…",

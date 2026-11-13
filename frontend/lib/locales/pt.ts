@@ -354,6 +354,7 @@ export const pt: Record<MessageKey, string> = {
   "room.tagToReply": "Mencione um agente para obter uma resposta.",
   "room.message": "Mensagem",
   "room.writeMessage": "Escreva uma mensagem…",
+  "room.sentRefreshError": "Mensagem enviada, mas não foi possível atualizar a sala. Atualize antes de enviá-la novamente.",
   "room.mention": "Mencionar membro",
   "room.send": "Enviar",
   "room.sending": "Enviando…",

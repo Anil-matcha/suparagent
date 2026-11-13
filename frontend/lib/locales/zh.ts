@@ -354,6 +354,7 @@ export const zh: Record<MessageKey, string> = {
   "room.tagToReply": "提及成员以请求回复…",
   "room.message": "给房间发消息",
   "room.writeMessage": "写消息或提及成员…",
+  "room.sentRefreshError": "消息已发送，但无法刷新房间。请先刷新房间，再决定是否重新发送。",
   "room.mention": "提及…",
   "room.send": "发送消息",
   "room.sending": "正在发送…",

@@ -354,6 +354,7 @@ export const tr: Record<MessageKey, string> = {
   "room.tagToReply": "Yanıt istemek için bir üyeyi etiketleyin…",
   "room.message": "Odaya mesaj gönder",
   "room.writeMessage": "Bir mesaj yazın veya bir üyeyi etiketleyin…",
+  "room.sentRefreshError": "Mesaj gönderildi ancak oda yenilenemedi. Yeniden göndermeden önce odayı yenileyin.",
   "room.mention": "Etiketle…",
   "room.send": "Mesaj gönder",
   "room.sending": "Gönderiliyor…",

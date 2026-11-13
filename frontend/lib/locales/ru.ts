@@ -354,6 +354,7 @@ export const ru: Record<MessageKey, string> = {
   "room.tagToReply": "Упомяните агента, чтобы он ответил.",
   "room.message": "Сообщение",
   "room.writeMessage": "Напишите сообщение…",
+  "room.sentRefreshError": "Сообщение отправлено, но обновить комнату не удалось. Обновите её перед повторной отправкой.",
   "room.mention": "Упомянуть участника",
   "room.send": "Отправить",
   "room.sending": "Отправка…",
