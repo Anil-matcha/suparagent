@@ -500,6 +500,7 @@ async def start_turn(
     *,
     owner_instance: str | None = None,
     attachments: list[dict] | None = None,
+    attachment_hashes: list[str] | None = None,
     origin: str | None = None,
     person_id: int | None = None,
     person_label: str | None = None,
@@ -516,6 +517,14 @@ async def start_turn(
     if thread is None:
         await db.rollback()
         raise ThreadNotFound(thread_id)
+    if attachments:
+        # Cleanup takes the same thread lock; revalidate before recording use.
+        from app.services import attachments as attachment_service
+        current = attachment_service.resolve_for_turn(thread_id, [item["id"] for item in attachments])
+        if [item.public() for item, _ in current] != attachments or (
+            attachment_hashes is not None and [item.sha256 for item, _ in current] != attachment_hashes
+        ):
+            raise attachment_service.AttachmentError(409, "attachment_changed", "An attachment changed before the turn started. Attach it again.")
     last = (
         await db.execute(select(func.coalesce(func.max(Turn.seq), 0)).where(Turn.thread_id == thread_id))
     ).scalar_one()

@@ -10,6 +10,7 @@ import { notifyApprovalNeeded, notifyTurnCompletion } from "@/lib/desktop-notifi
 import { activeAgents, approvalModeLabel, modelLabel } from "@/lib/agents";
 import { pendingApprovals, type NeedsYouItem } from "@/lib/transcript";
 import { attachmentProblem, conversationUsage, formatCost, formatTokens, MAX_ATTACHMENTS } from "@/lib/everyday";
+import { loadStagedUploads, newUploadId, saveStagedUploads, type StagedUpload } from "@/lib/staged-uploads";
 import { FilesPanel } from "./FilesPanel";
 import { UsageView } from "./UsagePanel";
 import { SkillsPanel } from "./SkillsPanel";
@@ -242,6 +243,29 @@ export function ChatApp() {
   const [todaySnapshot, setTodaySnapshot] = useState<NeedsYouSnapshot | null>(null);
   // Files chosen for the next message, and why one was refused.
   const [attached, setAttached] = useState<File[]>([]);
+  const pendingUploads = useRef<{ threadId: number; id: string; uploaded: boolean; file?: File; url?: string }[]>([]);
+  const rememberUpload = useCallback((item: StagedUpload) => {
+    try { saveStagedUploads(sessionStorage, [...loadStagedUploads(sessionStorage), item]); } catch { /* storage unavailable */ }
+  }, []);
+  const forgetUpload = useCallback((item: StagedUpload) => {
+    try { saveStagedUploads(sessionStorage, loadStagedUploads(sessionStorage).filter((entry) => entry.threadId !== item.threadId || entry.id !== item.id)); } catch { /* storage unavailable */ }
+  }, []);
+  const discardPendingUploads = useCallback((items: typeof pendingUploads.current) => {
+    for (const item of items) {
+      void api.discardAttachment(item.threadId, item.id).then(() => forgetUpload(item)).catch((error) => {
+        if (error instanceof ApiError && (error.status === 404 || error.code === "attachment_in_use")) forgetUpload(item);
+        else setSendError(sendErrorText(error));
+      });
+    }
+  }, [forgetUpload]);
+  useEffect(() => {
+    try { discardPendingUploads(loadStagedUploads(sessionStorage).map((item) => ({ ...item, uploaded: false }))); } catch { /* storage unavailable */ }
+  }, [discardPendingUploads]);
+  useEffect(() => {
+    const old = pendingUploads.current.filter((item) => item.threadId !== threadId);
+    pendingUploads.current = pendingUploads.current.filter((item) => item.threadId === threadId);
+    discardPendingUploads(old);
+  }, [threadId, discardPendingUploads]);
   const audioAbort = useRef<AbortController | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
   const [audioConsent, setAudioConsent] = useState(false);
@@ -802,11 +826,38 @@ export function ChatApp() {
         router.replace(`/chat?thread=${id}`);
       }
       const ids: string[] = [];
-      for (const file of attached) ids.push((await api.uploadAttachment(id, file, audioConsent ? "openai" : undefined, processing.signal)).id);
-      if (audioUrl.trim()) ids.push((await api.importAudioUrl(id, audioUrl.trim(), audioConsent ? "openai" : "", processing.signal)).id);
+      for (const file of attached) {
+        let upload = pendingUploads.current.find((item) => item.threadId === id && item.file === file);
+        if (!upload) {
+          upload = { threadId: id, id: newUploadId(), uploaded: false, file };
+          pendingUploads.current.push(upload);
+          rememberUpload(upload);
+        }
+        if (!upload.uploaded) {
+          await api.uploadAttachment(id, file, audioConsent ? "openai" : undefined, processing.signal, upload.id);
+          upload.uploaded = true;
+        }
+        ids.push(upload.id);
+      }
+      if (audioUrl.trim()) {
+        const url = audioUrl.trim();
+        let upload = pendingUploads.current.find((item) => item.threadId === id && item.url === url);
+        if (!upload) {
+          upload = { threadId: id, id: newUploadId(), uploaded: false, url };
+          pendingUploads.current.push(upload);
+          rememberUpload(upload);
+        }
+        if (!upload.uploaded) {
+          await api.importAudioUrl(id, url, audioConsent ? "openai" : "", processing.signal, upload.id);
+          upload.uploaded = true;
+        }
+        ids.push(upload.id);
+      }
       processing.signal.throwIfAborted();
       liveTurnStarted.current = true;
       await api.sendTurn(id, message, ids, usedSkills);
+      for (const item of pendingUploads.current.filter((item) => item.threadId === id && ids.includes(item.id))) forgetUpload(item);
+      pendingUploads.current = pendingUploads.current.filter((item) => item.threadId !== id || !ids.includes(item.id));
       setDraft("");
       setChosenSkills(() => []);
       setAttached([]);
@@ -1417,7 +1468,7 @@ export function ChatApp() {
             <details>
               <summary className="cursor-pointer">{t("chat.audioLink")}</summary>
               <p>{t("chat.audioFormats")}</p>
-              <input aria-label={t("chat.directAudioUrl")} type="url" value={audioUrl} onChange={(event) => { setAudioUrl(event.target.value); setAudioConsent(false); }} placeholder="https://example.com/episode.mp3" disabled={sending} className="my-2 w-full rounded-field border border-line bg-inset p-2" />
+              <input aria-label={t("chat.directAudioUrl")} type="url" value={audioUrl} onChange={(event) => { const old = pendingUploads.current.filter((item) => item.url !== undefined); pendingUploads.current = pendingUploads.current.filter((item) => item.url === undefined); discardPendingUploads(old); setAudioUrl(event.target.value); setAudioConsent(false); }} placeholder="https://example.com/episode.mp3" disabled={sending} className="my-2 w-full rounded-field border border-line bg-inset p-2" />
               <p>{audioCapability?.available ? audioCapability.retention : t("chat.audioUnavailable")}</p>
               <label className="my-2 flex gap-2"><input type="checkbox" checked={audioConsent} onChange={(event) => setAudioConsent(event.target.checked)} disabled={sending || !audioCapability?.available} />{t("chat.audioConsent", { provider: audioCapability?.provider_label ?? "OpenAI" })}</label>
               {sending && hasAudio && <button type="button" onClick={() => audioAbort.current?.abort()} className="my-2 underline">{t("chat.cancelAudio")}</button>}
@@ -1481,6 +1532,10 @@ export function ChatApp() {
             files={attached}
             onAddFiles={addFiles}
             onRemoveFile={(index) => {
+              const removed = attached[index];
+              const pending = pendingUploads.current.filter((item) => item.file === removed);
+              pendingUploads.current = pendingUploads.current.filter((item) => item.file !== removed);
+              discardPendingUploads(pending);
               setAttached((previous) => previous.filter((_, i) => i !== index));
               setAttachNotice(null);
             }}
