@@ -414,6 +414,40 @@ async def test_recovery_marks_a_claimed_run_without_a_turn_interrupted(scheduler
     assert states == ["interrupted", "missed", "queued"] and len(changed) == 2
 
 
+async def test_guard_retries_recovery_after_sqlite_writer_releases(scheduler, sessions, owner, agent, clock, monkeypatch):
+    from types import SimpleNamespace
+    import sqlite3
+    from app import main
+
+    engine = sessions.kw["bind"]
+    if engine.dialect.name != "sqlite":
+        pytest.skip("exercises SQLite's real write lock")
+    routine = await make_routine(sessions, owner, agent, clock, schedule_kind="manual", schedule_spec={})
+    async with sessions() as db:
+        run = RoutineRun(routine_id=routine.id, trigger="manual", state="running", started_at=clock())
+        db.add(run)
+        await db.commit()
+        run_id = run.id
+
+    class Guard:
+        async def ensure(self):
+            return True
+
+    async def signed_in():
+        return True
+
+    monkeypatch.setattr(main, "desktop_signed_in", signed_in)
+    monkeypatch.setattr(service, "scheduler", scheduler)
+    guarded = main._GuardedRoutines(SimpleNamespace(state=SimpleNamespace()), Guard())
+    with sqlite3.connect(engine.url.database) as locked:
+        locked.execute("BEGIN IMMEDIATE")
+        assert await guarded.ensure() is False
+        assert scheduler.enabled is False
+        locked.rollback()
+    assert await guarded.ensure() is True
+    assert (await reload(sessions, RoutineRun, run_id)).state == "interrupted"
+
+
 # --- webhooks ------------------------------------------------------------------------------------
 
 

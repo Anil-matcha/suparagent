@@ -188,11 +188,14 @@ class _GuardedRoutines:
         held = await self.guard.ensure()
         here = tenant_schema.current_schema()
         if held and here not in self.recovered:
-            self.recovered.add(here)
             try:
                 await routine_service.scheduler.recover()
             except Exception:  # noqa: BLE001
                 logger.exception("could not settle routine runs left by the previous process")
+                routine_service.scheduler.enabled = False
+                self.app.state.routines_run_here = False
+                return False
+            self.recovered.add(here)
         elif not held:
             # Recover again when the lock comes back: runs may have been left
             # by the backend that held it meanwhile.
