@@ -38,6 +38,7 @@ type Draft = {
   source: SkillSource;
   warnings: string[];
   redacted: number;
+  revision?: string;
   learnedFrom?: SkillLearnSource;
 };
 
@@ -136,7 +137,7 @@ export function SkillsPanel({
     setError(null);
     try {
       const doc = await api.getSkill(agentId, skill.name);
-      await api.saveSkill(agentId, skill.name, { description: doc.description, body: doc.body, enabled: !skill.enabled, source: doc.source });
+      await api.saveSkill(agentId, skill.name, { description: doc.description, body: doc.body, enabled: !skill.enabled, source: doc.source, expected_revision: doc.revision });
       await load();
       onChanged?.();
     } catch (err) {
@@ -158,6 +159,7 @@ export function SkillsPanel({
         : await api.saveSkill(agentId, name, {
           description: draft.description.trim(), body: draft.body, enabled: draft.enabled, source: draft.source,
           triggers: parseTriggers(triggersText), create_only: draft.existing === null,
+          expected_revision: draft.existing !== null ? draft.revision : undefined,
         });
       if (learned) setReceipt({ name, revision: doc.revision });
       // What was saved can differ (secrets are removed); show it so the person sees the result.
