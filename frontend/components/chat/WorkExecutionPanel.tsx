@@ -23,7 +23,9 @@ export function WorkExecutionPanel({ item, agents, onClose, onOpenThread, onRevi
   const id = useId();
   const [runs, setRuns] = useState<WorkRun[] | null>(null);
   const [events, setEvents] = useState<WorkEvent[]>([]);
-  const [agentId, setAgentId] = useState(item.agent_id ?? agents[0]?.id ?? 0);
+  const [agentId, setAgentId] = useState(() => item.agent_id != null
+    ? (agents.some(agent => agent.id === item.agent_id && !agent.archived_at) ? item.agent_id : 0)
+    : (agents.find(agent => !agent.archived_at)?.id ?? 0));
   const [prompt, setPrompt] = useState(`${item.title}\n\n${item.description}`.trim());
   const [mode, setMode] = useState<WorkRunInput["approval_mode"]>("ask");
   const [when, setWhen] = useState("");
@@ -32,6 +34,7 @@ export function WorkExecutionPanel({ item, agents, onClose, onOpenThread, onRevi
   const [pending, setPending] = useState<WorkRunInput | null>(null);
   const [retrying, setRetrying] = useState(false);
   const timezone = browserTimezone();
+  const selectedAgent = agents.find(agent => agent.id === agentId && !agent.archived_at);
   const availableApprovalModes = approvalModesForProvider(agents.find((agent) => agent.id === agentId)?.provider);
   useEffect(() => {
     let live = true;
@@ -106,7 +109,7 @@ export function WorkExecutionPanel({ item, agents, onClose, onOpenThread, onRevi
           </fieldset>
           <p className="text-sm">{when ? `This confirms one scheduled attempt in ${timezone}.` : "This starts agent work now, or queues it while the agent is busy."}</p>
           {pending && !busy && <p className="text-sm text-warning">The previous request may have reached the server. Retry the same request to recover its receipt.</p>}
-          <Button type="submit" variant="primary" loading={busy} disabled={!agentId || !prompt.trim()}>{pending ? "Retry same request" : when ? "Confirm scheduled run" : "Confirm and start now"}</Button>
+          <Button type="submit" variant="primary" loading={busy} disabled={(!pending && !selectedAgent) || !prompt.trim()}>{pending ? "Retry same request" : when ? "Confirm scheduled run" : "Confirm and start now"}</Button>
         </form>}
         {item.archived && <p className="text-sm text-muted">Restore this task to start another attempt.</p>}
         <div className="space-y-3" aria-live="polite">
