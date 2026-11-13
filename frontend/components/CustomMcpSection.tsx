@@ -24,6 +24,22 @@ function tone(connection: CustomMcpConnection) {
   return "neutral" as const;
 }
 
+// The address to register when you register the OAuth client yourself.
+function RedirectHint() {
+  const [info, setInfo] = useState<{ redirect_uri: string | null; pattern: string | null } | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.getCustomMcpRedirect().then((found) => { if (live) setInfo(found); }).catch(() => undefined);
+    return () => { live = false; };
+  }, []);
+  if (!info) return null;
+  return <p className="text-xs text-muted sm:col-span-2">
+    {info.redirect_uri
+      ? <>If you register the client yourself, give the provider this redirect address: <code className="break-all">{info.redirect_uri}</code></>
+      : <>If you register the client yourself, allow loopback redirects such as <code>{info.pattern}</code> (the port changes each time).</>}
+  </p>;
+}
+
 function ConnectionForm({ form, setForm, hasSecret, disabled }: {
   form: Form; setForm: (next: Form) => void; hasSecret?: boolean; disabled: boolean;
 }) {
@@ -42,12 +58,13 @@ function ConnectionForm({ form, setForm, hasSecret, disabled }: {
       {(props) => <Input {...props} value={form.auth_header_name} maxLength={64} disabled={disabled} onChange={(event) => set({ auth_header_name: event.target.value })} />}
     </Field>}
     {form.auth_mode === "oauth" && <>
-      <Field label="Client ID (optional)" hint="Leave blank to let the server register Suparagent automatically. In the desktop app, a client you register yourself must allow http://127.0.0.1 redirects on any port.">
+      <Field label="Client ID (optional)" hint="Leave blank to let the server register Suparagent automatically.">
         {(props) => <Input {...props} value={form.oauth_client_id} maxLength={200} disabled={disabled} onChange={(event) => set({ oauth_client_id: event.target.value })} />}
       </Field>
       <Field label="Scopes (optional)" hint="Separated by spaces. Leave blank for the default.">
         {(props) => <Input {...props} value={form.oauth_scopes} maxLength={500} disabled={disabled} onChange={(event) => set({ oauth_scopes: event.target.value })} />}
       </Field>
+      <RedirectHint />
     </>}
     {form.auth_mode !== "none" && <Field label={form.auth_mode === "oauth" ? (hasSecret ? "Replace client secret (optional)" : "Client secret (optional)") : hasSecret ? "Replace secret" : "Secret"}
       hint={hasSecret ? "Leave blank to keep the saved secret. It is never shown again." : "Sent only by this app's backend to the address above. It is never shown again and never given to the agent."}>

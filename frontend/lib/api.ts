@@ -1211,6 +1211,8 @@ export const api = {
     request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/${enabled ? "enable" : "disable"}`, {
       method: "POST", body: JSON.stringify({ revision }),
     }),
+  getCustomMcpRedirect: () =>
+    request<{ redirect_uri: string | null; fixed: boolean; pattern: string | null }>("/integrations/custom-mcp/oauth/redirect-uri"),
   startCustomMcpSignIn: (id: string, revision: number) =>
     request<{ authorization_url: string }>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/oauth/start`, {
       method: "POST", body: JSON.stringify({ revision }),

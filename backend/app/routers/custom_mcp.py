@@ -605,8 +605,21 @@ async def set_sharing(
 
 
 def _callback_url(request: Request) -> str:
-    origin = settings.PUBLIC_ORIGIN or f"{request.url.scheme}://{request.url.netloc}"
+    """Where the provider sends the browser back. A hosted sandbox is not reachable by a browser at its own
+    address, so the control plane's origin (which relays the request to the right workspace) takes priority."""
+    origin = (settings.SUPARAGENT_OAUTH_CALLBACK_ORIGIN or settings.PUBLIC_ORIGIN
+              or f"{request.url.scheme}://{request.url.netloc}")
     return origin + request.url_for("custom_mcp_oauth_callback").path
+
+
+@router.get("/oauth/redirect-uri")
+async def oauth_redirect_uri(request: Request, response: Response):
+    """The address to register with a provider when you register the client yourself. The desktop app
+    returns to a loopback address on a port that changes each time, so it has no fixed one."""
+    _no_store(response)
+    if profile.active():
+        return {"redirect_uri": None, "fixed": False, "pattern": "http://127.0.0.1:<port>/callback"}
+    return {"redirect_uri": _callback_url(request), "fixed": True, "pattern": None}
 
 
 @router.post("/connections/{connection_id}/oauth/start", response_model=CustomMcpOAuthStart)

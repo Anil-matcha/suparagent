@@ -385,3 +385,45 @@ async def test_a_failed_discovery_leaves_no_listener_behind(admin, idp, desktop)
     conn = await oauth_connection(admin)
     refused = await admin.post(f"{PATH}/connections/{conn['id']}/oauth/start", json={"revision": conn["revision"]})
     assert refused.status_code == 422 and not loopback._open
+
+
+async def test_a_hosted_sandbox_registers_the_control_planes_address_not_its_own(admin, idp, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "SUPARAGENT_PUBLIC_URL", "https://abc-8080.on.boat.dev")
+    monkeypatch.setattr(settings, "SUPARAGENT_OAUTH_CALLBACK_ORIGIN", "https://suparagent.ai")
+    conn = await oauth_connection(admin)
+    _, query = await start(admin, conn, idp)
+    assert query["redirect_uri"] == f"https://suparagent.ai{CALLBACK}"
+    registration = next(body for _, u, body in idp.calls if u == f"{AUTH}/register")
+    assert registration["redirect_uris"] == [f"https://suparagent.ai{CALLBACK}"]
+
+
+async def test_the_public_address_is_used_when_no_callback_origin_is_set(admin, idp, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "SUPARAGENT_PUBLIC_URL", "https://dots.example.com")
+    monkeypatch.setattr(settings, "SUPARAGENT_OAUTH_CALLBACK_ORIGIN", "")
+    conn = await oauth_connection(admin)
+    _, query = await start(admin, conn, idp)
+    assert query["redirect_uri"] == f"https://dots.example.com{CALLBACK}"
+
+
+async def test_the_redirect_address_to_register_is_shown_and_the_desktop_has_none(admin, desktop, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "SUPARAGENT_OAUTH_CALLBACK_ORIGIN", "https://suparagent.ai")
+    seen = (await admin.get("/api/v1/integrations/custom-mcp/oauth/redirect-uri")).json()
+    assert seen == {"redirect_uri": None, "fixed": False, "pattern": "http://127.0.0.1:<port>/callback"}
+
+
+async def test_the_fixed_redirect_address_is_shown_for_web_and_hosted_installs(admin, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "SUPARAGENT_OAUTH_CALLBACK_ORIGIN", "https://suparagent.ai")
+    seen = (await admin.get("/api/v1/integrations/custom-mcp/oauth/redirect-uri")).json()
+    assert seen == {"redirect_uri": f"https://suparagent.ai{CALLBACK}", "fixed": True, "pattern": None}
+
+
+@pytest.mark.parametrize("value", ["suparagent.ai", "https://suparagent.ai/app", "ftp://x.dev", "https://u:p@x.dev"])
+def test_the_callback_origin_must_be_a_plain_origin(value):
+    from pydantic import ValidationError
+    from app.core.config import Settings
+    with pytest.raises((ValidationError, ValueError)):
+        Settings(SUPARAGENT_OAUTH_CALLBACK_ORIGIN=value)
