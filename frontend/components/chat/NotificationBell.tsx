@@ -112,9 +112,11 @@ export function NotificationBell({
   };
 
   const readAll = async () => {
+    const displayedIds = new Set(items?.map((item) => item.id));
     try {
       await api.readAllNotifications();
-      setItems((current) => current?.map((item) => ({ ...item, read_at: item.read_at ?? new Date().toISOString() })) ?? null);
+      setItems((current) => current?.map((item) => displayedIds.has(item.id)
+        ? { ...item, read_at: item.read_at ?? new Date().toISOString() } : item) ?? null);
       setMarkFailed(false);
       refresh();
     } catch {
