@@ -3,7 +3,7 @@
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { EmptyPanel, ErrorState, LoadingState } from "./PanelState";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type FilePreview, type FolderListing } from "@/lib/api";
 import { formatBytes, parentPath } from "@/lib/everyday";
 
@@ -14,7 +14,14 @@ function message(err: unknown, fallback: string): string {
 // Read-only view of the open conversation's workspace: folders, a preview of
 // text and images, and downloads of a file or a whole folder as a zip
 // (docs/EVERYDAY.md).
-export function FilesPanel({ threadId, workspace, onClose }: { threadId: number; workspace: string | null; onClose: () => void }) {
+type FilesPanelProps = { threadId: number; workspace: string | null; onClose: () => void };
+
+export function FilesPanel(props: FilesPanelProps) {
+  return <FilesPanelState key={props.threadId} {...props} />;
+}
+
+function FilesPanelState({ threadId, workspace, onClose }: FilesPanelProps) {
+  const previewGeneration = useRef(0);
   const [path, setPath] = useState("");
   const [listing, setListing] = useState<FolderListing | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -46,16 +53,24 @@ export function FilesPanel({ threadId, workspace, onClose }: { threadId: number;
     if (imageUrl) URL.revokeObjectURL(imageUrl);
   }, [imageUrl]);
 
+  useEffect(() => () => { previewGeneration.current += 1; }, [threadId]);
+
   const open = async (filePath: string) => {
+    const generation = ++previewGeneration.current;
     setPreview(null);
     setImageUrl(null);
     setPreviewError(null);
     try {
       const found = await api.previewWorkspaceFile(threadId, filePath);
+      if (previewGeneration.current !== generation) return;
       setPreview(found);
-      if (found.kind === "image") setImageUrl(await api.workspaceImageUrl(threadId, filePath));
+      if (found.kind === "image") {
+        const url = await api.workspaceImageUrl(threadId, filePath);
+        if (previewGeneration.current !== generation) URL.revokeObjectURL(url);
+        else setImageUrl(url);
+      }
     } catch (err) {
-      setPreviewError(message(err, "Could not open this file."));
+      if (previewGeneration.current === generation) setPreviewError(message(err, "Could not open this file."));
     }
   };
 
