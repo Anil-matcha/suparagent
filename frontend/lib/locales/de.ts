@@ -354,6 +354,7 @@ export const de: Record<MessageKey, string> = {
   "room.tagToReply": "Erwähne einen Agenten, damit er antwortet.",
   "room.message": "Nachricht",
   "room.writeMessage": "Nachricht schreiben",
+  "room.messageTooLong": "Nachrichten dürfen höchstens 8.000 Zeichen enthalten. Kürzen Sie die Nachricht vor dem Senden.",
   "room.mention": "Agent erwähnen",
   "room.send": "Senden",
   "room.sending": "Wird gesendet…",

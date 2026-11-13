@@ -16,6 +16,7 @@ import { formatMessageTime } from "@/lib/relative-time";
 
 const BUTTON = "rounded-field border border-line px-3 py-1.5 text-sm hover:bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50";
 const ACTIVE_DISPATCH_STATES = ["queued", "running", "needs_input"];
+const MAX_ROOM_MESSAGE_CHARACTERS = 8000;
 
 function memberStatus(room: Room, approvals: Approval[], agentId: number, t: (key: string) => string) {
   const member = room.members.find(item => item.agent_id === agentId);
@@ -40,6 +41,7 @@ export function RoomView({ roomId, agents, onClose, onSelect, onTitleChange }: {
   const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [draft, setDraft] = useState("");
+  const messageTooLong = Array.from(draft).length > MAX_ROOM_MESSAGE_CHARACTERS;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -118,7 +120,7 @@ export function RoomView({ roomId, agents, onClose, onSelect, onTitleChange }: {
     try { await action(); await refresh(); } catch (err) { setError(err instanceof ApiError ? err.message : t("room.updateError")); } finally { setBusy(false); }
   };
   const send = async (event: React.FormEvent) => {
-    event.preventDefault(); if (!room || !draft.trim() || busy) return;
+    event.preventDefault(); if (!room || !draft.trim() || messageTooLong || busy) return;
     const text = draft; setBusy(true); setError(null);
     try { await collaboration.postMessage(room.id, text); setDraft(""); following.current = true; await refresh(); }
     catch (err) { setError(err instanceof ApiError ? err.message : t("room.sendError")); }
@@ -264,8 +266,9 @@ export function RoomView({ roomId, agents, onClose, onSelect, onTitleChange }: {
                     return mentionToken(member.name, count > 1 ? member.agent_id : undefined);
                   }}
                 />
+                {messageTooLong && <p role="alert" className="mt-1 text-xs text-danger">{t("room.messageTooLong")}</p>}
               </div>
-              <button className={`${BUTTON} mb-0.5 shrink-0 px-4 py-2`} type="submit" disabled={busy || !draft.trim()}>{busy ? t("room.sending") : t("room.send")}</button>
+              <button className={`${BUTTON} mb-0.5 shrink-0 px-4 py-2`} type="submit" disabled={busy || !draft.trim() || messageTooLong}>{busy ? t("room.sending") : t("room.send")}</button>
             </div>
           </form>
         </div>

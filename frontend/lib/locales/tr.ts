@@ -354,6 +354,7 @@ export const tr: Record<MessageKey, string> = {
   "room.tagToReply": "Yanıt istemek için bir üyeyi etiketleyin…",
   "room.message": "Odaya mesaj gönder",
   "room.writeMessage": "Bir mesaj yazın veya bir üyeyi etiketleyin…",
+  "room.messageTooLong": "Oda mesajları en fazla 8.000 karakter içerebilir. Göndermeden önce mesajı kısaltın.",
   "room.mention": "Etiketle…",
   "room.send": "Mesaj gönder",
   "room.sending": "Gönderiliyor…",
