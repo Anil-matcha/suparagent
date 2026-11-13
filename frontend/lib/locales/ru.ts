@@ -335,6 +335,7 @@ export const ru: Record<MessageKey, string> = {
   "room.cancel": "Отмена",
   "room.loading": "Загрузка комнат…",
   "room.loadError": "Не удалось загрузить эту комнату.",
+  "room.sentRefreshError": "Сообщение отправлено, но обновить комнату не удалось. Обновите её перед повторной отправкой.",
   "room.updateError": "Не удалось обновить эту комнату.",
   "room.settings": "Настройки комнаты",
   "room.details": "Сведения о комнате",

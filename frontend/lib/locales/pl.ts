@@ -335,6 +335,7 @@ export const pl: Record<MessageKey, string> = {
   "room.cancel": "Anuluj",
   "room.loading": "Wczytywanie pokoi…",
   "room.loadError": "Nie udało się wczytać tego pokoju.",
+  "room.sentRefreshError": "Wiadomość wysłana, ale nie udało się odświeżyć pokoju. Odśwież go przed ponownym wysłaniem.",
   "room.updateError": "Nie udało się zaktualizować tego pokoju.",
   "room.settings": "Ustawienia pokoju",
   "room.details": "Szczegóły pokoju",

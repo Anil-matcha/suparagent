@@ -335,6 +335,7 @@ export const de: Record<MessageKey, string> = {
   "room.cancel": "Abbrechen",
   "room.loading": "Wird geladen…",
   "room.loadError": "Dieser Raum konnte nicht geladen werden.",
+  "room.sentRefreshError": "Nachricht gesendet, aber der Raum konnte nicht aktualisiert werden. Aktualisieren Sie ihn, bevor Sie erneut senden.",
   "room.updateError": "Dieser Raum konnte nicht aktualisiert werden.",
   "room.settings": "Einstellungen",
   "room.details": "Raumdetails",

@@ -335,6 +335,7 @@ export const ko: Record<MessageKey, string> = {
   "room.cancel": "취소",
   "room.loading": "룸 불러오는 중…",
   "room.loadError": "룸을 불러올 수 없습니다.",
+  "room.sentRefreshError": "메시지는 전송되었지만 룸을 새로 고치지 못했습니다. 다시 보내기 전에 새로 고쳐 주세요.",
   "room.updateError": "룸을 업데이트할 수 없습니다.",
   "room.settings": "룸 설정",
   "room.details": "룸 세부정보",

@@ -335,6 +335,7 @@ export const zh: Record<MessageKey, string> = {
   "room.cancel": "取消",
   "room.loading": "正在加载房间…",
   "room.loadError": "无法加载房间。",
+  "room.sentRefreshError": "消息已发送，但无法刷新房间。请先刷新房间，再决定是否重新发送。",
   "room.updateError": "无法更新房间。",
   "room.settings": "房间设置",
   "room.details": "房间详情",

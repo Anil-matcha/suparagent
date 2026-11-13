@@ -335,6 +335,7 @@ export const it: Record<MessageKey, string> = {
   "room.cancel": "Annulla",
   "room.loading": "Caricamento…",
   "room.loadError": "Impossibile caricare questa stanza.",
+  "room.sentRefreshError": "Messaggio inviato, ma la stanza non è stata aggiornata. Aggiornala prima di inviarlo di nuovo.",
   "room.updateError": "Impossibile aggiornare questa stanza.",
   "room.settings": "Impostazioni",
   "room.details": "Dettagli della stanza",

@@ -120,7 +120,11 @@ export function RoomView({ roomId, agents, onClose, onSelect, onTitleChange }: {
   const send = async (event: React.FormEvent) => {
     event.preventDefault(); if (!room || !draft.trim() || busy) return;
     const text = draft; setBusy(true); setError(null);
-    try { await collaboration.postMessage(room.id, text); setDraft(""); following.current = true; await refresh(); }
+    try {
+      await collaboration.postMessage(room.id, text);
+      setDraft(""); following.current = true;
+      await refresh().catch(() => setError(t("room.sentRefreshError")));
+    }
     catch (err) { setError(err instanceof ApiError ? err.message : t("room.sendError")); }
     finally { setBusy(false); }
   };

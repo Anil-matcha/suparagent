@@ -335,6 +335,7 @@ export const nl: Record<MessageKey, string> = {
   "room.cancel": "Annuleren",
   "room.loading": "Laden…",
   "room.loadError": "Deze ruimte kan niet worden geladen.",
+  "room.sentRefreshError": "Bericht verzonden, maar de ruimte kon niet worden vernieuwd. Vernieuw voordat je het opnieuw verzendt.",
   "room.updateError": "Deze ruimte kan niet worden bijgewerkt.",
   "room.settings": "Instellingen",
   "room.details": "Details van de ruimte",

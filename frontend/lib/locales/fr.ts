@@ -335,6 +335,7 @@ export const fr: Record<MessageKey, string> = {
   "room.cancel": "Annuler",
   "room.loading": "Chargement…",
   "room.loadError": "Impossible de charger ce salon.",
+  "room.sentRefreshError": "Message envoyé, mais le salon n’a pas pu être actualisé. Actualisez-le avant de renvoyer le message.",
   "room.updateError": "Impossible de modifier ce salon.",
   "room.settings": "Paramètres",
   "room.details": "Détails de la salle",

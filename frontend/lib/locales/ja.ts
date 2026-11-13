@@ -335,6 +335,7 @@ export const ja: Record<MessageKey, string> = {
   "room.cancel": "キャンセル",
   "room.loading": "ルームを読み込み中…",
   "room.loadError": "ルームを読み込めませんでした。",
+  "room.sentRefreshError": "メッセージは送信されましたが、ルームを更新できませんでした。再送する前に更新してください。",
   "room.updateError": "ルームを更新できませんでした。",
   "room.settings": "ルーム設定",
   "room.details": "ルームの詳細",

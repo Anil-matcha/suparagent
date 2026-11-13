@@ -335,6 +335,7 @@ export const tr: Record<MessageKey, string> = {
   "room.cancel": "İptal",
   "room.loading": "Oda yükleniyor…",
   "room.loadError": "Oda yüklenemedi.",
+  "room.sentRefreshError": "Mesaj gönderildi ancak oda yenilenemedi. Yeniden göndermeden önce odayı yenileyin.",
   "room.updateError": "Oda güncellenemedi.",
   "room.settings": "Oda ayarları",
   "room.details": "Oda ayrıntıları",
