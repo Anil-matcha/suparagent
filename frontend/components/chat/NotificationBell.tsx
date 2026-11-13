@@ -32,12 +32,20 @@ export function NotificationBell({
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
   const opener = useRef<HTMLButtonElement>(null);
   const seenNotificationIds = useRef<Set<number> | null>(null);
+  const preferenceFailed = useRef(false);
+  const preferenceRetrying = useRef(false);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   useEffect(() => {
     let alive = true;
     api.getNotificationPreferences().then((prefs) => {
       if (alive) setPreferences(prefs);
-    }).catch(() => {});
+    }).catch(() => { if (alive) preferenceFailed.current = true; });
     return () => { alive = false; };
   }, []);
 
@@ -52,6 +60,15 @@ export function NotificationBell({
   }, [router]);
 
   const refresh = useCallback(() => {
+    if (!preferences && preferenceFailed.current && !preferenceRetrying.current) {
+      preferenceRetrying.current = true;
+      void api.getNotificationPreferences().then((prefs) => {
+        if (mounted.current) {
+          preferenceFailed.current = false;
+          setPreferences(prefs);
+        }
+      }).catch(() => {}).finally(() => { preferenceRetrying.current = false; });
+    }
     api.unreadNotifications()
       .then((r) => {
         setUnread(r.unread);
