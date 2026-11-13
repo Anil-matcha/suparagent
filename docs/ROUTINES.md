@@ -16,7 +16,7 @@ and keep running Boat sandboxes. Routines are the local counterpart.
 | `agent_id` | The agent that runs it. A deleted or archived agent fails the run and pauses the routine. |
 | `name`, `prompt` | What it is called, and what the agent is told to do. |
 | `schedule_kind`, `schedule_spec`, `timezone` | When it runs (below). |
-| `paused` | A paused routine never starts on its own. Webhook calls to it are refused; Run now still works. |
+| `paused` | A paused routine never starts on its own. Queued scheduled runs and retries are marked skipped; a run already started continues. Webhook calls to it are refused; Run now still works. |
 | `run_limit_minutes` | 1 to 240 (default 30). Active time only: time spent waiting for your approval does not count. A run that reaches it is stopped and recorded as failed. |
 | `approval_mode` | `ask` (default), `plan` or `accept_edits`. A routine run uses the **stricter** of this and the agent's own mode, so a routine can never loosen what its agent may do. |
 | `approval_timeout_minutes` | 1 to 1440 (default 30). How long a run waits for your answer before the request is denied. |
