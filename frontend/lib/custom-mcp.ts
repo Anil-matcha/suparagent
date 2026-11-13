@@ -76,6 +76,19 @@ export function describeError(error: unknown): string {
   return error instanceof Error ? error.message : "The request failed.";
 }
 
+// Tools whose name or description contains every word typed (case-insensitive); all of them when the box is empty.
+export function filterTools<T extends { name: string; description: string }>(tools: T[], text: string): T[] {
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return tools;
+  return tools.filter((tool) => {
+    const haystack = `${tool.name} ${tool.description}`.toLowerCase();
+    return words.every((word) => haystack.includes(word));
+  });
+}
+
+// More granted tools than this are not handed to the agent one by one: it finds them with a search (stage 8).
+export const DIRECT_TOOL_LIMIT = 25;
+
 // What the form may send: a blank secret keeps the saved one, and a header name only travels with header auth.
 export function buildUpdate(
   current: Pick<CustomMcpConnection, "revision" | "name" | "endpoint" | "auth_mode" | "auth_header_name"> & Partial<Pick<CustomMcpConnection, "oauth_client_id" | "oauth_scopes">>,

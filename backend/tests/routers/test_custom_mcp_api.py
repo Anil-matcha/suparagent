@@ -343,3 +343,21 @@ async def test_a_server_that_names_nothing_leaves_the_identity_empty_and_a_faile
     server.error = mcp.McpError("connect_failed", "down", 502)
     await admin.post(f"{PATH}/connections/{conn['id']}/test", json={"revision": again["revision"]})
     assert (await admin.get(f"{PATH}/connections")).json()[0]["server_name"] is None
+
+
+async def test_an_agent_can_be_granted_far_more_than_a_hundred_tools_up_to_the_index_limit(admin, factory, owner, server):
+    def many(count):
+        return [mcp._normalize_tool({"name": f"tool_{n:03d}", "description": "d", "inputSchema": {"type": "object", "properties": {}}})
+                for n in range(count)]
+
+    server.tools = many(150)
+    conn = await ready(admin)
+    agent = await agent_id(factory, owner)
+    path = f"{PATH}/connections/{conn['id']}/agents/{agent}/grants"
+    picks = [{"name": t["name"], "schema_digest": t["schema_digest"]} for t in server.tools]
+    ok = await admin.put(path, json={"revision": conn["revision"], "tools": picks})
+    assert ok.status_code == 200 and len(ok.json()["tool_names"]) == 150
+    assert (await admin.get(path)).json()["tool_names"] == sorted(t["name"] for t in server.tools)
+    # Beyond the index limit a save is refused up front, never truncated.
+    too_many = [{"name": f"x{n}", "schema_digest": "0" * 64} for n in range(501)]
+    assert (await admin.put(path, json={"revision": conn["revision"], "tools": too_many})).status_code == 422

@@ -875,7 +875,7 @@ class _CodexTurn:
                   and self.ctx.community_launch is not None and isinstance(item.get("tool"), str)):
                 name = community_mcp_bridge.PREFIX + item["tool"]
                 bridge = getattr(self.ctx, "community_bridge", None)
-                summary = bridge.approval_summary(item["tool"]) if bridge is not None else name
+                summary = bridge.approval_summary(item["tool"], tool_input) if bridge is not None else name
             else:
                 name = f"mcp:{item.get('server')}.{item.get('tool')}"
                 summary = name
@@ -1046,7 +1046,7 @@ class _CodexTurn:
                 tool = community_mcp_bridge.PREFIX + name
                 approval_kind = "other"
                 bridge = getattr(self.ctx, "community_bridge", None)
-                summary = bridge.approval_summary(name) if bridge is not None else tool
+                summary = bridge.approval_summary(name, tool_input) if bridge is not None else tool
             elif self.computer is not None:
                 # Only the computer's own tools can be asked about here.
                 found = self._computer_call(server, text, meta) if server == COMPUTER_SERVER else None

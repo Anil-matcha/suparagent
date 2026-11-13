@@ -307,7 +307,7 @@ class ClaudeAdapter:
                 from app.computers.native import durable_input
                 native = data["tool"].startswith("mcp__computer__native_")
                 community = data["tool"].startswith("mcp__community__")
-                summary = (ctx.community_bridge.approval_summary(data["tool"].removeprefix("mcp__community__"))
+                summary = (ctx.community_bridge.approval_summary(data["tool"].removeprefix("mcp__community__"), event.extra.get("input", {}))
                            if community and ctx.community_bridge is not None else data["summary"])
                 if native:
                     native_calls.add(data["tool_use_id"])
@@ -374,7 +374,7 @@ class ClaudeAdapter:
                 request_id=request_id,
                 tool=tool,
                 input=tool_input,
-                summary=(ctx.community_bridge.approval_summary(tool.removeprefix("mcp__community__"))
+                summary=(ctx.community_bridge.approval_summary(tool.removeprefix("mcp__community__"), tool_input)
                          if tool.startswith("mcp__community__") and ctx.community_bridge is not None
                          else summarize_tool(tool, tool_input)),
                 kind=_KINDS.get(tool, "other"),

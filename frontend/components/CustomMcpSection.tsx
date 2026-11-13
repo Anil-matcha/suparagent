@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import {
-  buildUpdate, describeError, stateLabel,
+  buildUpdate, describeError, DIRECT_TOOL_LIMIT, filterTools, stateLabel,
   type CustomMcpAuthMode, type CustomMcpConnection, type CustomMcpTool,
 } from "@/lib/custom-mcp";
 import type { MarketplaceAgent } from "@/lib/marketplace";
@@ -64,6 +64,7 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
   const [agentFor, setAgentFor] = useState<Record<string, number | "">>({});
   const [granted, setGranted] = useState<Record<string, string[]>>({});
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [toolFilter, setToolFilter] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -223,7 +224,14 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
             <option value="">Choose an agent</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
           </Select>
           {agentId !== "" && <>
-            <ul className="space-y-2">{list.map((tool) => <li key={tool.name}>
+            {list.length > 12 && <div className="flex flex-wrap items-center gap-2">
+              <Input aria-label="Filter tools" placeholder="Filter tools by name or description" value={toolFilter[connection.id] ?? ""} onChange={(event) => setToolFilter((old) => ({ ...old, [connection.id]: event.target.value }))} />
+              <Button size="sm" disabled={off} onClick={() => setGranted((old) => ({ ...old, [key]: Array.from(new Set([...checked, ...filterTools(list, toolFilter[connection.id] ?? "").map((tool) => tool.name)])) }))}>Check shown</Button>
+              <Button size="sm" disabled={off} onClick={() => setGranted((old) => ({ ...old, [key]: [] }))}>Clear all</Button>
+              <span className="text-xs text-muted">{checked.length} of {list.length} checked</span>
+            </div>}
+            {checked.length > DIRECT_TOOL_LIMIT && <p className="text-xs text-muted">With more than {DIRECT_TOOL_LIMIT} tools checked, the agent is not given them one by one. It searches the tools you granted and calls one by reference; each call still asks for your approval with the server, tool and arguments.</p>}
+            <ul className="space-y-2">{filterTools(list, toolFilter[connection.id] ?? "").map((tool) => <li key={tool.name}>
               <Checkbox checked={checked.includes(tool.name)} onChange={(event) => setGranted((old) => ({ ...old, [key]: event.target.checked ? [...checked, tool.name] : checked.filter((name) => name !== tool.name) }))}
                 label={<span><span className="font-medium">{tool.name}</span><span className="line-clamp-3 block text-xs text-muted" title={tool.description}>{tool.description}</span></span>} />
             </li>)}</ul>

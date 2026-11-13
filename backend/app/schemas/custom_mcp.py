@@ -69,7 +69,8 @@ class CustomMcpGrantSelection(BaseModel):
 
 class CustomMcpGrantRequest(BaseModel):
     revision: int = Field(ge=1)
-    tools: list[CustomMcpGrantSelection] = Field(max_length=100)
+    # Matches the owner-added index limit (stage 8); larger sets are reached through search.
+    tools: list[CustomMcpGrantSelection] = Field(max_length=500)
 
 
 class CustomMcpOAuthStart(BaseModel):

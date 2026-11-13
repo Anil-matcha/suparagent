@@ -5,6 +5,7 @@
 ### Added
 
 - Add your own remote MCP server from Apps → MCP Marketplace → Custom MCP servers. A new server starts off with no agent access: you test it, turn it on, then grant exact tools to each agent. Sign in with none, a bearer token, a custom header, or browser sign-in (OAuth with PKCE). Secrets are write-only and stored encrypted. Claude and Codex can call granted tools in person chats; every call asks for your approval. Routines, rooms, computer sessions and other engines do not receive them. Only public https:// servers on port 443 are supported; local commands are not.
+- Grant an agent up to 500 tools from a custom MCP server. Above 25 granted tools the agent searches your granted tools and calls one by reference instead of receiving them all; calls still need approval. The grant list has a filter and "check shown".
 - The desktop app finishes browser sign-in through a short-lived loopback listener on 127.0.0.1 that answers only the sign-in return and closes after one success.
 
 ## 0.8.6 - 2026-11-11

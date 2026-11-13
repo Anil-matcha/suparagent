@@ -32,6 +32,9 @@ MAX_RESULT_BYTES = 1_000_000
 MAX_REQUEST_BYTES = 64_000
 MAX_TOOLS = 100
 MAX_TOOLSET_BYTES = 512_000
+# Owner-added servers may be larger; agents reach them through bounded search (stage 8), not by mounting every tool.
+CUSTOM_MAX_TOOLS = 500
+CUSTOM_MAX_TOOLSET_BYTES = 2_000_000
 MAX_PAGES = 20
 MAX_DEPTH = 8
 CATALOG_TTL_SECONDS = 300
@@ -525,6 +528,8 @@ class RemoteMcpSession:
             trust_env=False,
             limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
         )
+        self.max_tools = MAX_TOOLS
+        self.max_toolset_bytes = MAX_TOOLSET_BYTES
         self.protocol: str | None = None
         self.server_info: dict | None = None
         self.session_id: str | None = None
@@ -694,13 +699,13 @@ class RemoteMcpSession:
                 except McpError:
                     continue  # one tool Suparagent cannot validate must not hide the rest
                 total_bytes += len(canonical(tool).encode("utf-8"))
-                if total_bytes > MAX_TOOLSET_BYTES:
+                if total_bytes > self.max_toolset_bytes:
                     raise McpError("toolset_too_large", "This remote server exposes too much tool metadata.", 502)
                 if tool["name"] in seen:
                     raise McpError("invalid_response", "The remote MCP server returned duplicate tool names.", 502)
                 seen.add(tool["name"])
                 tools.append(tool)
-                if len(tools) > MAX_TOOLS:
+                if len(tools) > self.max_tools:
                     raise McpError("too_many_tools", "This remote server exposes too many tools.", 502)
             cursor = result.get("nextCursor")
             if cursor is None:

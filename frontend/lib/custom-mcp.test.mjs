@@ -53,3 +53,18 @@ test('sign-in problems have plain wording', () => {
   assert.match(describeError({ code: 'oauth_client_required' }), /client ID/);
   assert.match(describeError({ code: 'needs_sign_in' }), /Sign in/);
 });
+
+test('the grant list can be filtered by every word, in name or description', async () => {
+  const { filterTools, DIRECT_TOOL_LIMIT } = await import('./custom-mcp.ts');
+  const tools = [
+    { name: 'invoice_create', description: 'Create an invoice for a customer' },
+    { name: 'invoice_list', description: 'List invoices' },
+    { name: 'calendar_add', description: 'Add an event' },
+  ];
+  assert.equal(filterTools(tools, '').length, 3);
+  assert.deepEqual(filterTools(tools, 'INVOICE').map((t) => t.name), ['invoice_create', 'invoice_list']);
+  assert.deepEqual(filterTools(tools, 'invoice customer').map((t) => t.name), ['invoice_create']);
+  assert.deepEqual(filterTools(tools, 'event add').map((t) => t.name), ['calendar_add']);
+  assert.deepEqual(filterTools(tools, 'nothing here'), []);
+  assert.equal(DIRECT_TOOL_LIMIT, 25);
+});

@@ -262,6 +262,7 @@ async def _drop_stale_grants(db: AsyncSession, connection_id: str, tools: list[d
 async def _discover(endpoint: str, token: str | None, header: str | None) -> tuple[list[dict], dict | None]:
     """The server's tools and what it calls itself (display only)."""
     session = mcp.RemoteMcpSession(endpoint, token, header=header)
+    session.max_tools, session.max_toolset_bytes = mcp.CUSTOM_MAX_TOOLS, mcp.CUSTOM_MAX_TOOLSET_BYTES
     try:
         tools = await session.list_tools()
         identity = session.server_info
@@ -771,7 +772,7 @@ async def set_grants(
                 {"name": n, "description": by_name[n]["description"], "inputSchema": by_name[n]["inputSchema"]}
                 for n in names
             ]).encode("utf-8"))
-            if len(names) > mcp.MAX_TOOLS or size > mcp.MAX_TOOLSET_BYTES:
+            if len(names) > mcp.CUSTOM_MAX_TOOLS or size > mcp.CUSTOM_MAX_TOOLSET_BYTES:
                 await db.rollback()
                 raise _fail(422, "agent_toolset_too_large")
             await db.execute(delete(CustomMcpToolGrant).where(
