@@ -361,7 +361,7 @@ A restore refuses to touch anything that exists and refuses while a server is ru
 
 - Anyone with your passphrase, or a paired `admin` device, can run commands on the server through your agents. Use a long passphrase and pair phones with *Chat only*; revoke a lost device at once (**Settings → Devices**, or `python -m app.auth.cli revoke ID`).
 - With tools on, every command still asks for your approval in the app unless you saved a rule. Consider an agent computer ([COMPUTERS.md](COMPUTERS.md)) for agents that run commands.
-- Keep `LOOPBACK_TRUST=off`. Run one server process per data folder (a second one is refused). The sign-in lockout counters are in memory, so also rate-limit sign-in and pairing in the proxy if you want more than that.
+- Keep `LOOPBACK_TRUST=off`. Run one server process per data folder (a second one is refused). Sign-in and pairing lockouts survive restarts when a state directory is configured; SQLite uses the database folder by default. With PostgreSQL and no `AUTH_LIMITS_DIR`, they stay in memory. Per-minute request limits are always in memory and each worker counts separately, so also rate-limit sign-in and pairing in the proxy if needed. See [authentication limits](AUTH.md#limits).
 - The server answers only to your public name and the machine's own names, and refuses other `Host` headers.
 
 ## Troubleshooting
