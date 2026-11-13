@@ -218,6 +218,18 @@ async def test_a_backlog_runs_its_newest_occurrence_once_and_records_the_rest(sc
     assert len(await runs_of(sessions, routine.id)) == 2
 
 
+async def test_long_backlog_runs_newest_and_reports_lower_bound(scheduler, sessions, owner, agent, clock, monkeypatch):
+    routine = await make_routine(sessions, owner, agent, clock, catch_up_minutes=60)
+    original = service.schedules.latest_due
+    monkeypatch.setattr(service.schedules, "latest_due", lambda *args: original(*args, limit=3))
+    clock.advance(days=10, seconds=3)
+    await scheduler.tick()
+    missed, ran = await runs_of(sessions, routine.id)
+    assert missed.state == "missed" and missed.error.startswith("At least 4 earlier occurrences")
+    assert ran.scheduled_for == T0 + timedelta(days=10) and ran.state == "running"
+    await settled(scheduler, sessions, ran.id)
+
+
 async def test_an_occurrence_while_the_last_run_is_still_working_is_skipped(
     scheduler, sessions, owner, agent, clock, cli, tmp_path
 ):
