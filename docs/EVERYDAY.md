@@ -43,11 +43,12 @@ file and returns `{id, name, mime, bytes, kind}`. `POST .../turns` takes
 `attachment_ids` (up to 8). `GET .../attachments/{attachment_id}` returns the
 bytes. All chat scope.
 
-- **Storage.** A private folder outside every workspace:
-  `<data>/attachments/<thread id>/<uuid><ext>` with a small `<uuid>.json`
-  beside it (display name, type, size, sha256). `<data>` is
-  `ATTACHMENTS_DIR`, else `~/.suparagent/attachments`, else the desktop data
-  folder. Folders `0700`, files `0600`. The stored file name is always a fresh
+- **Storage.** An attachments root contains `<thread id>/<uuid><ext>` with a
+  small `<uuid>.json` beside it (display name, type, size, sha256). The root is
+  the tenant's `attachments` folder when a tenant is active, otherwise the
+  desktop profile's `attachments` folder when a profile is active, otherwise
+  `ATTACHMENTS_DIR` if set, and `~/.suparagent/attachments` by default.
+  Folders `0700`, files `0600`. The stored file name is always a fresh
   UUID plus an extension chosen from the type; the person's file name is only
   ever a display name (control characters and path separators removed,
   shortened).
