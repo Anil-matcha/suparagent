@@ -67,6 +67,7 @@ export function WorkItemEditor({ item, board, agents, threads, team, seedDate, s
     if (draft.deadlineKind === "date") {
       if (!draft.date) { setError("Choose a deadline date."); return; }
       dueDate = draft.date;
+      if (item?.due_date) savedZone = item.timezone;
     } else if (draft.deadlineKind === "time") {
       if (!draft.time) { setError("Choose a deadline date and time."); return; }
       if (item?.due_at && localDateTime(item.due_at) === draft.time) {
@@ -134,7 +135,7 @@ export function WorkItemEditor({ item, board, agents, threads, team, seedDate, s
               </Select>
             </div>
             {draft.deadlineKind === "date" && <div>
-              <label htmlFor={`${id}-date`} className="mb-1 block text-sm font-medium">Due date</label>
+              <label htmlFor={`${id}-date`} className="mb-1 block text-sm font-medium">Due date · {item?.due_date ? item.timezone : timezone}</label>
               <input id={`${id}-date`} type="date" required value={draft.date} onChange={event => change("date", event.target.value)} className={input} />
             </div>}
             {draft.deadlineKind === "time" && <div>
