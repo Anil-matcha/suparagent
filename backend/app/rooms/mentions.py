@@ -14,7 +14,7 @@ def continuation(char):
 
 def parse(text, members):
     masked = re.sub(r'```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`|(?m:^\s*>[^\n]*)', lambda m: ' ' * len(m[0]), text)
-    candidates = sorted([(str(name), identifier) for identifier, name in members] + [('everyone', None)], key=lambda p: -len(p[0]))
+    candidates = sorted([('everyone', None)] + [(str(name), identifier) for identifier, name in members], key=lambda p: -len(p[0]))
     found = []
     for match in re.finditer('@', masked):
         start = match.start()

@@ -261,7 +261,7 @@ export function RoomView({ roomId, agents, onClose, onSelect, onTitleChange }: {
                   className="mt-1 block max-h-48 min-h-16 w-full resize-y rounded-field border border-line bg-raised p-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   memberToken={member => {
                     const count = duplicateNameCounts.get(member.name.normalize("NFKC").toLocaleLowerCase()) ?? 0;
-                    return mentionToken(member.name, count > 1 ? member.agent_id : undefined);
+                    return mentionToken(member.name, count > 1 || member.name.toLowerCase() === "everyone" ? member.agent_id : undefined);
                   }}
                 />
               </div>
