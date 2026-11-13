@@ -494,3 +494,60 @@ async def test_instructions_inside_a_tool_description_are_labelled_untrusted_not
         assert "approval" in bridge.prompt_note.lower()
     finally:
         await bridge.close()
+
+
+async def _set_turn_person(sessions, world, person_id):
+    async with sessions() as db:
+        turn = await db.get(Turn, world[1].turn_id)
+        turn.person_id = person_id
+        await db.commit()
+
+
+async def _set_sharing(sessions, world, *, shared, owner_person_id=None, bump=True):
+    async with sessions() as db:
+        row = await db.get(CustomMcpConnection, world[3].id)
+        row.shared, row.owner_person_id = shared, owner_person_id
+        if bump:
+            row.revision += 1
+            row.tested_revision = row.revision
+        await db.commit()
+
+
+async def test_a_private_connection_is_only_mounted_for_turns_of_the_person_who_added_it(world, sessions):
+    assert len(await mounted(world)) == 1, "added by the workspace owner, used by the owner"
+    await _set_turn_person(sessions, world, 5)
+    assert await mounted(world) == [], "another person's turn never gets the owner's private connection"
+    await _set_sharing(sessions, world, shared=False, owner_person_id=5)
+    assert len(await mounted(world)) == 1, "its creator's own turn does"
+    await _set_turn_person(sessions, world, 6)
+    assert await mounted(world) == []
+    await _set_sharing(sessions, world, shared=True, owner_person_id=5)
+    assert len(await mounted(world)) == 1, "once shared, anyone in the workspace can use it (with a grant)"
+    await _set_turn_person(sessions, world, None)
+    assert len(await mounted(world)) == 1
+
+
+async def test_unsharing_stops_a_running_turn_before_its_next_call(world, sessions, remote):
+    await _set_sharing(sessions, world, shared=True, owner_person_id=5, bump=False)
+    await _set_turn_person(sessions, world, 6)
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        [alias] = bridge.aliases_allowed
+        await approve(sessions, world[1], alias, {"q": "x"})
+        await _set_sharing(sessions, world, shared=False, owner_person_id=5)
+        result = await bridge.execute(alias, {"q": "x"})
+        assert result["code"] == "revoked" and remote.built == [] and remote.calls == []
+    finally:
+        await bridge.close()
+
+
+async def test_a_person_cannot_reach_a_private_connection_through_a_ref_or_a_search(world, sessions, remote):
+    await _set_sharing(sessions, world, shared=False, owner_person_id=5, bump=False)
+    await _set_turn_person(sessions, world, 5)
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        [alias] = bridge.aliases_allowed
+        await _set_turn_person(sessions, world, 6)  # the turn's person can never change; this models a stale mount
+        assert (await bridge.execute(alias, {"q": "x"}))["code"] == "revoked" and remote.calls == []
+    finally:
+        await bridge.close()

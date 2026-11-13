@@ -21,6 +21,10 @@ class CustomMcpConnection(Base):
     auth_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="none", server_default="none")
     auth_header_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    # Who added it (a signed-in member's person id; null for the workspace owner, the desktop app or a paired
+    # device) and whether the whole workspace may use it. A connection starts private to its creator.
+    owner_person_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    shared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     tested_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -66,6 +70,7 @@ class CustomMcpOAuthFlow(Base):
         String(36), ForeignKey("custom_mcp_connection.id", ondelete="CASCADE"), nullable=False
     )
     owner_id: Mapped[str] = mapped_column(String, nullable=False)
+    person_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     connection_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     verifier_cipher: Mapped[str] = mapped_column(Text, nullable=False)
     redirect_uri: Mapped[str] = mapped_column(String(500), nullable=False)

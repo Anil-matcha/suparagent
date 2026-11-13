@@ -16,6 +16,10 @@ export type CustomMcpConnection = {
   oauth_signed_in: boolean;
   oauth_client_id: string | null;
   oauth_scopes: string | null;
+  shared: boolean;
+  mine: boolean;
+  can_manage: boolean;
+  added_by: string | null;
   server_name: string | null;
   server_version: string | null;
   tool_count: number | null;
@@ -74,6 +78,13 @@ export function describeError(error: unknown): string {
   const code = (error as { code?: unknown } | null)?.code;
   if (typeof code === "string" && ERROR_TEXT[code]) return ERROR_TEXT[code];
   return error instanceof Error ? error.message : "The request failed.";
+}
+
+// Who may use a connection, in words for the card.
+export function sharingLabel(connection: Pick<CustomMcpConnection, "shared" | "mine" | "added_by">): string {
+  const who = connection.added_by ?? "someone";
+  if (connection.shared) return connection.mine ? "Shared with the workspace" : `Shared by ${who}`;
+  return connection.mine ? "Only you" : `Private to ${who}`;
 }
 
 // Tools whose name or description contains every word typed (case-insensitive); all of them when the box is empty.

@@ -8,11 +8,13 @@ encrypted credential store; a connection starts disabled and with no agent grant
 import json
 import re
 import uuid
+from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import community_mcp as mcp
@@ -20,7 +22,8 @@ from app import custom_mcp_oauth as oauth
 from app import custom_mcp_oauth_loopback as loopback
 from app.core import crypto
 from app.core.config import settings
-from app.db.models import Agent, CustomMcpConnection, CustomMcpOAuthFlow, CustomMcpToolGrant, UserCredential
+from app.auth.middleware import principal_of
+from app.db.models import Agent, CustomMcpConnection, CustomMcpOAuthFlow, CustomMcpToolGrant, Person, UserCredential
 from app.db.session import get_db
 from app.db.transactions import begin_write, release_snapshot
 from app.desktop import profile
@@ -31,6 +34,7 @@ from app.schemas.custom_mcp import (
     CustomMcpGrantRequest,
     CustomMcpOAuthStart,
     CustomMcpRevision,
+    CustomMcpSharing,
     CustomMcpToolOut,
     CustomMcpUpdate,
 )
@@ -38,11 +42,44 @@ from app.services import user_credential_service
 from app.services.local_access_policy import require_local_access
 from app.services.thread_runtime import LOCAL_OWNER_ID
 
+@dataclass(frozen=True)
+class Actor:
+    """Who is acting. `person_id` is None for the workspace owner and for non-member principals
+    (the desktop app, a paired device, a trusted local request)."""
+    person_id: int | None
+
+    @property
+    def owner_like(self) -> bool:
+        return self.person_id is None
+
+
+# Bound once per request by `_bind_actor`. Unset (internal calls, the desktop loopback sign-in) means no
+# per-person check: that path is proven by the one-time sign-in state instead.
+_actor_var: ContextVar[Actor | None] = ContextVar("custom_mcp_actor", default=None)
+
+
+async def _bind_actor(request: Request) -> None:
+    principal = principal_of(request.scope)
+    _actor_var.set(Actor(person_id=getattr(principal, "person_id", None)))
+
+
 router = APIRouter(
     prefix="/integrations/custom-mcp",
     tags=["Custom MCP"],
-    dependencies=[Depends(require_local_access), Depends(_owner)],
+    dependencies=[Depends(require_local_access), Depends(_owner), Depends(_bind_actor)],
 )
+
+
+def _can_manage(row: CustomMcpConnection, actor: Actor | None) -> bool:
+    """A shared connection is managed by any admin; a private one only by the person who added it."""
+    return actor is None or row.shared or row.owner_person_id == actor.person_id
+
+
+def _allowed(row: CustomMcpConnection, *, removal: bool = False) -> bool:
+    actor = _actor_var.get()
+    # The workspace owner can always switch off or remove a connection (for example when a member leaves),
+    # but never use, test, sign in to or grant tools from someone else's private one.
+    return _can_manage(row, actor) or (removal and actor is not None and actor.owner_like)
 
 _CREDENTIAL_PREFIX = "integration:custom-mcp:"
 _NO_FILE = "-"
@@ -182,6 +219,9 @@ def _state(row: CustomMcpConnection, signed_in: bool = True) -> str:
 async def _out(db: AsyncSession, row: CustomMcpConnection) -> CustomMcpConnectionOut:
     signed_in = row.auth_mode == "oauth" and await oauth.is_signed_in(db, LOCAL_OWNER_ID, row.id)
     settings_ = row.oauth_config or {}
+    actor = _actor_var.get()
+    person = await db.get(Person, row.owner_person_id) if row.owner_person_id is not None else None
+    added_by = person.display_name if person is not None else "Workspace owner"
     return CustomMcpConnectionOut(
         id=row.id, name=row.name, transport=row.transport, endpoint=row.endpoint,
         auth_mode=row.auth_mode, auth_header_name=row.auth_header_name, enabled=row.enabled,
@@ -189,26 +229,28 @@ async def _out(db: AsyncSession, row: CustomMcpConnection) -> CustomMcpConnectio
         credential_configured=await _credential_configured(db, row.id), oauth_signed_in=signed_in,
         oauth_client_id=settings_.get("client_id"), oauth_scopes=settings_.get("scope"),
         server_name=row.server_name, server_version=row.server_version,
+        shared=row.shared, mine=actor is None or row.owner_person_id == actor.person_id,
+        can_manage=_can_manage(row, actor), added_by=added_by,
         tool_count=None if row.tools_snapshot is None else len(row.tools_snapshot),
         last_tested_at=row.last_tested_at,
     )
 
 
-async def _connection(db: AsyncSession, connection_id: str) -> CustomMcpConnection:
+async def _connection(db: AsyncSession, connection_id: str, *, removal: bool = False) -> CustomMcpConnection:
     row = await db.scalar(select(CustomMcpConnection).where(
         CustomMcpConnection.id == connection_id, CustomMcpConnection.owner_id == LOCAL_OWNER_ID,
     ))
-    if row is None:
-        raise _fail(404, "connection_not_found")
+    if row is None or not _allowed(row, removal=removal):
+        raise _fail(404, "connection_not_found")  # someone else's private connection looks absent, not forbidden
     return row
 
 
-async def _locked(db: AsyncSession, connection_id: str, revision: int) -> CustomMcpConnection:
+async def _locked(db: AsyncSession, connection_id: str, revision: int, *, removal: bool = False) -> CustomMcpConnection:
     """Row lock plus the revision check; call inside begin_write and the connection lock."""
     row = await db.scalar(select(CustomMcpConnection).where(
         CustomMcpConnection.id == connection_id, CustomMcpConnection.owner_id == LOCAL_OWNER_ID,
     ).with_for_update())
-    if row is None:
+    if row is None or not _allowed(row, removal=removal):
         raise _fail(404, "connection_not_found")
     if row.revision != revision:
         raise _fail(409, "connection_changed")
@@ -310,10 +352,11 @@ def _no_store(response: Response) -> None:
 @router.get("/connections", response_model=list[CustomMcpConnectionOut])
 async def list_connections(response: Response, db: AsyncSession = Depends(get_db)):
     _no_store(response)
-    rows = (await db.scalars(
-        select(CustomMcpConnection).where(CustomMcpConnection.owner_id == LOCAL_OWNER_ID)
-        .order_by(CustomMcpConnection.created_at, CustomMcpConnection.id)
-    )).all()
+    actor = _actor_var.get()
+    query = select(CustomMcpConnection).where(CustomMcpConnection.owner_id == LOCAL_OWNER_ID)
+    if actor is not None and not actor.owner_like:
+        query = query.where(or_(CustomMcpConnection.shared.is_(True), CustomMcpConnection.owner_person_id == actor.person_id))
+    rows = (await db.scalars(query.order_by(CustomMcpConnection.created_at, CustomMcpConnection.id))).all()
     return [await _out(db, row) for row in rows]
 
 
@@ -336,6 +379,7 @@ async def create_connection(payload: CustomMcpCreate, response: Response, db: As
     row = CustomMcpConnection(
         id=str(uuid.uuid4()), owner_id=LOCAL_OWNER_ID, name=name, endpoint=endpoint,
         auth_mode=payload.auth_mode, auth_header_name=header, enabled=False, oauth_config=oauth_config,
+        owner_person_id=(_actor_var.get().person_id if _actor_var.get() is not None else None), shared=False,
     )
     db.add(row)
     if secret is not None:
@@ -499,11 +543,11 @@ async def disable_connection(
     connection_id: str, payload: CustomMcpRevision, response: Response, db: AsyncSession = Depends(get_db),
 ):
     _no_store(response)
-    await _connection(db, connection_id)
+    await _connection(db, connection_id, removal=True)
     await release_snapshot(db)
     async with mcp.connection_lock(connection_id):
         await begin_write(db)
-        row = await _locked(db, connection_id, payload.revision)
+        row = await _locked(db, connection_id, payload.revision, removal=True)
         row.enabled = False
         _bump(row)
         await db.commit()
@@ -513,14 +557,14 @@ async def disable_connection(
 
 @router.delete("/connections/{connection_id}", status_code=204)
 async def delete_connection(connection_id: str, response: Response, db: AsyncSession = Depends(get_db)):
-    await _connection(db, connection_id)
+    await _connection(db, connection_id, removal=True)
     await release_snapshot(db)
     async with mcp.connection_lock(connection_id):
         await begin_write(db)
         row = await db.scalar(select(CustomMcpConnection).where(
             CustomMcpConnection.id == connection_id, CustomMcpConnection.owner_id == LOCAL_OWNER_ID,
         ).with_for_update())
-        if row is None:
+        if row is None or not _allowed(row, removal=True):
             raise _fail(404, "connection_not_found")
         await _delete_grants(db, row.id)
         await _delete_credential(db, row.id)
@@ -531,6 +575,33 @@ async def delete_connection(connection_id: str, response: Response, db: AsyncSes
         ))
         await db.commit()
     return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/connections/{connection_id}/sharing", response_model=CustomMcpConnectionOut)
+async def set_sharing(
+    connection_id: str, payload: CustomMcpSharing, response: Response, db: AsyncSession = Depends(get_db),
+):
+    """Let the whole workspace use this connection, or take it back. Sharing is the creator's decision."""
+    _no_store(response)
+    actor = _actor_var.get()
+    row = await _connection(db, connection_id, removal=True)
+    is_creator = actor is None or row.owner_person_id == actor.person_id
+    if payload.shared and not is_creator:
+        raise _fail(403, "only_the_creator_can_share")
+    if not payload.shared and not (is_creator or (actor is not None and actor.owner_like)):
+        raise _fail(403, "only_the_creator_can_unshare")
+    await release_snapshot(db)
+    async with mcp.connection_lock(connection_id):
+        await begin_write(db)
+        current = await _locked(db, connection_id, payload.revision, removal=True)
+        if current.shared == payload.shared:
+            await db.rollback()
+            return await _out(db, current)
+        current.shared = payload.shared
+        _bump(current)  # a running turn rechecks the revision, so a change takes effect on its next call
+        await db.commit()
+        await db.refresh(current)
+    return await _out(db, current)
 
 
 def _callback_url(request: Request) -> str:
@@ -615,6 +686,7 @@ async def _store_flow(db, connection_id, revision, *, server, client_id, registe
             await db.delete(old)
         db.add(CustomMcpOAuthFlow(
             state_digest=digest, connection_id=connection_id, owner_id=LOCAL_OWNER_ID,
+            person_id=(_actor_var.get().person_id if _actor_var.get() is not None else None),
             connection_revision=current.revision, verifier_cipher=crypto.encrypt(verifier),
             redirect_uri=redirect_uri, expires_at=now + timedelta(seconds=oauth.FLOW_TTL_SECONDS)))
         await db.commit()
@@ -642,6 +714,11 @@ async def _complete_sign_in(db: AsyncSession, state: str, code: str, error: str)
     flow = await db.scalar(select(CustomMcpOAuthFlow).where(
         CustomMcpOAuthFlow.state_digest == digest, CustomMcpOAuthFlow.owner_id == LOCAL_OWNER_ID).with_for_update())
     if flow is None:
+        await db.rollback()
+        return _finished(False, "This sign-in link is not valid or was already used.", 400)
+    actor = _actor_var.get()
+    if actor is not None and flow.person_id != actor.person_id:
+        # Started by someone else: their sign-in cannot be finished in this person's browser.
         await db.rollback()
         return _finished(False, "This sign-in link is not valid or was already used.", 400)
     snapshot = (flow.connection_id, flow.connection_revision, flow.verifier_cipher, flow.redirect_uri)

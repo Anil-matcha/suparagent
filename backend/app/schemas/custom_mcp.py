@@ -49,6 +49,10 @@ class CustomMcpConnectionOut(BaseModel):
     oauth_signed_in: bool = False
     oauth_client_id: str | None = None
     oauth_scopes: str | None = None
+    shared: bool = False
+    mine: bool = True
+    can_manage: bool = True
+    added_by: str | None = None
     server_name: str | None = None
     server_version: str | None = None
     tool_count: int | None
@@ -75,3 +79,8 @@ class CustomMcpGrantRequest(BaseModel):
 
 class CustomMcpOAuthStart(BaseModel):
     authorization_url: str
+
+
+class CustomMcpSharing(BaseModel):
+    revision: int = Field(ge=1)
+    shared: bool

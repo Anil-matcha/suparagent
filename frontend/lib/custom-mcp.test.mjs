@@ -68,3 +68,12 @@ test('the grant list can be filtered by every word, in name or description', asy
   assert.deepEqual(filterTools(tools, 'nothing here'), []);
   assert.equal(DIRECT_TOOL_LIMIT, 25);
 });
+
+test('a card says who may use the connection', async () => {
+  const { sharingLabel } = await import('./custom-mcp.ts');
+  assert.equal(sharingLabel({ shared: false, mine: true, added_by: 'Alice' }), 'Only you');
+  assert.equal(sharingLabel({ shared: true, mine: true, added_by: 'Alice' }), 'Shared with the workspace');
+  assert.equal(sharingLabel({ shared: true, mine: false, added_by: 'Alice' }), 'Shared by Alice');
+  assert.equal(sharingLabel({ shared: false, mine: false, added_by: 'Alice' }), 'Private to Alice');
+  assert.equal(sharingLabel({ shared: false, mine: false, added_by: null }), 'Private to someone');
+});

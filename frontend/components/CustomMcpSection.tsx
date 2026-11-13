@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import {
-  buildUpdate, describeError, DIRECT_TOOL_LIMIT, filterTools, stateLabel,
+  buildUpdate, describeError, DIRECT_TOOL_LIMIT, filterTools, sharingLabel, stateLabel,
   type CustomMcpAuthMode, type CustomMcpConnection, type CustomMcpTool,
 } from "@/lib/custom-mcp";
 import type { MarketplaceAgent } from "@/lib/marketplace";
@@ -65,6 +65,7 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
   const [granted, setGranted] = useState<Record<string, string[]>>({});
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [toolFilter, setToolFilter] = useState<Record<string, string>>({});
+  const [confirmShare, setConfirmShare] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -172,10 +173,30 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
     const key = agentId === "" ? "" : `${connection.id}:${agentId}`;
     const checked = key ? granted[key] ?? [] : [];
     const off = busy !== null;
+    if (!connection.can_manage) {
+      // Someone else's private connection, shown to the workspace owner so it can be switched off or removed.
+      return <article key={connection.id} className="space-y-3 rounded-lg border border-line p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0"><h3 className="font-semibold">{connection.name}</h3><p className="mt-1 break-all text-xs"><code>{connection.endpoint}</code></p></div>
+          <Badge>{sharingLabel(connection)}</Badge>
+        </div>
+        <p className="text-xs text-muted">Added by {connection.added_by ?? "someone else"} and private to them. As the workspace owner you can turn it off or remove it, but not use it, test it or sign in to it.</p>
+        <div className="flex flex-wrap gap-2">
+          {connection.enabled && <Button disabled={off} onClick={() => void run(`toggle:${connection.id}`, async () => {
+            apply(await api.setCustomMcpEnabled(connection.id, connection.revision, false)); setNotice("Turned off.");
+          })}>Turn off</Button>}
+          {confirmRemove === connection.id
+            ? <><Button variant="danger" disabled={off} onClick={() => void run(`delete:${connection.id}`, async () => {
+                await api.deleteCustomMcp(connection.id); setConfirmRemove(null); await reload(); setNotice(`${connection.name} removed with its secret and grants.`);
+              })}>Confirm remove</Button><Button disabled={off} onClick={() => setConfirmRemove(null)}>Keep</Button></>
+            : <Button disabled={off} onClick={() => setConfirmRemove(connection.id)}>Remove</Button>}
+        </div>
+      </article>;
+    }
     return <article key={connection.id} className="space-y-4 rounded-lg border border-line p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0"><h3 className="font-semibold">{connection.name}</h3><p className="mt-1 break-all text-xs"><code>{connection.endpoint}</code></p></div>
-        <Badge tone={tone(connection)}>{stateLabel(connection)}</Badge>
+        <div className="flex flex-wrap items-center gap-2"><Badge>{sharingLabel(connection)}</Badge><Badge tone={tone(connection)}>{stateLabel(connection)}</Badge></div>
       </div>
       <p className="text-xs text-muted">
         {AUTH_LABEL[connection.auth_mode]}{connection.auth_mode === "header" && connection.auth_header_name ? ` (${connection.auth_header_name})` : ""}
@@ -206,6 +227,17 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
           name: connection.name, endpoint: connection.endpoint, auth_mode: connection.auth_mode,
           auth_header_name: connection.auth_header_name ?? "", credential: "",
           oauth_client_id: connection.oauth_client_id ?? "", oauth_scopes: connection.oauth_scopes ?? "" } })}>Edit</Button>
+        {connection.mine && !connection.shared && (confirmShare === connection.id
+          ? <>
+              <span className="basis-full text-xs text-muted">Everyone in this workspace will be able to use this server through agents that are granted its tools, signed in as you where it uses your account. Each call still asks for approval.</span>
+              <Button variant="primary" disabled={off} onClick={() => void run(`share:${connection.id}`, async () => {
+                apply(await api.setCustomMcpSharing(connection.id, connection.revision, true)); setConfirmShare(null); setNotice("Shared with the workspace.");
+              })}>Yes, share</Button><Button disabled={off} onClick={() => setConfirmShare(null)}>Cancel</Button>
+            </>
+          : <Button disabled={off} onClick={() => setConfirmShare(connection.id)}>Share with workspace</Button>)}
+        {connection.mine && connection.shared && <Button disabled={off} onClick={() => void run(`unshare:${connection.id}`, async () => {
+          apply(await api.setCustomMcpSharing(connection.id, connection.revision, false)); setNotice("No longer shared. Only you can use it.");
+        })}>Stop sharing</Button>}
         {connection.credential_configured && connection.auth_mode !== "oauth" && <Button disabled={off} onClick={() => void run(`secret:${connection.id}`, async () => {
           apply(await api.removeCustomMcpCredential(connection.id, connection.revision)); forget(connection.id);
           setNotice("Secret removed. The server is off and its tool grants were cleared.");

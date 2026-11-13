@@ -20,7 +20,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
 from app import community_mcp, custom_mcp_oauth
 from app.core import tool_timeout
@@ -265,7 +265,7 @@ class CommunityMcpBridge:
                     })
                 if not uninterrupted:
                     # Owner-added servers are for people in chat only: never routines, rooms, jobs or computers.
-                    custom = await cls._custom_snapshot(db, runtime.owner_id, agent.id)
+                    custom = await cls._custom_snapshot(db, runtime.owner_id, agent.id, turn.person_id)
                     if custom and not _plan_within_bounds(snapshot + custom):
                         logger.warning("custom MCP grants exceed the per-agent index limit; omitting them for this turn",
                                        thread_id=run.thread_id)
@@ -282,13 +282,15 @@ class CommunityMcpBridge:
             return []
 
     @staticmethod
-    async def _custom_snapshot(db, owner_id: str, agent_id: int) -> list[dict]:
+    async def _custom_snapshot(db, owner_id: str, agent_id: int, person_id: int | None = None) -> list[dict]:
+        """Granted tools of enabled connections this person may use: shared ones, or their own private ones."""
         rows = (await db.execute(
             select(CustomMcpConnection, CustomMcpToolGrant)
             .join(CustomMcpToolGrant, CustomMcpToolGrant.connection_id == CustomMcpConnection.id)
             .where(
                 CustomMcpConnection.owner_id == owner_id,
                 CustomMcpConnection.enabled.is_(True),
+                or_(CustomMcpConnection.shared.is_(True), CustomMcpConnection.owner_person_id == person_id),
                 CustomMcpToolGrant.agent_id == agent_id,
             )
             .order_by(CustomMcpConnection.id, CustomMcpToolGrant.tool_name)
@@ -570,7 +572,8 @@ class CommunityMcpBridge:
                 or connection is None or connection.owner_id != self.runtime.owner_id
                 or connection.revision != item["connection_revision"]
                 or (not custom and connection.manifest_digest != item["manifest_digest"])
-                or (custom and (not connection.enabled or connection.tested_revision != connection.revision))
+                or (custom and (not connection.enabled or connection.tested_revision != connection.revision
+                                or not (connection.shared or connection.owner_person_id == turn.person_id)))
                 or grant is None or grant.schema_digest != item["schema_digest"]
                 or grant.input_schema != item["input_schema"]):
             return None

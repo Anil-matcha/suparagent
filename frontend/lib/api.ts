@@ -1219,6 +1219,10 @@ export const api = {
     request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/oauth/sign-out`, {
       method: "POST", body: JSON.stringify({ revision }),
     }),
+  setCustomMcpSharing: (id: string, revision: number, shared: boolean) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/sharing`, {
+      method: "POST", body: JSON.stringify({ revision, shared }),
+    }),
   removeCustomMcpCredential: (id: string, revision: number) =>
     request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/credential?revision=${revision}`, { method: "DELETE" }),
   deleteCustomMcp: (id: string) =>
