@@ -187,6 +187,34 @@ async def test_upload_read_and_send_an_image_to_claude(api, cli, tools_on, sessi
     assert turn.prompt_text == "What is this?"  # what the person typed, nothing added
 
 
+async def test_branch_can_read_earlier_message_image(api, cli, tools_on, sessions, owner, tmp_path):
+    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
+    image = (await upload(api, thread.id, "cat.png", png_bytes(), "image/png")).json()
+    unused = (await upload(api, thread.id, "unused.png", png_bytes(), "image/png")).json()
+    sent = await api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "First", "attachment_ids": [image["id"]]})
+    assert sent.status_code == 202
+    await finished(sessions, thread.id)
+    second = await api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "Second", "attachment_ids": [unused["id"]]})
+    assert second.status_code == 202
+    await finished(sessions, thread.id, 2)
+    branch = await api.post(f"/api/v1/threads/{thread.id}/branch", json={"turn_id": second.json()["id"], "prompt_text": "Different"})
+    assert branch.status_code == 201, branch.text
+    branch_id = branch.json()["id"]
+    await finished(sessions, branch_id, 2)
+    response = await api.get(f"/api/v1/threads/{branch_id}/attachments/{image['id']}")
+    assert response.status_code == 200 and response.content == png_bytes()
+    assert (await api.get(f"/api/v1/threads/{branch_id}/attachments/{unused['id']}")).status_code == 404
+    branch_detail = (await api.get(f"/api/v1/threads/{branch_id}")).json()
+    nested = await api.post(f"/api/v1/threads/{branch_id}/branch", json={"turn_id": branch_detail["turns"][1]["id"], "prompt_text": "Another"})
+    assert nested.status_code == 201
+    nested_id = nested.json()["id"]
+    await finished(sessions, nested_id, 2)
+    assert (await api.get(f"/api/v1/threads/{nested_id}/attachments/{image['id']}")).content == png_bytes()
+    assert (await api.get(f"/api/v1/threads/{nested_id}/attachments/{unused['id']}")).status_code == 404
+    assert (await api.delete(f"/api/v1/threads/{thread.id}")).status_code == 204
+    assert (await api.get(f"/api/v1/threads/{nested_id}/attachments/{image['id']}")).status_code == 404
+
+
 async def test_a_text_file_reaches_the_engine_inside_the_prompt(api, cli, tools_on, sessions, owner, tmp_path):
     thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
     meta = (await upload(api, thread.id, "todo.txt", b"buy milk", "text/plain")).json()

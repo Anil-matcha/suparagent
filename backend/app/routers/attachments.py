@@ -10,10 +10,14 @@ from fastapi import Request, APIRouter, Depends, File, Form, HTTPException, Uplo
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel
+from sqlalchemy import select
 
+from app.db.models.event import Event
+from app.db.transactions import release_snapshot
 from app.routers.threads import _thread_or_404, get_runtime
 from app.services import attachments, audio_ingestion
 from app.services.local_access_policy import require_local_access
+from app.services import thread_store as store
 from app.services.thread_runtime import ThreadRuntime
 
 router = APIRouter(prefix="/threads", tags=["Attachments"], dependencies=[Depends(require_local_access)])
@@ -34,6 +38,29 @@ class AttachmentResponse(BaseModel):
 
 def _refuse(error: attachments.AttachmentError) -> HTTPException:
     return HTTPException(status_code=error.status, detail={"error_code": error.code, "message": error.message})
+
+
+async def _read_branch_attachment(rt: ThreadRuntime, thread_id: int, attachment_id: str):
+    """Read a branch's own file or one referenced by its copied history."""
+    async with rt.session() as db:
+        while True:
+            thread = await store.get_thread(db, thread_id)
+            if thread is None or thread.owner_id != rt.owner_id:
+                raise attachments.AttachmentError(404, "attachment_not_found", "No such attachment.")
+            await release_snapshot(db)
+            try:
+                return await run_in_threadpool(attachments.read_bytes, thread_id, attachment_id)
+            except attachments.AttachmentError as error:
+                if error.code != "attachment_not_found":
+                    raise
+            context = await db.scalar(select(Event).where(Event.thread_id == thread_id, Event.type == "branch.context").order_by(Event.seq).limit(1))
+            if context is None:
+                raise attachments.AttachmentError(404, "attachment_not_found", "No such attachment.")
+            copied_turns = set(context.data["turn_ids"])
+            starts = (await db.execute(select(Event).where(Event.thread_id == thread_id, Event.type == "turn.started"))).scalars()
+            if not any(item.get("id") == attachment_id for event in starts if event.turn_id in copied_turns for item in event.data.get("attachments", [])):
+                raise attachments.AttachmentError(404, "attachment_not_found", "No such attachment.")
+            thread_id = context.data["from_thread_id"]
 
 
 @router.post("/{thread_id}/attachments", response_model=AttachmentResponse, status_code=201)
@@ -67,7 +94,7 @@ async def get_attachment(thread_id: int, attachment_id: str, rt: ThreadRuntime =
     plain text. Never interpreted by the browser as a page."""
     await _thread_or_404(rt, thread_id)
     try:
-        attachment, data = await run_in_threadpool(attachments.read_bytes, thread_id, attachment_id)
+        attachment, data = await _read_branch_attachment(rt, thread_id, attachment_id)
     except attachments.AttachmentError as error:
         raise _refuse(error) from None
     media = attachment.mime if attachment.kind in ("image", "audio", "video", "document") else "text/plain; charset=utf-8"
