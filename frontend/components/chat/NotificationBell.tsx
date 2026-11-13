@@ -26,6 +26,7 @@ export function NotificationBell({
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<AppNotification[] | null>(null);
+  const [feedFailed, setFeedFailed] = useState(false);
   const [failed, setFailed] = useState(false);
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
   const opener = useRef<HTMLButtonElement>(null);
@@ -78,7 +79,16 @@ export function NotificationBell({
 
   useEffect(() => {
     if (!open) return;
-    api.listNotifications().then(setItems).catch(() => setItems([]));
+    let active = true;
+    api.listNotifications().then((list) => {
+      if (active) {
+        setItems(list);
+        setFeedFailed(false);
+      }
+    }).catch(() => {
+      if (active) setFeedFailed(true);
+    });
+    return () => { active = false; };
   }, [open, unread]);
 
   // Escape closes the feed and puts focus back on the bell, wherever focus is inside it.
@@ -133,7 +143,9 @@ export function NotificationBell({
             <button onClick={() => void readAll()} className="cursor-pointer text-xs text-accent underline">{t("notifications.markAll")}</button>
           </div>
           <ul className="max-h-96 overflow-y-auto">
-            {items === null ? (
+            {feedFailed ? (
+              <li role="alert" className="p-3 text-xs text-danger">{t("notifications.loadError")}</li>
+            ) : items === null ? (
               <li className="p-3"><LoadingState rows={3} /></li>
             ) : items.length === 0 ? (
               <li><EmptyPanel title={t("notifications.empty")} /></li>

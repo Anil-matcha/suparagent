@@ -86,6 +86,7 @@ export const ru: Record<MessageKey, string> = {
   "notifications.unread": "Уведомления: непрочитанных — {count}",
   "notifications.markAll": "Отметить всё как прочитанное",
   "notifications.empty": "Уведомлений пока нет.",
+  "notifications.loadError": "Не удалось загрузить уведомления.",
   "chat.copy": "Копировать сообщение",
   "chat.copied": "Скопировано",
   "chat.working.thinking": "Думает",

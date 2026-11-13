@@ -86,6 +86,7 @@ export const nl: Record<MessageKey, string> = {
   "notifications.unread": "Meldingen, {count} ongelezen",
   "notifications.markAll": "Alles als gelezen markeren",
   "notifications.empty": "Nog geen meldingen.",
+  "notifications.loadError": "Meldingen konden niet worden geladen.",
   "chat.copy": "Bericht kopiëren",
   "chat.copied": "Gekopieerd",
   "chat.working.thinking": "Denkt na",

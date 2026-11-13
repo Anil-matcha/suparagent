@@ -86,6 +86,7 @@ export const ko: Record<MessageKey, string> = {
   "notifications.unread": "알림, 읽지 않은 항목 {count}개",
   "notifications.markAll": "모두 읽음으로 표시",
   "notifications.empty": "아직 알림이 없습니다.",
+  "notifications.loadError": "알림을 불러오지 못했습니다.",
   "chat.copy": "메시지 복사",
   "chat.copied": "복사됨",
   "chat.working.thinking": "생각 중",
