@@ -563,7 +563,7 @@ def export_document(routine: Routine) -> dict:
 
 
 async def import_document(
-    db: AsyncSession, owner_id: str, agent_id: int, document: dict, *, now: datetime | None = None
+    db: AsyncSession, owner_id: str, agent_id: int, document: dict, *, now: datetime | None = None, commit: bool = True
 ) -> Routine:
     """An imported routine is always paused and has no webhook, so it never
     runs until a person has looked at it."""
@@ -577,7 +577,7 @@ async def import_document(
     if data.get("schedule_kind") == "once":
         # An imported one-off may be in the past; it would never run anyway.
         data["schedule_kind"], data["schedule_spec"] = "manual", {}
-    return await create_routine(db, owner_id, data, now=now)
+    return await create_routine(db, owner_id, data, now=now, commit=commit)
 
 
 # --- webhooks -------------------------------------------------------------------------------

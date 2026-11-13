@@ -175,9 +175,10 @@ async def import_routines(payload: RoutineImportRequest, sch: service.RoutineSch
     async with sch.session() as db:
         for document in payload.documents:
             try:
-                created.append(await service.import_document(db, sch.owner_id, payload.agent_id, document))
+                created.append(await service.import_document(db, sch.owner_id, payload.agent_id, document, commit=False))
             except service.InvalidRoutine as exc:
                 raise _invalid(exc) from None
+        await db.commit()
     return [_describe(r) for r in created]
 
 
