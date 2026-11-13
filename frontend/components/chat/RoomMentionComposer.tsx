@@ -149,7 +149,7 @@ export function RoomMentionComposer({
       {suggestions.map((suggestion, index) => {
         const member = suggestion.key === "everyone" ? undefined : members.find(item => String(item.agent_id) === suggestion.key);
         const identity = member?.name.normalize("NFKC").toLocaleLowerCase();
-        const isDuplicate = member && (duplicateNames.get(identity ?? "") ?? 0) > 1;
+        const isDuplicate = member && ((duplicateNames.get(identity ?? "") ?? 0) > 1 || member.name.toLowerCase() === "everyone");
         const optionId = `${id}-option-${suggestion.key}`;
         return <li
           id={optionId}
