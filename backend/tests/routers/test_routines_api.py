@@ -137,6 +137,22 @@ async def test_waiting_route_is_scoped_to_an_agent_and_needs_local_access(api, a
         assert (await remote.get(f"/api/v1/routines/waiting?agent_id={agent.id}")).status_code == 403
 
 
+async def test_pause_skips_queued_scheduled_run_but_allows_manual_run(api, agent, scheduler):
+    from datetime import datetime, timedelta
+
+    created = await make(api, agent)
+    due = datetime.fromisoformat(created["next_run_at"].replace("Z", "+00:00"))
+    scheduler.clock = lambda: due + timedelta(minutes=1)
+    await scheduler._enqueue_due()
+    runs = (await api.get(f"/api/v1/routines/{created['id']}/runs")).json()
+    assert len(runs) == 1 and runs[0]["state"] == "queued"
+    assert (await api.post(f"/api/v1/routines/{created['id']}/pause")).status_code == 200
+    await scheduler._start_queued()
+    runs = (await api.get(f"/api/v1/routines/{created['id']}/runs")).json()
+    assert runs[0]["state"] == "skipped"
+    assert (await api.post(f"/api/v1/routines/{created['id']}/run")).status_code == 202
+
+
 async def test_bad_definitions_answer_422_with_a_code(api, agent):
     response = await api.post("/api/v1/routines", json={
         "agent_id": agent.id, "name": "x", "prompt": "y", "schedule_kind": "cron",

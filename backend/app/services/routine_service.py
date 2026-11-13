@@ -418,6 +418,14 @@ async def set_paused(
     routine.paused = paused
     routine.paused_reason = None
     if paused:
+        # A scheduled run may already be queued when the person pauses it.
+        await db.execute(
+            update(RoutineRun)
+            .where(RoutineRun.routine_id == routine.id, RoutineRun.trigger == "schedule",
+                   RoutineRun.state == "queued")
+            .values(state="skipped", finished_at=now,
+                    error="Skipped: the routine was paused before this scheduled run started.")
+        )
         # Pausing also cancels a retry that is waiting for its time.
         await db.execute(
             update(RoutineRun)
