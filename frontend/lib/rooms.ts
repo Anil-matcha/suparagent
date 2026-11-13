@@ -1,5 +1,8 @@
 // Room display helpers: no runtime imports, shared by the list and room view.
 export function roomHref(id: number | "new"): string { return `/chat?room=${id}`; }
+export function searchResultHref(hit: { thread_id: number; room_id: number | null }): string {
+  return hit.room_id === null ? `/chat?thread=${hit.thread_id}` : roomHref(hit.room_id);
+}
 export function parseRoom(raw: string | null): number | "new" | null {
   if (raw === "new") return raw;
   return raw && /^[1-9]\d*$/.test(raw) && Number.isSafeInteger(Number(raw)) ? Number(raw) : null;
