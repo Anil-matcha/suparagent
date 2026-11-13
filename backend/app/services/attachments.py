@@ -344,8 +344,23 @@ def _used_bytes(folder: Path) -> int:
         return 0
 
 
-def save(thread_id: int, filename: str | None, declared_mime: str | None, data: bytes, *, transcript: dict | None = None) -> Attachment:
+def save(thread_id: int, filename: str | None, declared_mime: str | None, data: bytes, *, transcript: dict | None = None, upload_id: str | None = None) -> Attachment:
     name = display_name(filename)
+    if upload_id is not None:
+        if not _ID.fullmatch(upload_id):
+            raise AttachmentError(400, "invalid_upload_id", "Invalid upload identifier.")
+        if (thread_dir(thread_id) / f"{upload_id}.discarded").exists():
+            raise AttachmentError(409, "upload_discarded", "This upload was discarded. Attach the file again.")
+        try:
+            existing, _ = load(thread_id, upload_id)
+        except AttachmentError as error:
+            if error.code != "attachment_not_found":
+                raise
+        else:
+            expected_kind = "audio" if transcript is not None else classify(name, declared_mime, data)[0]
+            if existing.name != name or existing.kind != expected_kind or existing.sha256 != hashlib.sha256(data).hexdigest():
+                raise AttachmentError(409, "upload_id_conflict", "This upload identifier belongs to a different file.")
+            return existing
     extracted_text = None
     if transcript is not None:
         from app.services.audio_ingestion import TYPES
@@ -366,7 +381,7 @@ def save(thread_id: int, filename: str | None, declared_mime: str | None, data: 
     os.chmod(folder.parent, 0o700)
     os.chmod(folder, 0o700)
     attachment = Attachment(
-        id=uuid.uuid4().hex,
+        id=upload_id or uuid.uuid4().hex,
         name=name,
         mime=mime,
         bytes=len(data),
@@ -412,6 +427,8 @@ def _paths(thread_id: int, attachment_id: str) -> tuple[Attachment, Path]:
 
 
 def load(thread_id: int, attachment_id: str) -> tuple[Attachment, Path]:
+    if _ID.fullmatch(attachment_id or "") and (thread_dir(thread_id) / f"{attachment_id}.discarded").exists():
+        raise AttachmentError(404, "attachment_not_found", "No such attachment.")
     attachment, path = _paths(thread_id, attachment_id)
     if not path.is_file() or path.is_symlink():
         raise AttachmentError(404, "attachment_not_found", "No such attachment.")

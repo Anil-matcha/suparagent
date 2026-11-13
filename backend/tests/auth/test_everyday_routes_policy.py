@@ -26,6 +26,7 @@ ATTACHMENT = "0123456789abcdef0123456789abcdef"
         ("GET", "/api/v1/search"),
         ("POST", "/api/v1/threads/3/attachments"),
         ("GET", f"/api/v1/threads/3/attachments/{ATTACHMENT}"),
+        ("DELETE", f"/api/v1/threads/3/attachments/{ATTACHMENT}"),
     ],
 )
 def test_chatting_routes_are_in_the_chat_scope(method, path):
@@ -40,7 +41,6 @@ def test_chatting_routes_are_in_the_chat_scope(method, path):
         ("GET", "/api/v1/usage"),
         ("GET", "/api/v1/usage.csv"),
         ("GET", "/api/v1/threads/3/attachments/../../files"),
-        ("DELETE", f"/api/v1/threads/3/attachments/{ATTACHMENT}"),
     ],
 )
 def test_zip_and_usage_are_admin_only(method, path):
@@ -79,6 +79,8 @@ async def test_an_upload_from_a_signed_in_browser_needs_the_csrf_header(app, fac
         await login(owner)
         response = await owner.post("/api/v1/threads/1/attachments", files={"file": ("a.txt", b"x", "text/plain")})
         assert response.status_code == 403 and error_code(response) == "csrf_failed"
+        discarded = await owner.delete(f"/api/v1/threads/1/attachments/{ATTACHMENT}")
+        assert discarded.status_code == 403 and error_code(discarded) == "csrf_failed"
 
 
 async def test_a_chat_device_cannot_browse_files_or_usage(app, factory):

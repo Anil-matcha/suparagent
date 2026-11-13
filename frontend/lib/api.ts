@@ -1725,19 +1725,22 @@ export const api = {
   // --- Everyday features (docs/EVERYDAY.md) ---
   searchConversations: (query: string, filter: SearchFilter = {}) =>
     request<SearchResponse>(`/search${searchQuery(query, filter)}`),
-  uploadAttachment: (threadId: number, file: File, consentProvider?: string, signal?: AbortSignal) => {
+  uploadAttachment: (threadId: number, file: File, consentProvider?: string, signal?: AbortSignal, uploadId?: string) => {
     const form = new FormData();
     form.append("file", file, file.name);
     if (consentProvider) form.append("consent_provider", consentProvider);
+    if (uploadId) form.append("upload_id", uploadId);
     return requestForm<UploadedAttachment>(`/threads/${threadId}/attachments`, form, signal);
   },
+  discardAttachment: (threadId: number, attachmentId: string) =>
+    request<void>(`/threads/${threadId}/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" }),
   audioCapabilities: () => request<{ provider: string; provider_label: string; available: boolean; retention: string }>("/threads/audio/capabilities"),
   dictateAudio: (file: Blob | File, filename = "recording.webm", signal?: AbortSignal) => {
     const form = new FormData();
     form.append("file", file, filename);
     return requestForm<{ text: string; duration_seconds: number; device: string }>("/threads/audio/dictate", form, signal);
   },
-  importAudioUrl: (threadId: number, url: string, consentProvider: string, signal?: AbortSignal) => request<UploadedAttachment>(`/threads/${threadId}/attachments/audio-url`, { method: "POST", signal, body: JSON.stringify({ url, consent_provider: consentProvider }) }),
+  importAudioUrl: (threadId: number, url: string, consentProvider: string, signal?: AbortSignal, uploadId?: string) => request<UploadedAttachment>(`/threads/${threadId}/attachments/audio-url`, { method: "POST", signal, body: JSON.stringify({ url, consent_provider: consentProvider, upload_id: uploadId }) }),
   // Object URLs for bytes behind the session (an <img> cannot send the CSRF or
   // launch headers some setups need). The caller revokes them.
   attachmentBlobUrl: (threadId: number, attachmentId: string) =>

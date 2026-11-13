@@ -75,7 +75,7 @@ CHAT_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
         # the `files` scope (below) and usage (/usage) stays admin-only.
         ({"GET"}, "/search"),
         ({"POST"}, f"/threads/{_ID}/attachments"),
-        ({"GET"}, f"/threads/{_ID}/attachments/[0-9a-f]{{32}}"),
+        ({"GET", "DELETE"}, f"/threads/{_ID}/attachments/[0-9a-f]{{32}}"),
         ({"GET"}, "/agents"),
         ({"GET"}, f"/agents/{_ID}"),
         ({"GET"}, "/engines"),

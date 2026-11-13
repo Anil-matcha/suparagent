@@ -802,6 +802,7 @@ class ThreadRuntime:
                 prompt_text,
                 owner_instance=self.instance_id,
                 attachments=[a.public() for a, _ in attached] or None,
+                attachment_hashes=[a.sha256 for a, _ in attached] or None,
                 origin=team_origin,
                 person_id=person_id,
                 person_label=person_label,

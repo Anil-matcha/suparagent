@@ -43,6 +43,15 @@ file and returns `{id, name, mime, bytes, kind}`. `POST .../turns` takes
 `attachment_ids` (up to 8). `GET .../attachments/{attachment_id}` returns the
 bytes. All chat scope.
 
+Uploads can include a client-generated 32-character lowercase hexadecimal
+`upload_id`; retrying the same file with that ID reuses the saved upload.
+`DELETE .../attachments/{attachment_id}` discards an unused upload, and refuses
+an attachment already referenced by a turn. Discarded IDs cannot be reused in
+that conversation. The web composer records pending IDs in session storage so
+it can discard abandoned uploads on its next visit in the same tab; if browser
+storage is unavailable or the tab never returns, pending uploads can remain
+until the conversation is deleted.
+
 - **Storage.** A private folder outside every workspace:
   `<data>/attachments/<thread id>/<uuid><ext>` with a small `<uuid>.json`
   beside it (display name, type, size, sha256). `<data>` is
