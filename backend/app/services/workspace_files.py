@@ -81,7 +81,7 @@ def is_secret(parts: tuple[str, ...]) -> bool:
 def clean_relative(raw: str | None) -> tuple[str, ...]:
     """The path's parts, or FileAccessError(400) for anything but a plain
     relative path. Empty means the root."""
-    value = (raw or "").strip()
+    value = raw or ""
     if len(value) > PATH_MAX_CHARS or "\x00" in value or "\\" in value or _DRIVE.match(value):
         raise FileAccessError(400, "bad_path", "Use a relative path inside the workspace.")
     if value.startswith("/"):
