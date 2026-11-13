@@ -50,15 +50,26 @@ def _matches_all(text: str, terms: list[str]) -> bool:
     return all(term in folded for term in terms)
 
 
+def _original_index(text: str, folded_index: int) -> int:
+    """Map an index in text.lower() to the corresponding original character."""
+    folded_position = 0
+    for index, character in enumerate(text):
+        folded_position += len(character.lower())
+        if folded_index < folded_position:
+            return index
+    return len(text)
+
+
 def make_snippet(
     text: str, terms: list[str], *, before: int = SNIPPET_BEFORE, after: int = SNIPPET_AFTER
 ) -> tuple[str, list[list[int]]]:
-    """About 160 characters around the first match, whitespace folded, with
-    `[start, length]` of every term occurrence inside it."""
+    """About 160 characters around the first match, with original-text spans."""
     flat = " ".join(text.split())
     folded = flat.lower()
     positions = [folded.find(term) for term in terms if folded.find(term) >= 0]
     first = min(positions) if positions else 0
+    if positions and len(folded) != len(flat):
+        first = _original_index(flat, first)
     start = max(0, first - before)
     if start > 0:
         space = flat.find(" ", start, first) if first > start else -1
@@ -72,8 +83,14 @@ def make_snippet(
     for term in terms:
         at = lowered.find(term)
         while at >= 0:
-            if not any(s <= at < s + n or at <= s < at + len(term) for s, n in spans):
-                spans.append([at, len(term)])
+            if len(lowered) == len(snippet):
+                source_start, source_end = at, at + len(term)
+            else:
+                source_start = _original_index(snippet, at)
+                source_end = _original_index(snippet, at + len(term) - 1) + 1
+            length = source_end - source_start
+            if not any(s <= source_start < s + n or source_start <= s < source_end for s, n in spans):
+                spans.append([source_start, length])
             at = lowered.find(term, at + len(term))
     spans.sort()
     return snippet, spans
