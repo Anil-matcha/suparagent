@@ -127,6 +127,24 @@ async def test_create_list_edit_pause_resume_delete(api, agent):
     assert (await api.get(f"/api/v1/routines/{created['id']}")).status_code == 404
 
 
+async def test_edit_with_unchanged_schedule_keeps_due_occurrence(api, agent, scheduler, monkeypatch):
+    from datetime import datetime, timedelta
+    created = await make(api, agent)
+    due = datetime.fromisoformat(created["next_run_at"].replace("Z", "+00:00"))
+    now = due + timedelta(minutes=1)
+    monkeypatch.setattr(service, "utcnow", lambda: now)
+    scheduler.clock = lambda: now
+    edited = await api.patch(f"/api/v1/routines/{created['id']}", json={
+        "name": "Renamed", "schedule_kind": created["schedule_kind"],
+        "schedule_spec": created["schedule_spec"], "timezone": created["timezone"],
+    })
+    assert edited.status_code == 200
+    assert datetime.fromisoformat(edited.json()["next_run_at"].replace("Z", "+00:00")) == due
+    await scheduler._enqueue_due()
+    runs = (await api.get(f"/api/v1/routines/{created['id']}/runs")).json()
+    assert len(runs) == 1 and runs[0]["trigger"] == "schedule"
+
+
 async def test_waiting_route_is_scoped_to_an_agent_and_needs_local_access(api, agent, scheduler):
     created = await make(api, agent)
     empty = await api.get(f"/api/v1/routines/waiting?agent_id={agent.id}")
