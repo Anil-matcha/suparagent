@@ -157,7 +157,7 @@ export function SkillsPanel({
         ? await api.saveLearnedSkill(agentId, name, { ...learned, description: draft.description.trim(), body: draft.body, reviewed })
         : await api.saveSkill(agentId, name, {
           description: draft.description.trim(), body: draft.body, enabled: draft.enabled, source: draft.source,
-          triggers: parseTriggers(triggersText),
+          triggers: parseTriggers(triggersText), create_only: draft.existing === null,
         });
       if (learned) setReceipt({ name, revision: doc.revision });
       // What was saved can differ (secrets are removed); show it so the person sees the result.
