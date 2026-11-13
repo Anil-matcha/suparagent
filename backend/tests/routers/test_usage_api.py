@@ -150,3 +150,24 @@ async def test_a_finished_turn_records_what_claude_reported(rt, cli, sessions, o
     completed = next(e for e in events if e.type == "turn.completed")
     reported = {"input_tokens": 3, "output_tokens": 2, "cost_usd": 0.001}
     assert completed.data["usage"] == reported and turns[0].usage == reported
+
+
+async def test_fallback_usage_is_attributed_to_the_engine_that_ran(api, sessions, owner, tmp_path):
+    conversation = await thread(sessions, owner, tmp_path, "Fallback", provider="primary")
+    await turn(sessions, conversation.id, {"input_tokens": 3}, model="primary-model")
+    async with sessions() as db:
+        switched = await store.start_turn(db, conversation.id, "fallback")
+    async with sessions() as db:
+        await store.append_turn_event(db, switched.id, switched.owner_token, "engine.switched", {"from": "primary", "to": "backup"})
+    async with sessions() as db:
+        await store.finish_turn(db, switched.id, switched.owner_token, status="succeeded", model="backup-model", usage={"input_tokens": 7, "cost_usd": 0.5})
+
+    month = datetime.now(UTC).strftime("%Y-%m")
+    summary = (await api.get("/api/v1/usage", params={"month": month})).json()
+    groups = {group["key"]: group for group in summary["by_engine"]}
+    assert groups["primary/primary-model"]["input_tokens"] == 3
+    assert groups["backup/backup-model"]["cost_usd"] == 0.5
+    csv_rows = list(csv.DictReader(io.StringIO((await api.get("/api/v1/usage.csv", params={"month": month})).text)))
+    assert [(row["engine"], row["model"]) for row in csv_rows] == [("primary", "primary-model"), ("backup", "backup-model")]
+    annual = (await api.get("/api/v1/usage/annual")).json()
+    assert {model["provider"] for model in annual["models"]} == {"primary", "backup"}

@@ -197,6 +197,24 @@ async def test_a_limit_before_the_engine_started_moves_the_turn_to_the_fallback(
     assert current.provider == "primary" and current.provider_state is None
 
 
+async def test_usage_report_attributes_a_real_fallback_turn_to_its_engine(make_rt, sessions, owner, tmp_path):
+    from app.services import usage_report
+
+    async def backup_reply(ctx, sink, gate):
+        return TurnOutcome("succeeded", result="done", model=ctx.model,
+                           usage={"input_tokens": 7, "cost_usd": 0.5})
+
+    rt = make_rt(primary=Scripted("primary", "Primary", limited_before),
+                 backup=Scripted("backup", "Backup", backup_reply))
+    thread = await conversation(rt, sessions, owner, tmp_path)
+    await rt.send_turn(thread.id, "hello")
+    await finished(sessions, thread.id)
+    async with sessions() as db:
+        summary = await usage_report.month_summary(db, owner, None)
+    group = next(item for item in summary["by_engine"] if item["key"] == "backup/backup-large")
+    assert group["input_tokens"] == 7 and group["cost_usd"] == 0.5
+
+
 async def test_a_limit_after_the_engine_started_is_never_moved(make_rt, sessions, owner, tmp_path):
     primary, backup = Scripted("primary", "Primary", limited_after), Scripted("backup", "Backup", replies)
     rt = make_rt(primary=primary, backup=backup)

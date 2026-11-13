@@ -15,7 +15,7 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Agent, Thread, Turn
+from app.db.models import Agent, Event, Thread, Turn
 from app.services import helper_usage
 
 TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
@@ -85,9 +85,15 @@ def month_range(month: str | None, now: datetime | None = None) -> tuple[str, da
     return f"{first.year:04d}-{first.month:02d}", start, end
 
 
+def _switched_engine():
+    """Read a turn's recorded fallback in the same query as the turn."""
+    return (select(Event.data).where(Event.turn_id == Turn.id, Event.type == "engine.switched")
+            .order_by(Event.seq.desc()).limit(1).scalar_subquery())
+
+
 async def _rows(db: AsyncSession, owner_id: str, start: datetime, end: datetime):
     query = (
-        select(Turn, Thread)
+        select(Turn, Thread, _switched_engine())
         .join(Thread, Thread.id == Turn.thread_id)
         .where(
             Thread.owner_id == owner_id,
@@ -106,7 +112,7 @@ async def month_summary(db: AsyncSession, owner_id: str, month: str | None) -> d
     threads: dict[int, Totals] = {}
     engines: dict[str, Totals] = {}
     days: dict[str, Totals] = {}
-    for turn, thread in await _rows(db, owner_id, start, end):
+    for turn, thread, switched in await _rows(db, owner_id, start, end):
         numbers = reported(turn.usage)
         total.add(numbers)
         if thread.id not in threads:
@@ -117,8 +123,9 @@ async def month_summary(db: AsyncSession, owner_id: str, month: str | None) -> d
             )
         threads[thread.id].add(numbers)
         model = turn.model or thread.model or "default"
-        key = f"{thread.provider}/{model}"
-        engines.setdefault(key, Totals(key, key, extra={"provider": thread.provider, "model": model})).add(numbers)
+        provider = switched["to"] if switched is not None else thread.provider
+        key = f"{provider}/{model}"
+        engines.setdefault(key, Totals(key, key, extra={"provider": provider, "model": model})).add(numbers)
         day = turn.started_at.astimezone(UTC).date().isoformat()
         days.setdefault(day, Totals(day, day)).add(numbers)
 
@@ -180,7 +187,7 @@ async def month_csv(db: AsyncSession, owner_id: str, month: str | None) -> tuple
     writer.writerow(
         ["started_at", "thread_id", "conversation", "engine", "model", "status", *TOKEN_KEYS, "cost_usd"]
     )
-    for turn, thread in await _rows(db, owner_id, start, end):
+    for turn, thread, switched in await _rows(db, owner_id, start, end):
         numbers = reported(turn.usage)
         writer.writerow(
             [
@@ -189,7 +196,7 @@ async def month_csv(db: AsyncSession, owner_id: str, month: str | None) -> tuple
                     turn.started_at.astimezone(UTC).isoformat(),
                     thread.id,
                     thread.title or "",
-                    thread.provider,
+                    switched["to"] if switched is not None else thread.provider,
                     turn.model or thread.model or "",
                     turn.status,
                     *(numbers[key] for key in TOKEN_KEYS),
@@ -228,7 +235,7 @@ async def annual_summary(db: AsyncSession, owner_id: str, days_count: int = 365)
     start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC)
 
     query = (
-        select(Turn, Thread)
+        select(Turn, Thread, _switched_engine())
         .join(Thread, Thread.id == Turn.thread_id)
         .where(
             Thread.owner_id == owner_id,
@@ -261,7 +268,7 @@ async def annual_summary(db: AsyncSession, owner_id: str, days_count: int = 365)
     providers: dict[str, dict] = {}
     agent_tokens: dict[int, int] = {}
 
-    for turn, thread in rows:
+    for turn, thread, switched in rows:
         nums = reported(turn.usage)
         turn_tokens = (
             (nums["input_tokens"] or 0)
@@ -281,7 +288,7 @@ async def annual_summary(db: AsyncSession, owner_id: str, days_count: int = 365)
             day_map[day_iso]["messages"] += 1
 
         model = turn.model or thread.model or "default"
-        provider = thread.provider or "unknown"
+        provider = (switched["to"] if switched is not None else thread.provider) or "unknown"
         engine_key = f"{provider}/{model}"
 
         if engine_key not in engines:
