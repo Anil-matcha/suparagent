@@ -56,9 +56,16 @@ bytes. All chat scope.
     that format's signature (a renamed file is refused).
   - Text: `.txt .md .csv .tsv .json .log .yaml .yml .xml .html .css .js .ts
     .tsx .py .sh .sql .toml .ini`, up to 1 MB, valid UTF-8 with no NUL bytes.
-  - Anything else: 415 with the list above. Over a limit: 413. An empty file:
+  - Documents: PDF, `.docx`, `.xlsx` and `.pptx`, up to 25 MB. Their text is
+    extracted on upload; corrupt or encrypted documents can be refused. Legacy
+    `.doc` and `.xls` are accepted but produce a notice to save in the newer
+    format for full text extraction.
+  - Audio: see [Audio and direct podcast media](#audio-and-direct-podcast-media).
+    Video uploads are accepted up to 50 MB; the engine receives a file
+    description, not the video content.
+  - Unsupported types: 415. Over a limit: 413. An empty file:
     400. A thread holds at most 200 MB of attachments (507 after).
-- **To the engine.** Text files are added to the message as fenced blocks
+- **To the engine.** Text files and extracted document text are added to the message as fenced blocks
   under their display names (every engine reads them). Images go only to an
   engine whose capability flags say `images`. Today that is Claude: the CLI
   gets one stream-json user message with text and base64 image content blocks.
@@ -167,8 +174,7 @@ failed with its reason.
   them).
 
 - Ranking by relevance, stemming, or an FTS index.
-- PDFs and office documents as attachments; images for Codex, ACP and
-  OpenAI-compatible engines.
+- Images for Codex, ACP and OpenAI-compatible engines.
 - Editing or deleting workspace files from the browser.
 - Budgets, alerts or price tables for engines that do not report cost.
 
