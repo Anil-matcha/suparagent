@@ -116,6 +116,35 @@ def export_package(
                 redacted.append("skills")
         if kept:
             document["skills"] = kept
+    # Per-section limits do not account for JSON escaping or the combined size.
+    # Keep the base agent and notes first, and report each optional item omitted
+    # to make the exported file acceptable to the importer.
+    while len(json.dumps(document, ensure_ascii=False).encode("utf-8")) > PACKAGE_MAX_BYTES:
+        if document.get("skills"):
+            item = document["skills"].pop()
+            if skipped is not None:
+                skipped.append("skill " + item["name"])
+            if not document["skills"]:
+                del document["skills"]
+                if "skills" in redacted:
+                    redacted.remove("skills")
+        elif document.get("notes", {}).get("topics"):
+            name = next(reversed(document["notes"]["topics"]))
+            del document["notes"]["topics"][name]
+            if skipped is not None:
+                skipped.append(name)
+            if not document["notes"]["topics"]:
+                del document["notes"]["topics"]
+                if "topic notes" in redacted:
+                    redacted.remove("topic notes")
+        else:
+            del document["notes"]["MEMORY.md"]
+            if skipped is not None:
+                skipped.append("MEMORY.md")
+            if "notes" in redacted:
+                redacted.remove("notes")
+        if "notes" in document and not document["notes"]:
+            del document["notes"]
     return document, redacted
 
 
