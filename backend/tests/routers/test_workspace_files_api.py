@@ -126,6 +126,28 @@ async def test_download_is_an_attachment_with_safe_headers(api):
     assert response.headers["content-security-policy"] == "sandbox"
 
 
+async def test_listed_paths_preserve_spaces_at_the_edges(api, layout):
+    (layout / " report.txt").write_text("spaced")
+    (layout / "report.txt").write_text("plain")
+    (layout / " folder").mkdir()
+    (layout / " folder" / "note.txt").write_text("inside")
+    listing = (await api.get(api.base)).json()
+    paths = {entry["name"]: entry["path"] for entry in listing["entries"]}
+    assert paths[" report.txt"] == " report.txt"
+    preview = await api.get(f"{api.base}/content", params={"path": paths[" report.txt"]})
+    assert preview.json()["text"] == "spaced"
+    download = await api.get(f"{api.base}/download", params={"path": paths[" report.txt"]})
+    assert download.content == b"spaced"
+    plain = await api.get(f"{api.base}/download", params={"path": paths["report.txt"]})
+    assert plain.content == b"plain"
+    folder = await api.get(api.base, params={"path": paths[" folder"]})
+    assert folder.json()["entries"][0]["path"] == " folder/note.txt"
+    if os.name != "nt":  # Windows does not normally allow trailing spaces in names.
+        (layout / "report.txt ").write_text("trailing")
+        trailing = await api.get(f"{api.base}/download", params={"path": "report.txt "})
+        assert trailing.content == b"trailing"
+
+
 @pytest.mark.parametrize("path", ["../outside/secret.txt", "/etc/passwd", "src/../../outside/secret.txt", "..%2Foutside"])
 async def test_traversal_is_refused(api, path):
     for route in ("", "/content", "/download"):
