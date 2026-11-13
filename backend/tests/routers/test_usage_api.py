@@ -3,7 +3,7 @@ never estimated."""
 
 import csv
 import io
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 
 import httpx
 import pytest
@@ -107,6 +107,19 @@ async def test_running_turns_are_not_counted(api, sessions, owner, tmp_path):
         await store.start_turn(db, a.id, "still going")
     body = (await api.get("/api/v1/usage")).json()
     assert body["total"]["turns"] == 0
+
+
+async def test_annual_window_includes_requested_calendar_days(api, sessions, owner, tmp_path):
+    today = datetime.now(UTC).date()
+    first = datetime.combine(today - timedelta(days=6), time.min, tzinfo=UTC)
+    a = await thread(sessions, owner, tmp_path, "Boundary")
+    await turn(sessions, a.id, {"input_tokens": 100}, at=first - timedelta(seconds=1))
+    await turn(sessions, a.id, {"input_tokens": 7}, at=first)
+    body = (await api.get("/api/v1/usage/annual", params={"days": 7})).json()
+    assert len(body["days"]) == 7
+    assert body["days"][0]["date"] == first.date().isoformat()
+    assert body["tokens"] == 7
+    assert body["messages"] == 1
 
 
 async def test_csv_has_one_row_per_turn_and_neutralises_formulas(api, sessions, owner, tmp_path):
