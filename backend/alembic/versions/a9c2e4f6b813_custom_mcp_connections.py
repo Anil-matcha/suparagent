@@ -22,7 +22,7 @@ def upgrade():
         sa.Column("endpoint", sa.String(length=300), nullable=False),
         sa.Column("auth_mode", sa.String(length=16), server_default="none", nullable=False),
         sa.Column("auth_header_name", sa.String(length=64), nullable=True),
-        sa.Column("enabled", sa.Boolean(), server_default="0", nullable=False),
+        sa.Column("enabled", sa.Boolean(), server_default=sa.false(), nullable=False),
         sa.Column("revision", sa.Integer(), server_default="1", nullable=False),
         sa.Column("tested_revision", sa.Integer(), nullable=True),
         sa.Column("last_error_code", sa.String(length=64), nullable=True),

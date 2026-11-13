@@ -14,7 +14,7 @@ depends_on = None
 
 def upgrade():
     op.add_column("custom_mcp_connection", sa.Column("owner_person_id", sa.BigInteger(), nullable=True))
-    op.add_column("custom_mcp_connection", sa.Column("shared", sa.Boolean(), server_default="0", nullable=False))
+    op.add_column("custom_mcp_connection", sa.Column("shared", sa.Boolean(), server_default=sa.false(), nullable=False))
     op.add_column("custom_mcp_oauth_flow", sa.Column("person_id", sa.BigInteger(), nullable=True))
 
 

@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy.sql import expression
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -20,11 +21,11 @@ class CustomMcpConnection(Base):
     endpoint: Mapped[str] = mapped_column(String(300), nullable=False)
     auth_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="none", server_default="none")
     auth_header_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=expression.false())
     # Who added it (a signed-in member's person id; null for the workspace owner, the desktop app or a paired
     # device) and whether the whole workspace may use it. A connection starts private to its creator.
     owner_person_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    shared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    shared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=expression.false())
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     tested_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
