@@ -182,6 +182,7 @@ async def download_folder(
             "Content-Disposition": files.download_name(name),
             # Files and folders left out because their names are unsafe in a zip.
             "X-Skipped-Unsafe-Names": str(skipped),
+            "Access-Control-Expose-Headers": "X-Skipped-Unsafe-Names",
         },
         background=BackgroundTask(os.unlink, archive),
     )

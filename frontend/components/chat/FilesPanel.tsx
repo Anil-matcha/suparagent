@@ -26,6 +26,7 @@ export function FilesPanel({ threadId, workspace, onClose }: { threadId: number;
   const [reload, setReload] = useState(0);
   // The folder a failed zip was for, so the message goes away on another folder.
   const [zipError, setZipError] = useState<{ path: string; text: string } | null>(null);
+  const [zipWarning, setZipWarning] = useState<{ path: string; count: number | null } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -82,9 +83,12 @@ export function FilesPanel({ threadId, workspace, onClose }: { threadId: number;
   const downloadFolder = async () => {
     setZipping(true);
     setZipError(null);
+    setZipWarning(null);
     try {
       const name = path ? path.split("/").pop() : "workspace";
-      save(await api.workspaceZipUrl(threadId, path), `${name}.zip`);
+      const result = await api.workspaceZipUrl(threadId, path);
+      save(result.url, `${name}.zip`);
+      if (result.skippedUnsafeNames === null || result.skippedUnsafeNames > 0) setZipWarning({ path, count: result.skippedUnsafeNames });
     } catch (err) {
       setZipError({ path, text: message(err, "Could not download this folder.") });
     } finally {
@@ -118,6 +122,7 @@ export function FilesPanel({ threadId, workspace, onClose }: { threadId: number;
               </button>
             </nav>
             {zipError?.path === path && <p role="alert" className="px-3 pb-2 text-xs text-danger">{zipError.text}</p>}
+            {zipWarning?.path === path && <p role="status" className="px-3 pb-2 text-xs text-muted">{zipWarning.count === null ? "Could not confirm whether any names were omitted from the zip." : `${zipWarning.count} ${zipWarning.count === 1 ? "item with an unsafe name was" : "items with unsafe names were"} omitted from the zip.`}</p>}
             <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 text-sm">
               {path && (
                 <li>
