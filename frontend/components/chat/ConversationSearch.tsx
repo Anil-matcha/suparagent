@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, ApiError, type SearchHit } from "@/lib/api";
 import { snippetSegments } from "@/lib/everyday";
+import { searchResultHref } from "@/lib/rooms";
 import { useT } from "@/lib/use-i18n";
 
 const MIN_CHARS = 2;
@@ -130,7 +131,7 @@ export function ConversationSearch({
               {hits?.map((hit, index) => (
                 <li key={`${hit.thread_id}-${hit.seq ?? "t"}-${index}`}>
                   <Link
-                    href={`/chat?thread=${hit.thread_id}`}
+                    href={searchResultHref(hit)}
                     onClick={onNavigate}
                     className="block rounded-field px-2.5 py-1.5 transition-colors duration-(--dur-fast) hover:bg-hover/60"
                   >

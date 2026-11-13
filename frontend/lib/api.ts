@@ -1771,6 +1771,7 @@ export function searchQuery(query: string, filter: SearchFilter = {}): string {
 
 export type SearchHit = {
   thread_id: number;
+  room_id: number | null;
   thread_title: string | null;
   agent_id: number | null;
   archived: boolean;
