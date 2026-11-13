@@ -114,6 +114,10 @@ export function agentFileHasNotes(document: Record<string, unknown>): boolean {
   );
 }
 
+export function agentFileHasSkills(document: Record<string, unknown>): boolean {
+  return Array.isArray(document.skills) && document.skills.length > 0;
+}
+
 // After an export: which parts had something that looked like a secret replaced.
 export function redactionNotice(parts: string[]): string | null {
   if (parts.length === 0) return null;

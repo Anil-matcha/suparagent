@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { api, ApiError } from './api.ts';
-import { activeAgents, agentFileHasNotes, agentFileText, agentNames, memoryGauge, tidyLine, modelFromInput, modelLabel, approvalModeLabel, parseAgentFile, redactionNotice } from './agents.ts';
+import { activeAgents, agentFileHasNotes, agentFileHasSkills, agentFileText, agentNames, memoryGauge, tidyLine, modelFromInput, modelLabel, approvalModeLabel, parseAgentFile, redactionNotice } from './agents.ts';
 
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
@@ -125,6 +125,9 @@ test('agent files are read with a sentence when they are not one', () => {
   assert.equal(agentFileHasNotes(parsed), true);
   assert.equal(agentFileHasNotes({ notes: { 'MEMORY.md': '  ' } }), false);
   assert.equal(agentFileHasNotes({}), false);
+  assert.equal(agentFileHasSkills({skills: [{name: 'review'}]}), true);
+  assert.equal(agentFileHasSkills({skills: []}), false);
+  assert.equal(agentFileHasSkills({agent: {skills: [{name: 'review'}]}}), false);
 });
 
 test('the export notice names the redacted parts', () => {
