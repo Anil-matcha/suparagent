@@ -3,7 +3,7 @@
 import { Select } from "@/components/ui/Select";
 
 import Link from "next/link";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { ApiError, type Agent } from "@/lib/api";
@@ -31,20 +31,40 @@ export function WorkExecutionPanel({ item, agents, onClose, onOpenThread, onRevi
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<WorkRunInput | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const requestVersion = useRef(0);
+  const pollSequence = useRef(0);
+  const appliedPoll = useRef(0);
   const timezone = browserTimezone();
   const availableApprovalModes = approvalModesForProvider(agents.find((agent) => agent.id === agentId)?.provider);
   useEffect(() => {
     let live = true;
     const load = async () => {
-      try { const [result, history] = await Promise.all([planner.runs(item.id), planner.events(item.id)]); if (live) { setRuns(result); setEvents(history); } }
-      catch (err) { if (live) setError(message(err)); }
+      const version = requestVersion.current;
+      const sequence = ++pollSequence.current;
+      try {
+        const [result, history] = await Promise.all([planner.runs(item.id), planner.events(item.id)]);
+        if (live && version === requestVersion.current && sequence > appliedPoll.current) {
+          appliedPoll.current = sequence; setRuns(result); setEvents(history);
+        }
+      } catch (err) {
+        if (live && version === requestVersion.current && sequence > appliedPoll.current) {
+          appliedPoll.current = sequence; setError(message(err));
+        }
+      }
     };
     void load();
     const timer = setInterval(() => void load(), 3000);
     return () => { live = false; clearInterval(timer); };
   }, [item.id]);
   const active = runs?.some(run => activeStates.includes(run.state));
-  const refresh = async () => setRuns(await planner.runs(item.id));
+  const refresh = async () => {
+    const version = ++requestVersion.current;
+    const sequence = ++pollSequence.current;
+    const result = await planner.runs(item.id);
+    if (version === requestVersion.current && sequence > appliedPoll.current) {
+      appliedPoll.current = sequence; setRuns(result);
+    }
+  };
 
   async function start(event: React.FormEvent) {
     event.preventDefault();
@@ -60,9 +80,11 @@ export function WorkExecutionPanel({ item, agents, onClose, onOpenThread, onRevi
     }
     const data = pending ?? { revision: item.revision, idempotency_key: crypto.randomUUID(), agent_id: agentId,
       prompt, approval_mode: mode, scheduled_for: scheduled };
+    requestVersion.current++;
     setPending(data); setBusy(true);
     try {
       const saved = await planner.start(item.id, data);
+      requestVersion.current++;
       setRuns(current => [saved, ...(current ?? []).filter(run => run.id !== saved.id)]);
       setPending(null); setRetrying(false);
       await refresh().catch(err => setError(message(err)));
@@ -74,6 +96,7 @@ export function WorkExecutionPanel({ item, agents, onClose, onOpenThread, onRevi
     } finally { setBusy(false); }
   }
   async function cancel(run: WorkRun) {
+    requestVersion.current++;
     setBusy(true); setError(null);
     try { await planner.cancelRun(item.id, run.id); await refresh(); }
     catch (err) { setError(message(err)); }
