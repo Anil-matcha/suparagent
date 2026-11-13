@@ -57,7 +57,7 @@ async def test_usage_annual(api):
     assert res.status_code == 200
     data = res.json()
     assert "days" in data
-    assert len(data["days"]) > 300
+    assert len(data["days"]) == 365
     assert "tokens" in data
     assert "messages" in data
     assert "models" in data

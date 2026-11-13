@@ -223,7 +223,7 @@ async def annual_summary(db: AsyncSession, owner_id: str, days_count: int = 365)
     with a 365-day heatmap, streaks, peak day, model/provider shares,
     and agent teammate ranking."""
     now = datetime.now(UTC)
-    start_date = (now - timedelta(days=days_count)).date()
+    start_date = now.date() - timedelta(days=days_count - 1)
     end_date = now.date()
     start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC)
 
