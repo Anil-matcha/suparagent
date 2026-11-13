@@ -52,6 +52,14 @@ def test_snippet_centres_on_the_match_and_marks_every_word():
     assert marked == ["quarterly", "report"]
 
 
+def test_snippet_highlights_use_original_character_offsets():
+    for text in ("Istanbul report", "İstanbul report", "🎉 İstanbul report", "İ " + "word " * 80 + "report"):
+        snippet, spans = make_snippet(text, ["report"])
+        assert [snippet[start:start + length] for start, length in spans] == ["report"]
+    snippet, spans = make_snippet("İstanbul", ["i\u0307st"])
+    assert [snippet[start:start + length] for start, length in spans] == ["İst"]
+
+
 async def test_finds_user_and_assistant_messages_and_titles(sessions, owner, tmp_path):
     a = await thread_with(sessions, owner, tmp_path, title="Trip planning", user="Book a hotel in Lisbon")
     b = await thread_with(sessions, owner, tmp_path, user="what is up", answer="The LISBON forecast is sunny")
@@ -148,6 +156,19 @@ async def test_route_returns_hits_with_highlights(api, rt, sessions, tmp_path):
         day = datetime.now(UTC).date().isoformat()
         today = await api.get("/api/v1/search", params={"q": "invoice", "since": day, "until": day})
         assert len(today.json()["hits"]) == 2
+
+
+async def test_route_highlights_after_unicode_case_expansion(api, rt, sessions, tmp_path):
+    for text in ("Istanbul report", "İstanbul report"):
+        await thread_with(sessions, rt.owner_id, tmp_path, user=text)
+    async with api:
+        response = await api.get("/api/v1/search", params={"q": "report"})
+    assert response.status_code == 200
+    hits = {hit["snippet"]: hit for hit in response.json()["hits"]}
+    assert len(hits) == 2
+    for text in ("Istanbul report", "İstanbul report"):
+        start, length = hits[text]["highlights"][0]
+        assert text[start:start + length] == "report"
 
 
 async def test_route_refuses_a_remote_client(rt, monkeypatch):
