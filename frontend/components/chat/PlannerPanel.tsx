@@ -103,11 +103,16 @@ export function PlannerPanel({ agents, threads, onClose, onOpenRoutines, taskId 
   useEffect(() => {
     if (!showRoutines || (view !== "month" && view !== "week")) return;
     let cancelled = false;
+    let sequence = 0;
+    let applied = 0;
     const load = async () => {
+      const current = ++sequence;
       try {
         const value = await planner.calendar(start, end);
-        if (!cancelled) { setCalendar(value); setCalendarError(null); }
-      } catch (error) { if (!cancelled) { setCalendar(null); setCalendarError(errorMessage(error, t("appSettings.planner.loadError"))); } }
+        if (!cancelled && current > applied) { applied = current; setCalendar(value); setCalendarError(null); }
+      } catch (error) {
+        if (!cancelled && current > applied) { applied = current; setCalendar(null); setCalendarError(errorMessage(error, t("appSettings.planner.loadError"))); }
+      }
     };
     void load();
     const timer = setInterval(() => void load(), 60_000);
