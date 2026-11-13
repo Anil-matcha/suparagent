@@ -300,6 +300,32 @@ async def test_audio_deleted_thread_is_rechecked_before_save(api, owner, session
 # --- BL-49 document and media extraction tests ---------------------------------------------------
 
 
+async def test_pdf_page_without_text_is_identified_in_engine_prompt(api, cli, tools_on, sessions, owner, tmp_path):
+    import io
+    import pypdf
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    writer = pypdf.PdfWriter()
+    page = writer.add_blank_page(width=612, height=792)
+    font = DictionaryObject({NameObject("/Type"): NameObject("/Font"), NameObject("/Subtype"): NameObject("/Type1"), NameObject("/BaseFont"): NameObject("/Helvetica")})
+    page[NameObject("/Resources")] = DictionaryObject({NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})})
+    stream = DecodedStreamObject()
+    stream.set_data(b"BT /F1 12 Tf 72 712 Td (Visible text) Tj ET")
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    writer.add_blank_page(width=612, height=792)
+    data = io.BytesIO()
+    writer.write(data)
+    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
+    response = await upload(api, thread.id, "mixed.pdf", data.getvalue(), "application/pdf")
+    assert response.status_code == 201, response.text
+    sent = await api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "Read it", "attachment_ids": [response.json()["id"]]})
+    assert sent.status_code == 202, sent.text
+    await finished(sessions, thread.id)
+    prompt = cli.log("prompt")[0]["prompt"]
+    assert "Visible text" in prompt
+    assert "Page 2" in prompt and "No extractable text" in prompt
+
+
 def test_pdf_document_extraction_and_prompt_injection(attachments_dir):
     import io
     import pypdf

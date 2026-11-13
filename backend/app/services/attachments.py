@@ -188,8 +188,10 @@ def extract_document_text(data: bytes, ext: str, name: str) -> str:
                 page_text = page.extract_text() or ""
                 if page_text.strip():
                     pages_text.append(f"--- Page {idx + 1} ---\n{page_text.strip()}")
+                else:
+                    pages_text.append(f"--- Page {idx + 1} ---\n[No extractable text on this page; it may be blank or image-based.]")
             except Exception:
-                continue
+                pages_text.append(f"--- Page {idx + 1} ---\n[Text extraction failed for this page.]")
 
         if not pages_text:
             return f"[PDF {name}: {len(reader.pages)} page(s) detected, but no extractable text layer was found (the file may contain scanned images).]"
