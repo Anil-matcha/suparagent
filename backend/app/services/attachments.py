@@ -10,6 +10,7 @@ import hashlib
 import io
 import json
 import os
+import posixpath
 import re
 import unicodedata
 import uuid
@@ -263,14 +264,18 @@ def extract_document_text(data: bytes, ext: str, name: str) -> str:
     if ext == ".pptx":
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                slide_re = re.compile(r"^ppt/slides/slide(\d+)\.xml$")
-                slide_files = sorted(
-                    ((int(m.group(1)), f) for f in zf.namelist() if (m := slide_re.match(f))),
-                )
+                if sum(i.file_size for i in zf.infolist()) > _MAX_UNZIPPED:
+                    raise ValueError("decompressed size too large")
+                presentation = ET.fromstring(zf.read("ppt/presentation.xml"))
+                relations = ET.fromstring(zf.read("ppt/_rels/presentation.xml.rels"))
+                targets = {rel.attrib["Id"]: rel.attrib["Target"] for rel in relations}
+                presentation_ns = "http://schemas.openxmlformats.org/presentationml/2006/main"
+                relationship_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+                slide_ids = presentation.findall(f"{{{presentation_ns}}}sldIdLst/{{{presentation_ns}}}sldId")
+                slide_targets = [targets[slide.attrib[f"{{{relationship_ns}}}id"]] for slide in slide_ids]
+                slide_files = [posixpath.normpath(target.lstrip("/") if target.startswith("/") else posixpath.join("ppt", target)) for target in slide_targets]
                 slides = []
-                for idx, sfile in slide_files:
-                    if sum(i.file_size for i in zf.infolist()) > _MAX_UNZIPPED:
-                        raise ValueError("decompressed size too large")
+                for idx, sfile in enumerate(slide_files, start=1):
                     content = zf.read(sfile)
                     root = ET.fromstring(content)
                     texts = [elem.text for elem in root.iter() if elem.tag.endswith("}t") and elem.text]

@@ -411,6 +411,42 @@ def test_corrupted_document_is_refused_with_clear_error(attachments_dir):
     assert exc_docx.value.code == "corrupt_document"
 
 
+async def test_reordered_presentation_reaches_engine_in_presentation_order(api, cli, tools_on, sessions, owner, tmp_path):
+    from pathlib import Path
+
+    data = Path(__file__).with_name("reordered-slides.pptx").read_bytes()
+    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
+    response = await upload(api, thread.id, "slides.pptx", data, "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+    assert response.status_code == 201, response.text
+    sent = await api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "Read it", "attachment_ids": [response.json()["id"]]})
+    assert sent.status_code == 202, sent.text
+    await finished(sessions, thread.id)
+    prompt = cli.log("prompt")[0]["prompt"]
+    assert prompt.index("Second slide") < prompt.index("First slide")
+
+
+def test_presentation_follows_slide_list_and_ignores_unlisted_slides(attachments_dir):
+    import io
+    import zipfile
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+
+    data = Path(__file__).with_name("reordered-slides.pptx").read_bytes()
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(data)) as source, zipfile.ZipFile(output, "w") as target:
+        for entry in source.infolist():
+            content = source.read(entry.filename)
+            if entry.filename == "ppt/presentation.xml":
+                root = ET.fromstring(content)
+                slides = root.find("{http://schemas.openxmlformats.org/presentationml/2006/main}sldIdLst")
+                slides.remove(slides[0])  # Keep the first slide in the original deck only.
+                content = ET.tostring(root)
+            target.writestr(entry, content)
+    result = attachments.extract_document_text(output.getvalue(), ".pptx", "slides.pptx")
+    assert "--- Slide 1 ---\nFirst slide" in result
+    assert "Second slide" not in result
+
+
 def test_video_attachment_classification_and_prompt(attachments_dir):
     video_bytes = b"\x00\x00\x00 ftypisom\x00\x00\x02\x00isomiso2avc1mp41" + b"\x00" * 100
     saved = attachments.save(5, "demo.mp4", "video/mp4", video_bytes)
