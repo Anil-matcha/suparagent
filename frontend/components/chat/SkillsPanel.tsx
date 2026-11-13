@@ -195,6 +195,7 @@ export function SkillsPanel({
     try {
       const p = await api.previewSkill(agentId, importing.text);
       // Imported skills always start switched off; the person reviews, then switches one on.
+      setTriggersText("");
       setDraft({ existing: null, name: p.name, description: p.description, body: p.body, enabled: false, source: "imported", warnings: p.warnings, redacted: 0 });
       setImporting(null);
     } catch (err) {
