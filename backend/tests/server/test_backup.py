@@ -130,6 +130,20 @@ def test_the_workspace_can_be_left_out(source, tmp_path):
         assert json.load(tar.extractfile(backup.MANIFEST))["workspaces_included"] is False
 
 
+@pytest.mark.skipif(not POSIX or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="requires POSIX filesystem permissions and a non-root user")
+def test_backup_cli_reports_unreadable_directory(source, tmp_path, capsys):
+    hidden = source["workspace"] / "agents/1/private-folder"
+    hidden.mkdir()
+    (hidden / "notes.txt").write_text("unreadable content")
+    hidden.chmod(0)
+    try:
+        assert server_main(["backup", "--out", str(tmp_path / "out")]) == 0
+        output = capsys.readouterr().out
+        assert "skipped:" in output and "workspace/agents/1/private-folder" in output
+    finally:
+        hidden.chmod(0o700)
+
+
 def test_the_default_folder_is_beside_the_database(source):
     report = backup.create_backup()
     assert report.archive.parent == source["database"].parent / "backups"

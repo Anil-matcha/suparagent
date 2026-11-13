@@ -299,7 +299,11 @@ def create_backup(out_dir: Path | None = None, *, skip_workspaces: bool = False,
                 folder = where[name]
                 if not folder.is_dir():
                     continue
-                for current, directories, files in os.walk(folder, followlinks=False):
+                def walk_error(error: OSError) -> None:
+                    relative = Path(error.filename).relative_to(folder).as_posix()
+                    skipped.append(f"{name}/{relative} ({error.strerror or 'unreadable'})")
+
+                for current, directories, files in os.walk(folder, followlinks=False, onerror=walk_error):
                     base = Path(current)
                     kept = []
                     for directory in sorted(directories):
