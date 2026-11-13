@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { SettingsCard } from "./SettingsCard";
 import { Switch } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
@@ -42,6 +42,12 @@ function subscribeToPermission(callback: () => void): () => void {
 
 export function NotificationsSettings() {
   const [prefs, setPrefs] = useState<NotificationPreferences>(defaultPrefs);
+  const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const savingRef = useRef(false);
   const browserPermission = useSyncExternalStore(
     subscribeToPermission,
     getNotificationPermissionSnapshot,
@@ -53,16 +59,35 @@ export function NotificationsSettings() {
   useEffect(() => {
     let alive = true;
     api.getNotificationPreferences().then((loaded) => {
-      if (alive) setPrefs(loaded);
-    }).catch(() => {});
+      if (alive) { setPrefs(loaded); setLoaded(true); setLoadFailed(false); }
+    }).catch(() => { if (alive) setLoadFailed(true); });
     return () => { alive = false; };
-  }, []);
+  }, [loadAttempt]);
 
-  const saveOption = <K extends keyof NotificationPreferences>(key: K, value: NotificationPreferences[K]) => {
+  const saveOption = async <K extends keyof NotificationPreferences>(key: K, value: NotificationPreferences[K]) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setSaveFailed(false);
+    confirmation.clearSaved(key);
     const updated = { ...prefs, [key]: value };
     setPrefs(updated);
-    confirmation.showSaved(key);
-    void api.updateNotificationPreferences(updated).catch(() => {});
+    try {
+      const saved = await api.updateNotificationPreferences(updated);
+      setPrefs(saved);
+      confirmation.showSaved(key);
+    } catch {
+      setSaveFailed(true);
+      try {
+        setPrefs(await api.getNotificationPreferences());
+      } catch {
+        setLoaded(false);
+        setLoadFailed(true);
+      }
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   const handleRequestPermission = async () => {
@@ -86,8 +111,14 @@ export function NotificationsSettings() {
 
   const isDesktop = isDesktopApp();
 
+  if (!loaded) return loadFailed ? (
+    <div role="alert">Could not load notification settings. <button onClick={() => setLoadAttempt((n) => n + 1)}>Retry</button></div>
+  ) : <div>Loading notification settings…</div>;
+
   return (
     <div className="space-y-6" data-setting-root data-setting-container tabIndex={-1}>
+      {saveFailed && <p role="alert" className="text-sm text-danger">Could not confirm notification settings were saved.</p>}
+      <fieldset disabled={saving} className="space-y-6 border-0 p-0">
       <div id="setting-notifications-desktop" data-setting-id="setting-notifications-desktop" data-setting-container tabIndex={-1}>
         <SettingsCard
           title="Desktop notifications"
@@ -252,6 +283,7 @@ export function NotificationsSettings() {
           </div>
         </SettingsCard>
       </div>
+      </fieldset>
     </div>
   );
 }
