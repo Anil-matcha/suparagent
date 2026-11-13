@@ -354,6 +354,7 @@ export const zh: Record<MessageKey, string> = {
   "room.tagToReply": "提及成员以请求回复…",
   "room.message": "给房间发消息",
   "room.writeMessage": "写消息或提及成员…",
+  "room.messageTooLong": "房间消息最多包含 8,000 个字符。请缩短消息后再发送。",
   "room.mention": "提及…",
   "room.send": "发送消息",
   "room.sending": "正在发送…",

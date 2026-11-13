@@ -354,6 +354,7 @@ export const nl: Record<MessageKey, string> = {
   "room.tagToReply": "Noem een agent om een antwoord te krijgen.",
   "room.message": "Bericht",
   "room.writeMessage": "Schrijf een bericht",
+  "room.messageTooLong": "Berichten mogen maximaal 8.000 tekens bevatten. Kort het bericht in voordat je het verstuurt.",
   "room.mention": "Agent noemen",
   "room.send": "Verzenden",
   "room.sending": "Verzenden…",

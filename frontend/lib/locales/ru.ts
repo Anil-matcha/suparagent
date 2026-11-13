@@ -354,6 +354,7 @@ export const ru: Record<MessageKey, string> = {
   "room.tagToReply": "Упомяните агента, чтобы он ответил.",
   "room.message": "Сообщение",
   "room.writeMessage": "Напишите сообщение…",
+  "room.messageTooLong": "Сообщение может содержать не более 8000 символов. Сократите его перед отправкой.",
   "room.mention": "Упомянуть участника",
   "room.send": "Отправить",
   "room.sending": "Отправка…",

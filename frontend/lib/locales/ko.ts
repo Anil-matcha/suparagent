@@ -354,6 +354,7 @@ export const ko: Record<MessageKey, string> = {
   "room.tagToReply": "멤버를 멘션해 답변 요청…",
   "room.message": "룸에 메시지 보내기",
   "room.writeMessage": "메시지를 쓰거나 멤버를 멘션…",
+  "room.messageTooLong": "룸 메시지는 최대 8,000자까지 가능합니다. 전송하기 전에 메시지를 줄여 주세요.",
   "room.mention": "멘션…",
   "room.send": "메시지 보내기",
   "room.sending": "전송 중…",
