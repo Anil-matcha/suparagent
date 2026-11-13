@@ -60,8 +60,15 @@ export function NotificationBell({
         // The first successful list establishes a baseline without alerting old unread items.
         void api.listNotifications(200).then((latest) => {
           const seenIds = seenNotificationIds.current;
+          if (!seenIds) {
+            seenNotificationIds.current = new Set(latest.map((item) => item.id));
+            return;
+          }
+          // Keep the baseline while preferences are loading so new alerts can
+          // be evaluated when their category and quiet-hour settings arrive.
+          if (!preferences) return;
           seenNotificationIds.current = new Set(latest.map((item) => item.id));
-          if (!seenIds || !preferences?.desktop_enabled) return;
+          if (!preferences.desktop_enabled) return;
           for (const item of getNewUnreadNotifications(latest, seenIds)) {
             dispatchNotification(item, preferences, (threadId) => {
               router.push(`/chat?thread=${threadId}`);
