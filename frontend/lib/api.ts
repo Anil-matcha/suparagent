@@ -1751,8 +1751,12 @@ export const api = {
   workspaceDownloadUrl: (threadId: number, path: string) =>
     requestBlobUrl(`/threads/${threadId}/files/download?path=${encodeURIComponent(path)}`),
   // A folder (the whole workspace for "") as a zip; secrets and links out are left out.
-  workspaceZipUrl: (threadId: number, path: string) =>
-    requestBlobUrl(`/threads/${threadId}/files/zip?path=${encodeURIComponent(path)}`),
+  workspaceZipUrl: async (threadId: number, path: string) => {
+    const res = await fetch(`${API_BASE}/threads/${threadId}/files/zip?path=${encodeURIComponent(path)}`, { credentials: "include" });
+    if (!res.ok) throw await errorFrom(res);
+    const skipped = res.headers.get("X-Skipped-Unsafe-Names");
+    return { url: URL.createObjectURL(await res.blob()), skippedUnsafeNames: skipped === null ? null : Number(skipped) };
+  },
   getUsage: (month?: string) => request<UsageSummary>(`/usage${month ? `?month=${encodeURIComponent(month)}` : ""}`),
   usageCsv: (month: string) => requestText(`/usage.csv?month=${encodeURIComponent(month)}`),
 };

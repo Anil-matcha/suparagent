@@ -126,6 +126,18 @@ test('search query carries only the filters that are set', () => {
   );
 });
 
+test('workspace zip returns its omitted-name count and preserves an unknown count', async () => {
+  for (const [header, expected] of [['2', 2], ['0', 0], [null, null]]) {
+    globalThis.fetch = async () => new Response('archive', {
+      headers: header === null ? {} : { 'X-Skipped-Unsafe-Names': header },
+    });
+    const result = await api.workspaceZipUrl(7, 'docs');
+    assert.equal(result.skippedUnsafeNames, expected);
+    assert.ok(result.url.startsWith('blob:'));
+    URL.revokeObjectURL(result.url);
+  }
+});
+
 test('an upload is multipart with no JSON content type, and refusals carry the server message', async () => {
   const calls = [];
   globalThis.fetch = async (url, options) => {

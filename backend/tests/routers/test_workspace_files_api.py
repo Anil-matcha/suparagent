@@ -8,6 +8,7 @@ import zipfile
 import httpx
 import pytest
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.routers.threads import get_runtime
@@ -260,7 +261,24 @@ async def test_a_zip_leaves_out_names_that_are_unsafe_in_a_zip(api, layout):
     response = await api.get(f"{api.base}/zip", params={"path": "src"})
     assert zip_names(response) == {"src/main.py", "src/ok name é.txt"}
     assert response.headers["x-skipped-unsafe-names"] == str(len(unsafe) + 1)
+    assert response.headers["access-control-expose-headers"] == "X-Skipped-Unsafe-Names"
     assert b"bad" not in response.content
+
+
+async def test_zip_skip_count_is_exposed_to_cross_origin_frontend(rt, sessions, owner, layout):
+    (layout / "rep\u202etxt.exe").write_text("skipped")
+    thread = await new_thread(sessions, owner, workspace_path=str(layout))
+    app = FastAPI()
+    app.include_router(files_router, prefix="/api/v1")
+    app.dependency_overrides[get_runtime] = lambda: rt
+    app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_credentials=True)
+    transport = httpx.ASGITransport(app, client=("127.0.0.1", 50000))
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+        response = await client.get(f"/api/v1/threads/{thread.id}/files/zip", headers={"Origin": "http://localhost:3000"})
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert response.headers["access-control-expose-headers"] == "X-Skipped-Unsafe-Names"
+    assert response.headers["x-skipped-unsafe-names"] == "1"
 
 
 async def test_a_zip_leaves_out_names_that_are_not_utf8(api, layout):
