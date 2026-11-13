@@ -357,6 +357,8 @@ def save(thread_id: int, filename: str | None, declared_mime: str | None, data: 
         kind, mime, ext = classify(name, declared_mime, data)
         if kind == "document":
             extracted_text = extract_document_text(data, ext, name)
+        if ext == ".json":
+            ext = ".txt"  # Keep the file distinct from its <id>.json metadata.
     folder = thread_dir(thread_id)
     if _used_bytes(folder) + len(data) > THREAD_MAX_BYTES:
         raise AttachmentError(
