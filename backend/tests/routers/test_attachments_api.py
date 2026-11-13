@@ -224,6 +224,24 @@ async def test_refusals_say_what_to_do(api, sessions, owner, tmp_path):
     assert many.status_code == 422
 
 
+async def test_json_attachment_upload_read_send_and_delete(api, cli, tools_on, sessions, owner, tmp_path, attachments_dir, monkeypatch):
+    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
+    data = b'{"name":"Ada"}'
+    response = await upload(api, thread.id, "data.json", data, "application/json")
+    assert response.status_code == 201, response.text
+    attachment = response.json()
+    assert attachment["name"] == "data.json"
+    monkeypatch.setattr(attachments, "THREAD_MAX_BYTES", len(data) + 2)
+    assert (await upload(api, thread.id, "other.txt", b"abc", "text/plain")).status_code == 507
+    assert (await api.get(f"/api/v1/threads/{thread.id}/attachments/{attachment['id']}")).content == data
+    sent = await api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "Read it", "attachment_ids": [attachment["id"]]})
+    assert sent.status_code == 202, sent.text
+    await finished(sessions, thread.id)
+    assert data.decode() in cli.log("prompt")[0]["prompt"]
+    assert (await api.delete(f"/api/v1/threads/{thread.id}")).status_code == 204
+    assert not (attachments_dir / str(thread.id)).exists()
+
+
 async def test_deleting_a_conversation_removes_its_attachments(api, sessions, owner, tmp_path, attachments_dir):
     thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
     await upload(api, thread.id, "a.txt", b"hello", "text/plain")
