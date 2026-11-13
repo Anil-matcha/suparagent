@@ -98,6 +98,21 @@ async def test_retry_is_off_by_default(scheduler, sessions, owner, agent, clock,
     assert [r.state for r in await runs_of(sessions, routine.id)] == ["failed"]
 
 
+async def test_retry_quiet_instruction_is_not_duplicated(scheduler, sessions, owner, agent, clock, cli):
+    cli.script(FAIL)
+    routine = await manual(sessions, owner, agent, clock, retry_limit=2, retry_delay_minutes=1, quiet_reporting=True)
+    run = await start_now(sessions, owner, routine)
+    for _ in range(3):
+        await settled(scheduler, sessions, run.id)
+        clock.advance(minutes=1, seconds=1)
+        await scheduler.tick()
+        run = (await runs_of(sessions, routine.id))[-1]
+    runs = await runs_of(sessions, routine.id)
+    prompts = [(await reload(sessions, Turn, r.turn_id)).prompt_text for r in runs]
+    assert [p.count("Quiet reporting is enabled.") for p in prompts] == [1, 1, 1]
+    assert all("Quiet reporting is enabled." not in r.prompt for r in runs)
+
+
 async def test_a_successful_run_is_not_retried(scheduler, sessions, owner, agent, clock, cli):
     routine = await manual(sessions, owner, agent, clock, retry_limit=3, retry_delay_minutes=1)
     run = await start_now(sessions, owner, routine)
