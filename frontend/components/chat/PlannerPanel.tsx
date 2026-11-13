@@ -53,6 +53,8 @@ export function PlannerPanel({ agents, threads, onClose, onOpenRoutines, taskId 
   const [conflictItem, setConflictItem] = useState<WorkItem | null>(null);
   const mutationVersion = useRef(0);
   const saving = useRef(false);
+  const itemReadSequence = useRef(0);
+  const appliedItemRead = useRef(0);
   const timezone = browserTimezone();
 
   useEffect(() => {
@@ -65,8 +67,11 @@ export function PlannerPanel({ agents, threads, onClose, onOpenRoutines, taskId 
   const refreshItems = useCallback(async () => {
     if (!board) return;
     const version = mutationVersion.current;
+    const sequence = ++itemReadSequence.current;
     const values = await planner.items(board.id, archived);
-    if (version === mutationVersion.current) setItems(values);
+    if (version === mutationVersion.current && sequence > appliedItemRead.current) {
+      appliedItemRead.current = sequence; setItems(values);
+    }
   }, [board, archived]);
 
   useEffect(() => {
@@ -74,10 +79,17 @@ export function PlannerPanel({ agents, threads, onClose, onOpenRoutines, taskId 
     let cancelled = false;
     const load = async () => {
       const version = mutationVersion.current;
+      const sequence = ++itemReadSequence.current;
       try {
         const values = await planner.items(board.id, archived);
-        if (!cancelled && !saving.current && version === mutationVersion.current) { setItems(values); setError(null); }
-      } catch (error) { if (!cancelled) setError(errorMessage(error, t("appSettings.planner.loadError"))); }
+        if (!cancelled && !saving.current && version === mutationVersion.current && sequence > appliedItemRead.current) {
+          appliedItemRead.current = sequence; setItems(values); setError(null);
+        }
+      } catch (error) {
+        if (!cancelled && !saving.current && version === mutationVersion.current && sequence > appliedItemRead.current) {
+          appliedItemRead.current = sequence; setError(errorMessage(error, t("appSettings.planner.loadError")));
+        }
+      }
     };
     void load();
     const timer = setInterval(() => void load(), 30_000);
@@ -91,11 +103,16 @@ export function PlannerPanel({ agents, threads, onClose, onOpenRoutines, taskId 
   useEffect(() => {
     if (!showRoutines || (view !== "month" && view !== "week")) return;
     let cancelled = false;
+    let sequence = 0;
+    let applied = 0;
     const load = async () => {
+      const current = ++sequence;
       try {
         const value = await planner.calendar(start, end);
-        if (!cancelled) { setCalendar(value); setCalendarError(null); }
-      } catch (error) { if (!cancelled) { setCalendar(null); setCalendarError(errorMessage(error, t("appSettings.planner.loadError"))); } }
+        if (!cancelled && current > applied) { applied = current; setCalendar(value); setCalendarError(null); }
+      } catch (error) {
+        if (!cancelled && current > applied) { applied = current; setCalendar(null); setCalendarError(errorMessage(error, t("appSettings.planner.loadError"))); }
+      }
     };
     void load();
     const timer = setInterval(() => void load(), 60_000);
