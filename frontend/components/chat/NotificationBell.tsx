@@ -129,7 +129,16 @@ export function NotificationBell({
   }, [open]);
 
   const choose = async (item: AppNotification) => {
-    if (!item.read_at) await api.readNotification(item.id).catch(() => undefined);
+    if (!item.read_at) {
+      try {
+        await api.readNotification(item.id);
+        setMarkFailed(false);
+      } catch {
+        setMarkFailed(true);
+        if (item.thread_id !== null) router.push(`/chat?thread=${item.thread_id}`);
+        return;
+      }
+    }
     setOpen(false);
     refresh();
     if (item.thread_id !== null) router.push(`/chat?thread=${item.thread_id}`);
