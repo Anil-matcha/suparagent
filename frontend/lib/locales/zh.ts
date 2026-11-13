@@ -172,6 +172,7 @@ export const zh: Record<MessageKey, string> = {
   "search.anyAgent": "所有智能体",
   "search.results": "搜索结果",
   "search.searching": "正在搜索…",
+  "search.loadMore": "加载更多结果",
   "search.noResults": "没有匹配的对话。",
   "composer.pastedList": "已粘贴文本",
   "composer.skillsForMessage": "此消息使用的技能",

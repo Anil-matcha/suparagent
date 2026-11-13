@@ -172,6 +172,7 @@ export const tr: Record<MessageKey, string> = {
   "search.anyAgent": "Herhangi bir ajan",
   "search.results": "Arama sonuçları",
   "search.searching": "Aranıyor…",
+  "search.loadMore": "Daha fazla sonuç yükle",
   "search.noResults": "Eşleşen sohbet yok.",
   "composer.pastedList": "Yapıştırılan metin",
   "composer.skillsForMessage": "Bu mesajın becerileri",

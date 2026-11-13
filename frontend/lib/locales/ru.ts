@@ -172,6 +172,7 @@ export const ru: Record<MessageKey, string> = {
   "search.anyAgent": "Любой агент",
   "search.results": "Результаты поиска",
   "search.searching": "Поиск…",
+  "search.loadMore": "Показать ещё результаты",
   "search.noResults": "Подходящих переписок нет.",
   "composer.pastedList": "Вставленный текст",
   "composer.skillsForMessage": "Навыки для этого сообщения",

@@ -172,6 +172,7 @@ export const de: Record<MessageKey, string> = {
   "search.anyAgent": "Beliebiger Agent",
   "search.results": "Suchergebnisse",
   "search.searching": "Suche…",
+  "search.loadMore": "Weitere Ergebnisse laden",
   "search.noResults": "Keine passenden Unterhaltungen.",
   "composer.pastedList": "Eingefügter Text",
   "composer.skillsForMessage": "Skills für diese Nachricht",

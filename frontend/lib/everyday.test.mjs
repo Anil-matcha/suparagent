@@ -120,6 +120,7 @@ test('a sent message keeps its attachments and a finished turn its usage', () =>
 
 test('search query carries only the filters that are set', () => {
   assert.equal(searchQuery('red pears'), '?q=red+pears');
+  assert.equal(searchQuery('red pears', { offset: 40 }), '?q=red+pears&offset=40');
   assert.equal(
     searchQuery('x', { agentId: 4, since: '2026-10-01', includeArchived: true, limit: 10 }),
     '?q=x&agent_id=4&since=2026-10-01&include_archived=true&limit=10'

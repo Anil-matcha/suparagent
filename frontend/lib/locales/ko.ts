@@ -172,6 +172,7 @@ export const ko: Record<MessageKey, string> = {
   "search.anyAgent": "모든 에이전트",
   "search.results": "검색 결과",
   "search.searching": "검색 중…",
+  "search.loadMore": "결과 더 보기",
   "search.noResults": "일치하는 대화가 없습니다.",
   "composer.pastedList": "붙여넣은 텍스트",
   "composer.skillsForMessage": "이 메시지에 사용할 스킬",
