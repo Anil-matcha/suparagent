@@ -71,6 +71,112 @@ async def upload(api, thread_id, name, data, mime="application/octet-stream"):
 # --- storage rules -------------------------------------------------------------------------------
 
 
+async def test_discard_only_unused_attachment(api, cli, tools_on, sessions, owner, tmp_path):
+    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
+    unused = (await upload(api, thread.id, "unused.txt", b"unused", "text/plain")).json()
+    used = (await upload(api, thread.id, "used.txt", b"used", "text/plain")).json()
+    sent = await api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "Read", "attachment_ids": [used["id"]]})
+    assert sent.status_code == 202
+    await finished(sessions, thread.id)
+    assert (await api.delete(f"/api/v1/threads/{thread.id}/attachments/{used['id']}")).status_code == 409
+    assert (await api.get(f"/api/v1/threads/{thread.id}/attachments/{used['id']}")).content == b"used"
+    assert (await api.delete(f"/api/v1/threads/{thread.id}/attachments/{unused['id']}")).status_code == 204
+    assert (await api.get(f"/api/v1/threads/{thread.id}/attachments/{unused['id']}")).status_code == 404
+
+
+async def test_retry_upload_identifier_does_not_consume_capacity_twice(api, sessions, owner, tmp_path, monkeypatch):
+    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
+    monkeypatch.setattr(attachments, "THREAD_MAX_BYTES", 4)
+    path = f"/api/v1/threads/{thread.id}/attachments"
+    upload_id = "a" * 32
+    async def send(data):
+        return await api.post(path, files={"file": ("good.txt", data, "text/plain")}, data={"upload_id": upload_id})
+    first = await send(b"good")
+    assert first.status_code == 201
+    repeated = await send(b"good")
+    assert repeated.status_code == 201 and repeated.json()["id"] == upload_id
+    assert (await send(b"else")).status_code == 409
+    assert (await api.get(f"{path}/{upload_id}")).content == b"good"
+
+
+async def test_turn_revalidates_attachment_after_discard(api, sessions, owner, tmp_path):
+    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
+    uploaded = (await upload(api, thread.id, "file.txt", b"data", "text/plain")).json()
+    assert (await api.delete(f"/api/v1/threads/{thread.id}/attachments/{uploaded['id']}")).status_code == 204
+    async with sessions() as db:
+        with pytest.raises(attachments.AttachmentError):
+            await store.start_turn(db, thread.id, "Read", attachments=[uploaded])
+    async with sessions() as db:
+        assert await store.list_turns(db, thread.id) == []
+
+
+async def test_send_and_discard_do_not_remove_a_committed_attachment(api, cli, tools_on, sessions, owner, tmp_path):
+    import asyncio
+    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
+    uploaded = (await upload(api, thread.id, "file.txt", b"data", "text/plain")).json()
+    path = f"/api/v1/threads/{thread.id}/attachments/{uploaded['id']}"
+    sent, discarded = await asyncio.gather(
+        api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "Read", "attachment_ids": [uploaded["id"]]}),
+        api.delete(path),
+    )
+    if sent.status_code == 202:
+        assert discarded.status_code == 409
+        assert (await api.get(path)).content == b"data"
+    else:
+        assert sent.status_code == 404 and discarded.status_code == 204
+
+
+async def test_discard_before_delayed_upload_prevents_resurrection(api, sessions, owner, tmp_path):
+    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
+    upload_id = "b" * 32
+    path = f"/api/v1/threads/{thread.id}/attachments"
+    assert (await api.delete(f"{path}/{upload_id}")).status_code == 204
+    response = await api.post(path, files={"file": ("file.txt", b"data", "text/plain")}, data={"upload_id": upload_id})
+    assert response.status_code == 409 and response.json()["detail"]["error_code"] == "upload_discarded"
+    assert (await api.get(f"{path}/{upload_id}")).status_code == 404
+
+
+async def test_audio_url_retry_requires_consent_and_reuses_transcript(api, sessions, owner, monkeypatch):
+    from tests.services.test_audio_ingestion import wav
+    from app.services import audio_ingestion
+    thread = await new_thread(sessions, owner)
+    calls = []
+    monkeypatch.setattr(audio_ingestion, "require_consent", lambda provider: calls.append(("consent", provider)))
+    monkeypatch.setattr(audio_ingestion, "fetch_url", lambda *args: ("sample.wav", wav()))
+    async def transcribe(*args):
+        calls.append(("transcribe",))
+        return {"text": "Transcript", "segments": [], "provider": "openai", "model": "gpt-transcribe", "complete": True, "duration_seconds": 1.0}
+    monkeypatch.setattr(audio_ingestion, "transcribe", transcribe)
+    path = f"/api/v1/threads/{thread.id}/attachments/audio-url"
+    body = {"url": "https://example.test/sample.wav", "consent_provider": "openai", "upload_id": "c" * 32}
+    first = await api.post(path, json=body)
+    second = await api.post(path, json=body)
+    assert first.status_code == second.status_code == 201
+    assert first.json()["id"] == second.json()["id"] == body["upload_id"]
+    assert calls.count(("transcribe",)) == 1
+    assert calls.count(("consent", "openai")) == 2
+    assert (await api.post(path, json={**body, "url": "https://example.test/other.wav"})).status_code == 409
+
+
+async def test_audio_file_retry_reuses_transcript(api, sessions, owner, monkeypatch):
+    from tests.services.test_audio_ingestion import wav
+    from app.services import audio_ingestion
+    thread = await new_thread(sessions, owner)
+    calls = []
+    monkeypatch.setattr(audio_ingestion, "require_consent", lambda provider: calls.append(("consent", provider)))
+    async def transcribe(*args):
+        calls.append(("transcribe",))
+        return {"text": "Transcript", "segments": [], "provider": "openai", "model": "gpt-transcribe", "complete": True, "duration_seconds": 1.0}
+    monkeypatch.setattr(audio_ingestion, "transcribe", transcribe)
+    path = f"/api/v1/threads/{thread.id}/attachments"
+    async def send():
+        return await api.post(path, files={"file": ("sample.wav", wav(), "audio/wav")}, data={"consent_provider": "openai", "upload_id": "d" * 32})
+    assert (await send()).status_code == 201
+    assert (await send()).status_code == 201
+    assert calls.count(("transcribe",)) == 1
+    assert calls.count(("consent", "openai")) == 2
+
+
 def test_display_names_are_last_part_only_and_printable():
     assert attachments.display_name("../../etc/passwd") == "passwd"
     assert attachments.display_name("C:\\Users\\me\\notes.txt") == "notes.txt"
@@ -194,112 +300,6 @@ async def test_a_text_file_reaches_the_engine_inside_the_prompt(api, cli, tools_
     assert sent.status_code == 202, sent.text
     await finished(sessions, thread.id)
     assert cli.log("prompt")[0]["prompt"] == "Read it\n\nAttached file todo.txt:\n```\nbuy milk\n```"
-
-
-async def test_discard_only_unused_attachment(api, cli, tools_on, sessions, owner, tmp_path):
-    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
-    unused = (await upload(api, thread.id, "unused.txt", b"unused", "text/plain")).json()
-    used = (await upload(api, thread.id, "used.txt", b"used", "text/plain")).json()
-    sent = await api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "Read", "attachment_ids": [used["id"]]})
-    assert sent.status_code == 202
-    await finished(sessions, thread.id)
-    assert (await api.delete(f"/api/v1/threads/{thread.id}/attachments/{used['id']}")).status_code == 409
-    assert (await api.get(f"/api/v1/threads/{thread.id}/attachments/{used['id']}")).content == b"used"
-    assert (await api.delete(f"/api/v1/threads/{thread.id}/attachments/{unused['id']}")).status_code == 204
-    assert (await api.get(f"/api/v1/threads/{thread.id}/attachments/{unused['id']}")).status_code == 404
-
-
-async def test_retry_upload_identifier_does_not_consume_capacity_twice(api, sessions, owner, tmp_path, monkeypatch):
-    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
-    monkeypatch.setattr(attachments, "THREAD_MAX_BYTES", 4)
-    path = f"/api/v1/threads/{thread.id}/attachments"
-    upload_id = "a" * 32
-    async def send(data):
-        return await api.post(path, files={"file": ("good.txt", data, "text/plain")}, data={"upload_id": upload_id})
-    first = await send(b"good")
-    assert first.status_code == 201
-    repeated = await send(b"good")
-    assert repeated.status_code == 201 and repeated.json()["id"] == upload_id
-    assert (await send(b"else")).status_code == 409
-    assert (await api.get(f"{path}/{upload_id}")).content == b"good"
-
-
-async def test_turn_revalidates_attachment_after_discard(api, sessions, owner, tmp_path):
-    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
-    uploaded = (await upload(api, thread.id, "file.txt", b"data", "text/plain")).json()
-    assert (await api.delete(f"/api/v1/threads/{thread.id}/attachments/{uploaded['id']}")).status_code == 204
-    async with sessions() as db:
-        with pytest.raises(attachments.AttachmentError):
-            await store.start_turn(db, thread.id, "Read", attachments=[uploaded])
-    async with sessions() as db:
-        assert await store.list_turns(db, thread.id) == []
-
-
-async def test_send_and_discard_do_not_remove_a_committed_attachment(api, cli, tools_on, sessions, owner, tmp_path):
-    import asyncio
-    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
-    uploaded = (await upload(api, thread.id, "file.txt", b"data", "text/plain")).json()
-    path = f"/api/v1/threads/{thread.id}/attachments/{uploaded['id']}"
-    sent, discarded = await asyncio.gather(
-        api.post(f"/api/v1/threads/{thread.id}/turns", json={"prompt_text": "Read", "attachment_ids": [uploaded["id"]]}),
-        api.delete(path),
-    )
-    if sent.status_code == 202:
-        assert discarded.status_code == 409
-        assert (await api.get(path)).content == b"data"
-    else:
-        assert sent.status_code == 404 and discarded.status_code == 204
-
-
-async def test_discard_before_delayed_upload_prevents_resurrection(api, sessions, owner, tmp_path):
-    thread = await new_thread(sessions, owner, workspace_path=str(tmp_path))
-    upload_id = "b" * 32
-    path = f"/api/v1/threads/{thread.id}/attachments"
-    assert (await api.delete(f"{path}/{upload_id}")).status_code == 204
-    response = await api.post(path, files={"file": ("file.txt", b"data", "text/plain")}, data={"upload_id": upload_id})
-    assert response.status_code == 409 and response.json()["detail"]["error_code"] == "upload_discarded"
-    assert (await api.get(f"{path}/{upload_id}")).status_code == 404
-
-
-async def test_audio_url_retry_requires_consent_and_reuses_transcript(api, sessions, owner, monkeypatch):
-    from tests.services.test_audio_ingestion import wav
-    from app.services import audio_ingestion
-    thread = await new_thread(sessions, owner)
-    calls = []
-    monkeypatch.setattr(audio_ingestion, "require_consent", lambda provider: calls.append(("consent", provider)))
-    monkeypatch.setattr(audio_ingestion, "fetch_url", lambda *args: ("sample.wav", wav()))
-    async def transcribe(*args):
-        calls.append(("transcribe",))
-        return {"text": "Transcript", "segments": [], "provider": "openai", "model": "gpt-transcribe", "complete": True, "duration_seconds": 1.0}
-    monkeypatch.setattr(audio_ingestion, "transcribe", transcribe)
-    path = f"/api/v1/threads/{thread.id}/attachments/audio-url"
-    body = {"url": "https://example.test/sample.wav", "consent_provider": "openai", "upload_id": "c" * 32}
-    first = await api.post(path, json=body)
-    second = await api.post(path, json=body)
-    assert first.status_code == second.status_code == 201
-    assert first.json()["id"] == second.json()["id"] == body["upload_id"]
-    assert calls.count(("transcribe",)) == 1
-    assert calls.count(("consent", "openai")) == 2
-    assert (await api.post(path, json={**body, "url": "https://example.test/other.wav"})).status_code == 409
-
-
-async def test_audio_file_retry_reuses_transcript(api, sessions, owner, monkeypatch):
-    from tests.services.test_audio_ingestion import wav
-    from app.services import audio_ingestion
-    thread = await new_thread(sessions, owner)
-    calls = []
-    monkeypatch.setattr(audio_ingestion, "require_consent", lambda provider: calls.append(("consent", provider)))
-    async def transcribe(*args):
-        calls.append(("transcribe",))
-        return {"text": "Transcript", "segments": [], "provider": "openai", "model": "gpt-transcribe", "complete": True, "duration_seconds": 1.0}
-    monkeypatch.setattr(audio_ingestion, "transcribe", transcribe)
-    path = f"/api/v1/threads/{thread.id}/attachments"
-    async def send():
-        return await api.post(path, files={"file": ("sample.wav", wav(), "audio/wav")}, data={"consent_provider": "openai", "upload_id": "d" * 32})
-    assert (await send()).status_code == 201
-    assert (await send()).status_code == 201
-    assert calls.count(("transcribe",)) == 1
-    assert calls.count(("consent", "openai")) == 2
 
 
 async def test_an_engine_without_images_refuses_them_before_the_turn(api, sessions, owner, tmp_path):
