@@ -235,6 +235,7 @@ def extract_document_text(data: bytes, ext: str, name: str) -> str:
         import openpyxl
         try:
             wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+            formulas = openpyxl.load_workbook(io.BytesIO(data), data_only=False)
         except Exception as e:
             raise AttachmentError(422, "corrupt_document", f"{name} is not a valid Excel spreadsheet (.xlsx) or is corrupted: {e}") from e
 
@@ -242,9 +243,14 @@ def extract_document_text(data: bytes, ext: str, name: str) -> str:
         for sheet_name in wb.sheetnames:
             sheet = wb[sheet_name]
             row_lines = []
-            for row in sheet.iter_rows(values_only=True):
-                if any(c is not None for c in row):
-                    row_lines.append("\t".join(str(c) if c is not None else "" for c in row))
+            for row, formula_row in zip(sheet.iter_rows(), formulas[sheet_name].iter_rows()):
+                values = [
+                    f"{formula.value} [formula; no cached result]"
+                    if cell.value is None and formula.data_type == "f" else cell.value
+                    for cell, formula in zip(row, formula_row)
+                ]
+                if any(value is not None for value in values):
+                    row_lines.append("\t".join(str(value) if value is not None else "" for value in values))
                 if len(row_lines) > 500:
                     break
             if row_lines:
