@@ -116,6 +116,7 @@ export function WorkflowsPanel({ agents, engines = [], onClose }: WorkflowsPanel
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveErrors, setSaveErrors] = useState<Record<number, string>>({});
+  const [unsavedWorkflows, setUnsavedWorkflows] = useState<Record<number, boolean>>({});
   const saves = useRef<Record<number, WorkflowSave>>({});
 
   useEffect(() => {
@@ -233,7 +234,10 @@ export function WorkflowsPanel({ agents, engines = [], onClose }: WorkflowsPanel
       }
     }
     save.saving = false;
-    if (!save.pending && !save.error) delete saves.current[id];
+    if (!save.pending && !save.error) {
+      delete saves.current[id];
+      setUnsavedWorkflows((old) => { const next = { ...old }; delete next[id]; return next; });
+    }
   };
 
   const handleUpdateWorkflow = async (partial: Partial<Workflow>) => {
@@ -242,6 +246,7 @@ export function WorkflowsPanel({ agents, engines = [], onClose }: WorkflowsPanel
     const save = saves.current[id] ?? { draft: activeWorkflow, pending: null, saving: false, error: null };
     applyWorkflowEdit(save, partial);
     saves.current[id] = save;
+    setUnsavedWorkflows((old) => ({ ...old, [id]: true }));
     const draft = save.draft;
     setWorkflows((prev) => prev?.map((workflow) => workflow.id === id ? draft : workflow) ?? prev);
     await flushWorkflow(id);
@@ -261,6 +266,7 @@ export function WorkflowsPanel({ agents, engines = [], onClose }: WorkflowsPanel
 
   const handleRunWorkflow = async () => {
     if (!activeWorkflow) return;
+    if (saves.current[activeWorkflow.id]) throw new Error("Save workflow changes before running.");
     try {
       await api.startWorkflowRun(activeWorkflow.id, {
         message: "Interactive manual run from visual canvas",
@@ -319,6 +325,8 @@ export function WorkflowsPanel({ agents, engines = [], onClose }: WorkflowsPanel
       onCreateWorkflow={handleCreateWorkflow}
       onUpdateWorkflow={handleUpdateWorkflow}
       onRunWorkflow={handleRunWorkflow}
+      workflowUnsaved={Boolean(unsavedWorkflows[activeWorkflow.id])}
+      canRunWorkflow={() => !saves.current[activeWorkflow.id]}
       onClose={() => {
         if (Object.keys(saves.current).length && !window.confirm("Some workflow changes have not been saved. Close anyway?")) return;
         onClose();
