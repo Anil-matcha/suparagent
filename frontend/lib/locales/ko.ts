@@ -5,6 +5,7 @@ export const ko: Record<MessageKey, string> = {
   "theme.system": "시스템",
   "theme.light": "라이트",
   "theme.dark": "다크",
+  "theme.notSaved": "테마가 일시적으로 적용되었지만 이 브라우저에 저장하지 못했습니다.",
   "common.close": "닫기",
   "common.loading": "불러오는 중…",
   "common.cancel": "취소",

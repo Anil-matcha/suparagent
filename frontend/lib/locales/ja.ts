@@ -5,6 +5,7 @@ export const ja: Record<MessageKey, string> = {
   "theme.system": "システム",
   "theme.light": "ライト",
   "theme.dark": "ダーク",
+  "theme.notSaved": "テーマは一時的に適用されましたが、このブラウザーに保存できませんでした。",
   "common.close": "閉じる",
   "common.loading": "読み込み中…",
   "common.cancel": "キャンセル",

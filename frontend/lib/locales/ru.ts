@@ -5,6 +5,7 @@ export const ru: Record<MessageKey, string> = {
   "theme.system": "Системная",
   "theme.light": "Светлая",
   "theme.dark": "Тёмная",
+  "theme.notSaved": "Тема пока применена, но сохранить её в этом браузере не удалось.",
   "common.close": "Закрыть",
   "common.loading": "Загрузка…",
   "common.cancel": "Отмена",

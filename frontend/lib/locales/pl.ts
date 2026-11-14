@@ -5,6 +5,7 @@ export const pl: Record<MessageKey, string> = {
   "theme.system": "Systemowy",
   "theme.light": "Jasny",
   "theme.dark": "Ciemny",
+  "theme.notSaved": "Motyw został tymczasowo zastosowany, ale nie można go zapisać w tej przeglądarce.",
   "common.close": "Zamknij",
   "common.loading": "Wczytywanie…",
   "common.cancel": "Anuluj",

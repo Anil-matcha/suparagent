@@ -5,6 +5,7 @@ export const nl: Record<MessageKey, string> = {
   "theme.system": "Systeem",
   "theme.light": "Licht",
   "theme.dark": "Donker",
+  "theme.notSaved": "Het thema is voorlopig toegepast, maar kon niet in deze browser worden opgeslagen.",
   "common.close": "Sluiten",
   "common.loading": "Laden…",
   "common.cancel": "Annuleren",
