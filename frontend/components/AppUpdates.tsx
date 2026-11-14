@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { api, type VersionInfo } from "@/lib/api";
 
@@ -35,17 +35,28 @@ function DesktopAppUpdates({ bridge }: { bridge: UpdatesBridge }) {
   const [state, setState] = useState<UpdateState | null>(null);
   const [info, setInfo] = useState<VersionInfo | null>(null);
   const [copied, setCopied] = useState(false);
+  const eventRevision = useRef(0);
+  const actionRevision = useRef(0);
 
   useEffect(() => {
     let alive = true;
-    void bridge.run("state").then((value) => { if (alive) setState(value); }).catch(() => {});
-    const stop = bridge.onState((value) => { if (alive) setState(value); });
+    const revision = eventRevision.current;
+    const stop = bridge.onState((value) => { if (alive) { eventRevision.current += 1; setState(value); } });
+    void bridge.run("state").then((value) => { if (alive && eventRevision.current === revision) setState(value); }).catch(() => {});
     api.getVersionInfo().then((data) => { if (alive) setInfo(data); }).catch(() => {});
     return () => { alive = false; stop(); };
   }, [bridge]);
 
   if (!state) return null;
-  const act = (action: Parameters<UpdatesBridge["run"]>[0]) => void bridge.run(action).then(setState).catch((error) => setState({ ...state, status: "error", message: String(error?.message ?? error) }));
+  const act = (action: Parameters<UpdatesBridge["run"]>[0]) => {
+    const event = eventRevision.current;
+    const request = ++actionRevision.current;
+    void bridge.run(action).then((value) => {
+      if (request === actionRevision.current && event === eventRevision.current) setState(value);
+    }).catch((error) => {
+      if (request === actionRevision.current) setState((current) => ({ ...(current ?? state), status: "error", message: String(error?.message ?? error) }));
+    });
+  };
   const working = state.status === "checking" || state.status === "downloading";
 
   const copyCommand = async () => {
