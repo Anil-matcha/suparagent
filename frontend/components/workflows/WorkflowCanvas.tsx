@@ -72,7 +72,6 @@ export interface WorkflowCanvasProps {
   onSelectWorkflow: (id: number) => void;
   onCreateWorkflow: () => void;
   onUpdateWorkflow: (updated: Partial<Workflow>) => Promise<void>;
-  onRunWorkflow: () => Promise<void>;
   workflowUnsaved: boolean;
   canRunWorkflow: () => boolean;
   onClose: () => void;
@@ -665,7 +664,6 @@ export function WorkflowCanvas({
   onSelectWorkflow,
   onCreateWorkflow,
   onUpdateWorkflow,
-  onRunWorkflow,
   workflowUnsaved,
   canRunWorkflow,
   onClose,
@@ -2179,11 +2177,6 @@ export function WorkflowCanvas({
     if (!canRunWorkflow()) return;
     try {
       setIsExecutingWorkflow(true);
-      await onRunWorkflow();
-      if (!canRunWorkflow()) {
-        setIsExecutingWorkflow(false);
-        return;
-      }
       const run = await api.startWorkflowRun(
         workflow.id,
         { message: "Triggered from visual canvas" },

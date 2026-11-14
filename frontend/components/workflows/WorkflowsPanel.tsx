@@ -264,20 +264,6 @@ export function WorkflowsPanel({ agents, engines = [], onClose }: WorkflowsPanel
     setRuns(await api.listAllWorkflowRuns(50));
   }, []);
 
-  const handleRunWorkflow = async () => {
-    if (!activeWorkflow) return;
-    if (saves.current[activeWorkflow.id]) throw new Error("Save workflow changes before running.");
-    try {
-      await api.startWorkflowRun(activeWorkflow.id, {
-        message: "Interactive manual run from visual canvas",
-      });
-      const freshRuns = await api.listAllWorkflowRuns(50);
-      setRuns(freshRuns);
-    } catch (err) {
-      alert(`Run failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  };
-
   if (loading && !workflows) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0c0e] text-white">
@@ -316,6 +302,7 @@ export function WorkflowsPanel({ agents, engines = [], onClose }: WorkflowsPanel
       <button type="button" className="underline" onClick={() => retryWorkflow(Number(id))}>Retry saving</button>
     </div>)}
     <WorkflowCanvas
+      key={activeWorkflow.id}
       workflow={activeWorkflow}
       workflows={workflows || []}
       agents={agents}
@@ -324,7 +311,6 @@ export function WorkflowsPanel({ agents, engines = [], onClose }: WorkflowsPanel
       onSelectWorkflow={(id) => setSelectedWorkflowId(id)}
       onCreateWorkflow={handleCreateWorkflow}
       onUpdateWorkflow={handleUpdateWorkflow}
-      onRunWorkflow={handleRunWorkflow}
       workflowUnsaved={Boolean(unsavedWorkflows[activeWorkflow.id])}
       canRunWorkflow={() => !saves.current[activeWorkflow.id]}
       onClose={() => {
