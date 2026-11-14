@@ -70,6 +70,15 @@ function DocsLoadingSkeleton() {
   );
 }
 
+const UNBUNDLED_DOC_SOURCES: Record<string, string> = {
+  readme: "README.md",
+  "specs/onboarding/first_run": "docs/specs/onboarding/first-run.md",
+  "backend/readme": "backend/README.md",
+  "frontend/readme": "frontend/README.md",
+  "desktop_image/readme": "desktop-image/README.md",
+  "verification/roadmap_next_20261025": "docs/verification/roadmap-next-20261025.md",
+};
+
 function DocsView() {
   const searchParams = useSearchParams();
   const paramSlug = searchParams.get("doc");
@@ -79,6 +88,7 @@ function DocsView() {
   const [activeHeadingId, setActiveHeadingId] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [unbundledDoc, setUnbundledDoc] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [copiedMd, setCopiedMd] = useState(false);
   const [openDropdown, setOpenDropdown] = useState(false);
@@ -125,6 +135,9 @@ function DocsView() {
           break;
         }
       }
+      setUnbundledDoc(null);
+    } else {
+      setUnbundledDoc(clean);
     }
   };
 
@@ -214,6 +227,11 @@ function DocsView() {
 
   return (
     <div className="min-h-screen bg-surface text-ink antialiased scroll-smooth">
+      {unbundledDoc && <div role="status" className="fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border border-line bg-surface p-4 text-sm text-ink shadow-lg">
+        <p>This document is not included in the app.</p>
+        {UNBUNDLED_DOC_SOURCES[unbundledDoc] && <a className="underline" target="_blank" rel="noreferrer" href={`https://github.com/Anil-matcha/suparagent/blob/main/${UNBUNDLED_DOC_SOURCES[unbundledDoc]}`}>Open source on GitHub (requires internet)</a>}
+        <button type="button" className="ml-3 underline" onClick={() => setUnbundledDoc(null)}>Dismiss</button>
+      </div>}
       {/* Top Header */}
       <header className="sticky top-0 z-40 flex h-14 w-full items-center justify-between border-b border-line bg-surface/95 px-4 backdrop-blur-md">
         <div className="flex items-center gap-3">
