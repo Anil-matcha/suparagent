@@ -392,6 +392,7 @@ export function AboutMeTab({ onError }: { onError: (e: string | null) => void })
       <textarea
         value={text}
         rows={6}
+        disabled={busy}
         onChange={(e) => {
           setText(e.target.value);
           setSaved(null);
@@ -437,6 +438,7 @@ export function AboutMeTab({ onError }: { onError: (e: string | null) => void })
       </div>
       <div className="space-y-1 border-t border-line pt-2">
         <p className="text-xs font-medium">Added by your agents</p>
+        {dirty && about.learned.length > 0 && <p className="text-xs text-muted">Save or discard your edits before removing an added fact.</p>}
         {about.learned.length === 0 ? (
           <p className="text-xs text-muted">Nothing yet.</p>
         ) : (
@@ -447,7 +449,7 @@ export function AboutMeTab({ onError }: { onError: (e: string | null) => void })
                 <span className="text-muted">
                   learned by {fact.agent_name || "an agent"} · {new Date(fact.at * 1000).toLocaleDateString()}
                 </span>
-                <button onClick={() => void remove(fact.id)} disabled={busy} className={SMALL}>
+                <button onClick={() => void remove(fact.id)} disabled={busy || dirty} className={SMALL}>
                   Remove
                 </button>
               </li>
