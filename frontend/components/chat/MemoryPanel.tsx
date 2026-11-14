@@ -2,7 +2,7 @@
 
 // Below an agent's MEMORY.md editor: its topic notes, the notes proposed from
 // quiet conversations, and the history of changes with Undo (docs/MEMORY.md).
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, type Agent, type MemoryJournalRow, type MemoryProposal, type TopicDoc, type TopicList } from "@/lib/api";
 import { useT } from "@/lib/use-i18n";
 import { journalLabel, topicFileName } from "@/lib/memory";
@@ -97,6 +97,7 @@ function Topics({ agentId, onError }: { agentId: number; onError: (e: string | n
   const [open, setOpen] = useState<Open | null>(null);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+  const openRequest = useRef(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -109,15 +110,21 @@ function Topics({ agentId, onError }: { agentId: number; onError: (e: string | n
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
+    return () => {
+      // Invalidate any request still in flight when this agent or view changes.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      openRequest.current++;
+    };
   }, [refresh]);
 
   const openTopic = async (name: string) => {
+    const request = ++openRequest.current;
     onError(null);
     try {
       const doc = await api.getTopic(agentId, name);
-      setOpen({ doc, text: doc.text, conflict: false, saved: null });
+      if (request === openRequest.current) setOpen({ doc, text: doc.text, conflict: false, saved: null });
     } catch (err) {
-      onError(errorText(err));
+      if (request === openRequest.current) onError(errorText(err));
     }
   };
 
