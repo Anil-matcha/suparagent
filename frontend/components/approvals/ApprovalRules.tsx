@@ -131,6 +131,7 @@ export function ApprovalRules({
           <Select
             aria-label={t("approvals.matchLabel")}
             value={match}
+            disabled={busy}
             onChange={(e) => { setMatch(e.target.value === "prefix" ? "prefix" : "exact"); setSaveError(null); confirmation.clearSaved("rules"); }}
             className={`${FIELD_BOX} w-36 shrink-0`}
           >
@@ -139,6 +140,7 @@ export function ApprovalRules({
           </Select>
           <input
             aria-label={t("approvals.command")}
+            disabled={busy}
             className={`${FIELD} font-mono`}
             placeholder={match === "prefix" ? "git status" : "npm test"}
             value={command}
@@ -150,6 +152,7 @@ export function ApprovalRules({
         </div>
         <input
           aria-label={t("approvals.folder")}
+          disabled={busy}
           className={`${FIELD} font-mono`}
           placeholder={t("approvals.folderPlaceholder")}
           value={folder}
