@@ -776,7 +776,7 @@ export function AgentsPanel({
                   {canEditConnectedApps && <Tab value="apps">Connected apps</Tab>}
                   <Tab value="memory">Memory and notes</Tab>
                 </TabList>
-                <div className="min-h-0 flex-1 overflow-y-auto pb-4 pt-4">
+                <fieldset disabled={busy} className="min-h-0 flex-1 overflow-y-auto pb-4 pt-4">
                   <TabPanel value="basics" className="space-y-3">
                     {draft.id === null && onSetupChat && admin && (
                       <SetupEntryDisclosure agents={agents} engines={engines} onStart={onSetupChat} onCreateLead={() => setRoleChoice({ id: null, value: true })} />
@@ -968,7 +968,7 @@ export function AgentsPanel({
                       Use notes: load this agent&apos;s MEMORY.md into each conversation
                     </label>
                   </TabPanel>
-                </div>
+                </fieldset>
               </Tabs>
             </form>
           ) : gallery ? (
