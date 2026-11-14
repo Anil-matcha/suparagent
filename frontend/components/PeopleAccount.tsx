@@ -71,7 +71,7 @@ export function YourAccount({ session, me, onChanged }: { session: SessionInfo; 
         <Field label="Your name" className="min-w-48 flex-1">
           {(props) => <Input {...props} value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required />}
         </Field>
-        <Button type="submit" disabled={busy || !name.trim() || name.trim() === session.display_name}>Save name</Button>
+        <Button type="submit" disabled={busy || !name.trim() || name.trim() === me.display_name}>Save name</Button>
       </form>
       <form onSubmit={savePassword} className="space-y-3">
         <p className="text-sm text-muted">
