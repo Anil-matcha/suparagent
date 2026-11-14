@@ -71,6 +71,7 @@ function AppsBrowser() {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [more, setMore] = useState<{ key: string; apps: CatalogApp[]; next: string | null } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [pageError, setPageError] = useState<{ key: string; page: CatalogPage; message: string } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [status, setStatus] = useState<ComposioStatus | null>(null);
   const [accounts, setAccounts] = useState<ComposioAccount[] | null>(null);
@@ -110,10 +111,11 @@ function AppsBrowser() {
   const loadMore = async () => {
     if (!first || !nextCursor) return;
     setLoadingMore(true);
+    setPageError(null);
     try {
       const page = await api.getComposioCatalog({ search: query.search, category: query.category, cursor: nextCursor });
       setMore((previous) => ({ key, apps: mergeApps(previous?.key === key ? previous.apps : [], page.apps), next: page.next_cursor }));
-    } catch (err) { setError(message(err, "Could not load more apps.")); }
+    } catch (err) { setPageError({ key, page: first.page, message: message(err, "Could not load more apps.") }); }
     finally { setLoadingMore(false); }
   };
 
@@ -298,6 +300,7 @@ function AppsBrowser() {
 
   return <div className="space-y-6">
     {error && <Banner tone="danger" action={configured && accounts === null ? <Button type="button" onClick={() => void loadAccounts()}>Try again</Button> : undefined}>{error}</Banner>}
+    {pageError?.key === key && pageError.page === first?.page && <Banner tone="danger">{pageError.message}</Banner>}
     {notice && <Banner>{notice}</Banner>}
     {!status && !error && <SkeletonList rows={3} />}
 
