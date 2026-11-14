@@ -26,6 +26,7 @@ export function EngineInstall({ engine, installed, onChanged }: {
   const [operation, setOperation] = useState<Operation | null>(null);
   const [managedInstalled, setManagedInstalled] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const onChangedRef = useRef(onChanged);
   const notifiedOperationId = useRef<string | null>(null);
@@ -43,7 +44,7 @@ export function EngineInstall({ engine, installed, onChanged }: {
       statusApplied.current = requestId;
       setOperation(result.operation);
       setManagedInstalled(result.installed);
-      setError(null);
+      setStatusError(null);
       if (result.operation?.status === "succeeded" && notifiedOperationId.current !== result.operation.id) {
         notifiedOperationId.current = result.operation.id;
         onChangedRef.current();
@@ -51,7 +52,7 @@ export function EngineInstall({ engine, installed, onChanged }: {
     } catch (err) {
       if (requestId < statusApplied.current) return;
       statusApplied.current = requestId;
-      setError(err instanceof Error ? `Could not check install status. ${err.message}` : "Could not check install status.");
+      setStatusError(err instanceof Error ? `Could not check install status. ${err.message}` : "Could not check install status.");
     }
   }, [engine]);
 
@@ -106,6 +107,7 @@ export function EngineInstall({ engine, installed, onChanged }: {
     {operation && <p role="status" className="text-xs text-muted">{operation.progress}</p>}
     {operation?.error && <Banner tone="warning">{operation.error}</Banner>}
     {error && <Banner tone="warning">{error}</Banner>}
+    {statusError && <Banner tone="warning">{statusError}</Banner>}
     {operation?.output && <details className="text-xs"><summary className="cursor-pointer">Installer output</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words text-muted">{operation.output}</pre></details>}
   </section>;
 }
