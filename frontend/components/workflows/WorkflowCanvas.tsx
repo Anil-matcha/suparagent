@@ -2180,6 +2180,10 @@ export function WorkflowCanvas({
     try {
       setIsExecutingWorkflow(true);
       await onRunWorkflow();
+      if (!canRunWorkflow()) {
+        setIsExecutingWorkflow(false);
+        return;
+      }
       const run = await api.startWorkflowRun(
         workflow.id,
         { message: "Triggered from visual canvas" },
