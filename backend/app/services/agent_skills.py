@@ -343,6 +343,7 @@ def _mutation_lock(agent_id: int):
 def write_skill(
     agent_id: int, name: str, description: str, body: str, *, enabled: bool = True,
     source: str = "user", create_only: bool = False, triggers: list[str] | None = None,
+    expected_revision: str | None = None,
 ) -> Skill:
     """`triggers=None` keeps an existing skill's trigger phrases."""
     check_name(name)
@@ -350,6 +351,8 @@ def write_skill(
     with _mutation_lock(agent_id):
         if create_only and (_skill_dir(agent_id, name) / SKILL_FILE).exists():
             raise SkillError(409, "skill_exists", "A skill with this name already exists. Choose another name.")
+        if expected_revision is not None and read_skill(agent_id, name).revision != expected_revision:
+            raise SkillError(409, "skill_changed", "This skill changed. Copy any unsaved edits and reopen it before saving.")
         if wanted is None:
             try:
                 previous = _read_file(agent_id, name)

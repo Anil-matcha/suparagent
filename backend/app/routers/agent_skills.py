@@ -54,6 +54,8 @@ class SkillWriteRequest(BaseModel):
     body: str = Field(max_length=200_000)
     enabled: bool = True
     source: str = Field(default="user", max_length=200)
+    create_only: bool = False
+    expected_revision: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     # None keeps the skill's current trigger phrases; a list replaces them.
     triggers: list[str] | None = Field(default=None, max_length=50)
 
@@ -221,7 +223,7 @@ async def write_skill(
         return _response(
             skills.write_skill(
                 agent_id, name, payload.description, payload.body, enabled=payload.enabled, source=payload.source,
-                triggers=payload.triggers,
+                triggers=payload.triggers, create_only=payload.create_only, expected_revision=payload.expected_revision,
             )
         )
     except skills.SkillError as exc:

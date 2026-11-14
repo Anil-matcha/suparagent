@@ -29,7 +29,7 @@ export type SkillDoc = {
 };
 
 // `triggers` omitted keeps the skill's current phrases; a list replaces them.
-export type SkillSave = { description: string; body: string; enabled: boolean; source: SkillSource; triggers?: string[] };
+export type SkillSave = { description: string; body: string; enabled: boolean; source: SkillSource; triggers?: string[]; create_only?: boolean; expected_revision?: string };
 
 export type SkillLearnSource = { thread_id: number; turn_id: number };
 export type SkillLearnPreview = SkillPreview & SkillLearnSource & { redacted: number };

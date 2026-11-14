@@ -38,6 +38,7 @@ type Draft = {
   source: SkillSource;
   warnings: string[];
   redacted: number;
+  revision?: string;
   learnedFrom?: SkillLearnSource;
 };
 
@@ -136,7 +137,7 @@ export function SkillsPanel({
     setError(null);
     try {
       const doc = await api.getSkill(agentId, skill.name);
-      await api.saveSkill(agentId, skill.name, { description: doc.description, body: doc.body, enabled: !skill.enabled, source: doc.source });
+      await api.saveSkill(agentId, skill.name, { description: doc.description, body: doc.body, enabled: !skill.enabled, source: doc.source, expected_revision: doc.revision });
       await load();
       onChanged?.();
     } catch (err) {
@@ -157,7 +158,8 @@ export function SkillsPanel({
         ? await api.saveLearnedSkill(agentId, name, { ...learned, description: draft.description.trim(), body: draft.body, reviewed })
         : await api.saveSkill(agentId, name, {
           description: draft.description.trim(), body: draft.body, enabled: draft.enabled, source: draft.source,
-          triggers: parseTriggers(triggersText),
+          triggers: parseTriggers(triggersText), create_only: draft.existing === null,
+          expected_revision: draft.existing !== null ? draft.revision : undefined,
         });
       if (learned) setReceipt({ name, revision: doc.revision });
       // What was saved can differ (secrets are removed); show it so the person sees the result.
@@ -238,6 +240,7 @@ export function SkillsPanel({
             id="skill-import"
             className={`${FIELD} min-h-32 font-mono text-xs`}
             value={importing.text}
+            disabled={busy}
             onChange={(e) => setImporting({ text: e.target.value, error: null })}
             placeholder={"---\nname: weekly-report\ndescription: Summarise the week\n---\n\nSteps…"}
           />
@@ -270,7 +273,7 @@ export function SkillsPanel({
             id="skill-name"
             className={FIELD}
             value={draft.existing ?? draft.name}
-            disabled={draft.existing !== null}
+            disabled={busy || draft.existing !== null}
             maxLength={SKILL_NAME_MAX}
             onChange={(e) => setDraft({ ...draft, name: slugSkillName(e.target.value) })}
             placeholder="expense-review"
@@ -282,6 +285,7 @@ export function SkillsPanel({
             id="skill-description"
             className={FIELD}
             value={draft.description}
+            disabled={busy}
             onChange={(e) => setDraft({ ...draft, description: e.target.value })}
           />
           <label className="block text-xs text-muted" htmlFor="skill-triggers">Trigger phrases (optional, comma separated; suggests this skill when a message contains one)</label>
@@ -289,7 +293,7 @@ export function SkillsPanel({
             id="skill-triggers"
             className={FIELD}
             value={triggersText}
-            disabled={!!draft.learnedFrom && draft.existing === null}
+            disabled={busy || (!!draft.learnedFrom && draft.existing === null)}
             onChange={(e) => setTriggersText(e.target.value)}
             placeholder="weekly report, status update"
           />
@@ -298,19 +302,20 @@ export function SkillsPanel({
             id="skill-body"
             className={`${FIELD} min-h-64 font-mono text-xs`}
             value={draft.body}
+            disabled={busy}
             onChange={(e) => setDraft({ ...draft, body: e.target.value })}
           />
           {draft.learnedFrom && (
             <>
               <p className="text-xs text-muted">Source: conversation {draft.learnedFrom.thread_id}, turn {draft.learnedFrom.turn_id}. Only the request and result were copied; review the reference and replace the workflow sections.</p>
               <label className="flex cursor-pointer items-center gap-2 text-xs text-muted">
-                <input type="checkbox" checked={reviewed} onChange={(e) => setReviewed(e.target.checked)} />
+                <input type="checkbox" disabled={busy} checked={reviewed} onChange={(e) => setReviewed(e.target.checked)} />
                 I reviewed the reusable steps, inputs, validation and approval boundary.
               </label>
             </>
           )}
           <label className="flex cursor-pointer items-center gap-2 text-xs text-muted">
-            <input type="checkbox" disabled={!!draft.learnedFrom} checked={draft.enabled} onChange={() => setDraft({ ...draft, enabled: !draft.enabled })} />
+            <input type="checkbox" disabled={busy || !!draft.learnedFrom} checked={draft.enabled} onChange={() => setDraft({ ...draft, enabled: !draft.enabled })} />
             Available to pick in conversations
           </label>
           <div className="flex flex-wrap gap-2">
