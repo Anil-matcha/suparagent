@@ -50,7 +50,7 @@ export function getReactionsStorageKey(threadId: number | null | undefined): str
 }
 
 export function loadThreadReactions(threadId: number | null | undefined): ReactionsMap {
-  if (typeof window === "undefined" || !window.localStorage) return {};
+  if (typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(getReactionsStorageKey(threadId));
     if (!raw) return {};
@@ -84,7 +84,7 @@ export function saveThreadReaction(
     next[messageKey] = reaction;
   }
 
-  if (typeof window !== "undefined" && window.localStorage) {
+  if (typeof window !== "undefined") {
     try {
       const key = getReactionsStorageKey(threadId);
       if (Object.keys(next).length === 0) {

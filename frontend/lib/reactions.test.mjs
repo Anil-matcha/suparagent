@@ -88,3 +88,11 @@ test("loadThreadReactions and saveThreadReaction handle mock localStorage and to
   }
 });
 
+test("a denied localStorage getter does not prevent reading or reacting", () => {
+  globalThis.window = { get localStorage() { throw new DOMException("denied", "SecurityError"); } };
+  try {
+    assert.deepEqual(loadThreadReactions(10), {});
+    assert.deepEqual(saveThreadReaction(10, "a1", "thumbs_up"), { a1: "thumbs_up" });
+  } finally { delete globalThis.window; }
+});
+
