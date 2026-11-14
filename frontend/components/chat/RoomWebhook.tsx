@@ -8,6 +8,7 @@ import { webhookUrl } from "@/lib/routines";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useT } from "@/lib/use-i18n";
+import { copyToClipboard } from "@/lib/clipboard";
 
 const BTN = "rounded-field border border-line px-3 py-1.5 text-sm hover:bg-hover disabled:opacity-50";
 
@@ -23,7 +24,8 @@ export function RoomWebhook({ room, onChanged }: { room: Room; onChanged?: () =>
   const state = roomWebhookState(enabled, shown?.secret ?? null);
 
   const copy = async (text: string) => {
-    try { await navigator.clipboard.writeText(text); toast(t("roomWebhook.copied"), "success"); } catch { /* clipboard unavailable */ }
+    if (await copyToClipboard(text)) { setError(null); toast(t("roomWebhook.copied"), "success"); }
+    else setError(t("roomWebhook.copyFailed"));
   };
   const enable = async () => {
     setBusy(true); setError(null);

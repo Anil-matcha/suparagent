@@ -154,6 +154,7 @@ export const ko: Record<MessageKey, string> = {
   "roomWebhook.copySecret": "시크릿 복사",
   "roomWebhook.copyCurl": "curl 예시 복사",
   "roomWebhook.copied": "복사했습니다",
+  "roomWebhook.copyFailed": "복사하지 못했습니다. 다시 시도해 주세요.",
   "roomWebhook.disableTitle": "룸 웹훅을 끌까요?",
   "roomWebhook.disableBody": "현재 시크릿을 사용하는 도구는 더 이상 게시할 수 없습니다.",
   "roomWebhook.rotateTitle": "새 시크릿을 만들까요?",

@@ -154,6 +154,7 @@ export const zh: Record<MessageKey, string> = {
   "roomWebhook.copySecret": "复制密钥",
   "roomWebhook.copyCurl": "复制 curl 示例",
   "roomWebhook.copied": "已复制",
+  "roomWebhook.copyFailed": "复制失败，请重试。",
   "roomWebhook.disableTitle": "关闭房间 Webhook？",
   "roomWebhook.disableBody": "使用当前密钥的工具将无法再发帖。",
   "roomWebhook.rotateTitle": "创建新密钥？",

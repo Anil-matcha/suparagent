@@ -154,6 +154,7 @@ export const ja: Record<MessageKey, string> = {
   "roomWebhook.copySecret": "シークレットをコピー",
   "roomWebhook.copyCurl": "curl の例をコピー",
   "roomWebhook.copied": "コピーしました",
+  "roomWebhook.copyFailed": "コピーできませんでした。もう一度お試しください。",
   "roomWebhook.disableTitle": "ルームの Webhook をオフにしますか？",
   "roomWebhook.disableBody": "現在のシークレットを使っているツールは投稿できなくなります。",
   "roomWebhook.rotateTitle": "新しいシークレットを作成しますか？",
