@@ -72,7 +72,8 @@ export interface WorkflowCanvasProps {
   onSelectWorkflow: (id: number) => void;
   onCreateWorkflow: () => void;
   onUpdateWorkflow: (updated: Partial<Workflow>) => Promise<void>;
-  onRunWorkflow: () => Promise<void>;
+  workflowUnsaved: boolean;
+  canRunWorkflow: () => boolean;
   onClose: () => void;
   onRefreshRuns: () => Promise<void>;
 }
@@ -663,7 +664,8 @@ export function WorkflowCanvas({
   onSelectWorkflow,
   onCreateWorkflow,
   onUpdateWorkflow,
-  onRunWorkflow,
+  workflowUnsaved,
+  canRunWorkflow,
   onClose,
   onRefreshRuns,
 }: WorkflowCanvasProps) {
@@ -2172,9 +2174,9 @@ export function WorkflowCanvas({
 
   // Execute workflow live across canvas
   const handleTriggerFullRun = async () => {
+    if (!canRunWorkflow()) return;
     try {
       setIsExecutingWorkflow(true);
-      await onRunWorkflow();
       const run = await api.startWorkflowRun(
         workflow.id,
         { message: "Triggered from visual canvas" },
@@ -2191,6 +2193,7 @@ export function WorkflowCanvas({
 
   // Run isolated step
   const handleRunStep = async (stepId: string) => {
+    if (!canRunWorkflow()) return;
     try {
       setRunningStepId(stepId);
       const res = await api.runWorkflowStep(workflow.id, stepId, {
@@ -2361,7 +2364,8 @@ export function WorkflowCanvas({
 
           <button
             type="button"
-            disabled={isExecutingWorkflow}
+            disabled={isExecutingWorkflow || workflowUnsaved}
+            title={workflowUnsaved ? "Save workflow changes before running" : undefined}
             onClick={handleTriggerFullRun}
             className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold bg-white text-zinc-950 hover:bg-zinc-100 shadow-md transition-all active:scale-95 disabled:opacity-50"
           >
@@ -4331,7 +4335,7 @@ export function WorkflowCanvas({
                     {/* Primary Trigger Button: Run now / Run workflow / Send test webhook */}
                     <button
                       type="button"
-                      disabled={isLocked || isExecutingWorkflow}
+                      disabled={isLocked || isExecutingWorkflow || workflowUnsaved}
                       onClick={() => handleTriggerFullRun()}
                       className="w-full py-1.5 px-3 rounded-xl bg-white text-zinc-950 font-semibold text-xs flex items-center justify-center gap-1.5 hover:bg-zinc-200 transition-colors shadow-sm disabled:opacity-50 active:scale-98"
                     >
@@ -4531,7 +4535,7 @@ export function WorkflowCanvas({
                     {/* Inline Full-width "Run" Button */}
                     <button
                       type="button"
-                      disabled={isRunningThis}
+                      disabled={isRunningThis || workflowUnsaved}
                       onClick={() => handleRunStep(step.id)}
                       className="w-full py-2 rounded-xl bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-98 disabled:opacity-50 shrink-0"
                     >

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   type Agent,
@@ -16,6 +16,19 @@ interface WorkflowsPanelProps {
   engines?: Engine[];
   onClose: () => void;
 }
+
+interface WorkflowSave {
+  draft: Workflow;
+  pending: Partial<Workflow> | null;
+  saving: boolean;
+  error: string | null;
+}
+
+const queuedChanges = (save: WorkflowSave) => save.pending;
+const applyWorkflowEdit = (save: WorkflowSave, partial: Partial<Workflow>) => {
+  save.draft = { ...save.draft, ...partial };
+  save.pending = { ...save.pending, ...partial };
+};
 
 const DEFAULT_WORKFLOW_STEPS: WorkflowStep[] = [
   {
@@ -102,6 +115,18 @@ export function WorkflowsPanel({ agents, engines = [], onClose }: WorkflowsPanel
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [saveErrors, setSaveErrors] = useState<Record<number, string>>({});
+  const [unsavedWorkflows, setUnsavedWorkflows] = useState<Record<number, boolean>>({});
+  const saves = useRef<Record<number, WorkflowSave>>({});
+
+  useEffect(() => {
+    const warnBeforeLeave = (event: BeforeUnloadEvent) => {
+      if (Object.keys(saves.current).length === 0) return;
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warnBeforeLeave);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeave);
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -121,7 +146,7 @@ export function WorkflowsPanel({ agents, engines = [], onClose }: WorkflowsPanel
         setWorkflows([initial]);
         setSelectedWorkflowId(initial.id);
       } else {
-        setWorkflows(wfs);
+        setWorkflows(wfs.map((workflow) => saves.current[workflow.id]?.draft ?? workflow));
         setSelectedWorkflowId((prev) => (prev !== null ? prev : wfs[0].id));
       }
       setRuns(rList);
@@ -189,30 +214,55 @@ export function WorkflowsPanel({ agents, engines = [], onClose }: WorkflowsPanel
     }
   };
 
-  const handleUpdateWorkflow = async (partial: Partial<Workflow>) => {
-    if (!activeWorkflow) return;
-    try {
-      const updated = await api.updateWorkflow(activeWorkflow.id, partial);
-      setWorkflows((prev) =>
-        prev ? prev.map((w) => (w.id === updated.id ? updated : w)) : [updated]
-      );
-    } catch (err) {
-      console.error("Failed to update workflow:", err);
+  const flushWorkflow = async (id: number) => {
+    const save = saves.current[id];
+    if (!save || save.saving || save.error || !save.pending) return;
+    save.saving = true;
+    while (save.pending) {
+      const pending = save.pending;
+      save.pending = null;
+      try {
+        const updated = await api.updateWorkflow(id, pending);
+        save.draft = { ...updated, ...queuedChanges(save) };
+        const draft = save.draft;
+        setWorkflows((prev) => prev?.map((workflow) => workflow.id === id ? draft : workflow) ?? prev);
+      } catch (err) {
+        save.pending = { ...pending, ...queuedChanges(save) };
+        save.error = err instanceof Error ? err.message : String(err);
+        setSaveErrors((old) => ({ ...old, [id]: save.error! }));
+        break;
+      }
+    }
+    save.saving = false;
+    if (!save.pending && !save.error) {
+      delete saves.current[id];
+      setUnsavedWorkflows((old) => { const next = { ...old }; delete next[id]; return next; });
     }
   };
 
-  const handleRunWorkflow = async () => {
+  const handleUpdateWorkflow = async (partial: Partial<Workflow>) => {
     if (!activeWorkflow) return;
-    try {
-      await api.startWorkflowRun(activeWorkflow.id, {
-        message: "Interactive manual run from visual canvas",
-      });
-      const freshRuns = await api.listAllWorkflowRuns(50);
-      setRuns(freshRuns);
-    } catch (err) {
-      alert(`Run failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    const id = activeWorkflow.id;
+    const save = saves.current[id] ?? { draft: activeWorkflow, pending: null, saving: false, error: null };
+    applyWorkflowEdit(save, partial);
+    saves.current[id] = save;
+    setUnsavedWorkflows((old) => ({ ...old, [id]: true }));
+    const draft = save.draft;
+    setWorkflows((prev) => prev?.map((workflow) => workflow.id === id ? draft : workflow) ?? prev);
+    await flushWorkflow(id);
   };
+
+  const retryWorkflow = (id: number) => {
+    const save = saves.current[id];
+    if (!save) return;
+    save.error = null;
+    setSaveErrors((old) => { const next = { ...old }; delete next[id]; return next; });
+    void flushWorkflow(id);
+  };
+
+  const refreshRuns = useCallback(async () => {
+    setRuns(await api.listAllWorkflowRuns(50));
+  }, []);
 
   if (loading && !workflows) {
     return (
@@ -246,7 +296,13 @@ export function WorkflowsPanel({ agents, engines = [], onClose }: WorkflowsPanel
   if (!activeWorkflow) return null;
 
   return (
+    <>
+    {Object.entries(saveErrors).map(([id, message]) => <div key={id} role="alert" className="fixed top-14 left-1/2 z-[100] -translate-x-1/2 rounded-lg border border-rose-700 bg-zinc-900 px-4 py-3 text-sm text-white shadow-lg">
+      <span>Workflow changes were not saved: {message}. Your edits are still here. </span>
+      <button type="button" className="underline" onClick={() => retryWorkflow(Number(id))}>Retry saving</button>
+    </div>)}
     <WorkflowCanvas
+      key={activeWorkflow.id}
       workflow={activeWorkflow}
       workflows={workflows || []}
       agents={agents}
@@ -255,9 +311,14 @@ export function WorkflowsPanel({ agents, engines = [], onClose }: WorkflowsPanel
       onSelectWorkflow={(id) => setSelectedWorkflowId(id)}
       onCreateWorkflow={handleCreateWorkflow}
       onUpdateWorkflow={handleUpdateWorkflow}
-      onRunWorkflow={handleRunWorkflow}
-      onClose={onClose}
-      onRefreshRuns={loadData}
+      workflowUnsaved={Boolean(unsavedWorkflows[activeWorkflow.id])}
+      canRunWorkflow={() => !saves.current[activeWorkflow.id]}
+      onClose={() => {
+        if (Object.keys(saves.current).length && !window.confirm("Some workflow changes have not been saved. Close anyway?")) return;
+        onClose();
+      }}
+      onRefreshRuns={refreshRuns}
     />
+    </>
   );
 }
