@@ -157,6 +157,34 @@ async def test_invalid_or_incomplete_provider_output_fails(monkeypatch, body):
     assert error.value.code == 'transcription_failed'
 
 
+@pytest.mark.parametrize('model,body', [
+    ('gpt-transcribe', {'text': None}),
+    ('gpt-transcribe', {'text': 42}),
+    ('gpt-transcribe', {'text': ['words']}),
+    ('whisper-1', {'text': 'valid', 'segments': [{'start': 0, 'end': 1, 'text': None}]}),
+])
+async def test_non_text_provider_output_fails_cleanly(monkeypatch, model, body):
+    monkeypatch.setattr(audio.settings, 'AUDIO_TRANSCRIPTION_MODEL', model)
+    monkeypatch.setattr(audio.settings, 'AUDIO_TRANSCRIPTION_API_KEY', 'fixture-only-key')
+    monkeypatch.setattr(audio.shutil, 'which', lambda name: '/fixture/' + name)
+    monkeypatch.setattr(audio.local_whisper, 'is_available', lambda: False)
+    monkeypatch.setattr(audio, 'validate', lambda *args: ('audio/wav', 1.0))
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        @contextlib.asynccontextmanager
+        async def stream(self, *args, **kwargs): yield httpx.Response(200, json=body)
+    monkeypatch.setattr(audio.httpx, 'AsyncClient', Client)
+    with pytest.raises(attachments.AttachmentError) as error:
+        await audio.transcribe('sample.wav', b'synthetic', 'openai')
+    assert error.value.status == 502 and error.value.code == 'transcription_failed'
+    if model == 'gpt-transcribe' and body['text'] is None:
+        body['text'] = 'valid transcript'
+        result = await audio.transcribe('sample.wav', b'synthetic', 'openai')
+        assert result['text'] == 'valid transcript' and result['segments'] == []
+
+
 async def test_current_default_transcription_never_invents_timestamps(monkeypatch):
     monkeypatch.setattr(audio.settings, 'AUDIO_TRANSCRIPTION_API_KEY', 'fixture-only-key')
     monkeypatch.setattr(audio.settings, 'AUDIO_TRANSCRIPTION_MODEL', 'gpt-transcribe')
