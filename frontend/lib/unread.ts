@@ -7,6 +7,7 @@ export type SeenMap = Record<string, string>;
 type ThreadLike = { id: number; updated_at: string; archived_at: string | null };
 
 const KEY = "suparagent:thread-seen";
+export const THREAD_LIST_LIMIT = 100;
 
 export function loadSeen(): SeenMap {
   try {
@@ -27,10 +28,11 @@ export function saveSeen(seen: SeenMap): void {
 }
 
 // Moves the map forward for the threads now listed: one never seen before is taken as read (so
-// nothing is unread on first run), the open one is read now, and ones that are gone are dropped.
+// nothing is unread on first run), the open one is read now, and absent entries are dropped only
+// when the list is shorter than the request limit and is therefore complete.
 // Returns the same object when nothing changed.
 export function reconcileSeen(threads: readonly ThreadLike[], seen: SeenMap, selectedId: number | null): SeenMap {
-  const next: SeenMap = {};
+  const next: SeenMap = threads.length < THREAD_LIST_LIMIT ? {} : { ...seen };
   let changed = false;
   for (const thread of threads) {
     const key = String(thread.id);

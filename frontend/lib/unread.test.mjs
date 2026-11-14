@@ -29,3 +29,14 @@ test("nothing changed returns the same object", () => {
   const seen = reconcileSeen([th(1, "2026-10-30T10:00:00Z")], {}, null);
   assert.equal(reconcileSeen([th(1, "2026-10-30T10:00:00Z")], seen, null), seen);
 });
+
+test("a thread outside a full recent list retains its last-seen time", () => {
+  const original = th(101, "2026-10-30T10:00:00Z");
+  const firstSeen = reconcileSeen([original], {}, null);
+  const recent = Array.from({ length: 100 }, (_, i) => th(i + 1, "2026-10-30T10:00:00Z"));
+  const afterEviction = reconcileSeen(recent, firstSeen, null);
+  const returned = th(101, "2026-10-30T12:00:00Z");
+  const afterReturn = reconcileSeen([returned, ...recent.slice(0, 99)], afterEviction, null);
+  assert.equal(isUnread(returned, afterReturn, null), true);
+  assert.equal(isUnread(returned, reconcileSeen([returned, ...recent.slice(0, 99)], afterReturn, 101), null), false);
+});

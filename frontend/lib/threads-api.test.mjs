@@ -142,10 +142,10 @@ test('creating a thread and resetting its session use the documented routes', as
 test('listing asks for archived conversations only when told to', async () => {
   const plain = respondJson(200, []);
   await api.listThreads();
-  assert.match(plain[0].url, /\/threads$/);
+  assert.match(plain[0].url, /\/threads\?limit=100$/);
   const all = respondJson(200, []);
   await api.listThreads(true);
-  assert.match(all[0].url, /\/threads\?include_archived=true$/);
+  assert.match(all[0].url, /\/threads\?limit=100&include_archived=true$/);
 });
 
 test('stop posts to the thread, and a stop that came too late carries its code', async () => {

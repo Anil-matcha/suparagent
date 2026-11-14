@@ -2,6 +2,7 @@ import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview
 import type { TemplateCatalog, TemplateSkill } from "./templates";
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
+import { THREAD_LIST_LIMIT } from "./unread.ts";
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
@@ -1294,7 +1295,7 @@ export const api = {
 
   // Newest activity first. Archived conversations are left out unless asked for.
   listThreads: (includeArchived = false) =>
-    request<Thread[]>(`/threads${includeArchived ? "?include_archived=true" : ""}`),
+    request<Thread[]>(`/threads?limit=${THREAD_LIST_LIMIT}${includeArchived ? "&include_archived=true" : ""}`),
 
   getThread: (threadId: number) => request<ThreadDetail>(`/threads/${threadId}`),
 
