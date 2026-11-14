@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -80,7 +80,9 @@ function DocsView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [copiedMd, setCopiedMd] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<{ slug: string; status: "copied" | "failed" } | null>(null);
+  const [copyingMd, setCopyingMd] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [openDropdown, setOpenDropdown] = useState(false);
 
   // Derive activeSlug directly from searchParams or user selection
@@ -92,6 +94,10 @@ function DocsView() {
       : DEFAULT_DOC_SLUG;
 
   const article: DocArticle = DOC_ARTICLES[activeSlug] || DOC_ARTICLES[DEFAULT_DOC_SLUG];
+  const copiedMd = copyFeedback?.slug === activeSlug && copyFeedback.status === "copied";
+  const copyFailed = copyFeedback?.slug === activeSlug && copyFeedback.status === "failed";
+
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
 
   // Accordion state for categories: expand the active one by default
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>(() => {
@@ -202,13 +208,17 @@ function DocsView() {
   const nextArticle = currentIndex < allArticlesList.length - 1 ? allArticlesList[currentIndex + 1] : null;
 
   const handleCopyMarkdown = async () => {
-    if (!article) return;
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    setCopyFeedback(null);
+    setCopyingMd(true);
     try {
       await navigator.clipboard.writeText(article.content);
-      setCopiedMd(true);
-      setTimeout(() => setCopiedMd(false), 2000);
+      setCopyFeedback({ slug: activeSlug, status: "copied" });
+      copyTimer.current = setTimeout(() => setCopyFeedback(null), 2000);
     } catch {
-      /* ignore */
+      setCopyFeedback({ slug: activeSlug, status: "failed" });
+    } finally {
+      setCopyingMd(false);
     }
   };
 
@@ -422,12 +432,14 @@ function DocsView() {
                 <button
                   type="button"
                   onClick={handleCopyMarkdown}
+                  disabled={copyingMd}
                   className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink cursor-pointer"
                   aria-label="Copy markdown text"
                 >
                   {copiedMd ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
                   <span>{copiedMd ? "Copied" : "Copy Markdown"}</span>
                 </button>
+                <span role="status" className={copyFailed ? "text-danger" : "sr-only"}>{copyFailed ? "Could not copy Markdown. Try again." : copiedMd ? "Markdown copied." : ""}</span>
 
                 <div className="relative">
                   <button

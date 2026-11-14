@@ -38,14 +38,27 @@ function slugify(text: string): string {
 
 function CodeBlock({ code, language }: { code: string; language: string }) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const resetTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => () => {
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+  }, []);
 
   const handleCopy = async () => {
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+    setCopied(false);
+    setCopyError(false);
+    setCopying(true);
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      resetTimer.current = setTimeout(() => setCopied(false), 2000);
     } catch {
-      /* ignore */
+      setCopyError(true);
+    } finally {
+      setCopying(false);
     }
   };
 
@@ -58,6 +71,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
         <button
           type="button"
           onClick={handleCopy}
+          disabled={copying}
           className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted transition hover:bg-hover hover:text-ink cursor-pointer"
           aria-label="Copy code"
         >
@@ -65,6 +79,8 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
           <span>{copied ? "Copied" : "Copy"}</span>
         </button>
       </div>
+      <span role="status" className="sr-only">{copied ? "Code copied." : copyError ? "Could not copy code. Select the code and copy it manually." : ""}</span>
+      {copyError && <p className="px-4 pt-2 text-xs text-danger">Could not copy code. Select the code and copy it manually.</p>}
       <pre className="overflow-x-auto p-4 font-mono text-[13px] leading-relaxed text-ink">
         <code>{code}</code>
       </pre>
