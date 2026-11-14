@@ -205,6 +205,9 @@ export function ProfileSettings() {
   });
   const [stats, setStats] = useState<ProfileStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [profileReady, setProfileReady] = useState(false);
+  const [profileLoadFailed, setProfileLoadFailed] = useState(false);
+  const [profileAttempt, setProfileAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -218,10 +221,13 @@ export function ProfileSettings() {
       .then((p) => {
         if (alive) {
           setProfile(p);
+          setProfileReady(true);
+          setProfileLoadFailed(false);
         }
       })
       .catch((err) => {
         console.warn("Could not load user profile:", err);
+        if (alive) setProfileLoadFailed(true);
       });
 
     profileApi
@@ -242,7 +248,7 @@ export function ProfileSettings() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [profileAttempt]);
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -273,6 +279,7 @@ export function ProfileSettings() {
       <span id="setting-profile-models" className="sr-only" />
       <span id="setting-profile-account" className="sr-only" />
       {error && <Banner tone="danger">{error}</Banner>}
+      {profileLoadFailed && <Banner tone="danger">Could not load your current profile. <button type="button" className="underline" onClick={() => { setProfileLoadFailed(false); setProfileAttempt((n) => n + 1); }}>Try again</button></Banner>}
 
       {/* 1. Profile Hero Section */}
       <section
@@ -298,7 +305,7 @@ export function ProfileSettings() {
             <Share2 size={15} aria-hidden="true" />
             <span>Share</span>
           </Button>
-          <Button variant="secondary" onClick={() => setEditOpen(true)}>
+          <Button variant="secondary" disabled={!profileReady} onClick={() => setEditOpen(true)}>
             <Pencil size={15} aria-hidden="true" />
             <span>Edit profile</span>
           </Button>
