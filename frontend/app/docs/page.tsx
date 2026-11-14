@@ -74,7 +74,6 @@ function DocsView() {
   const searchParams = useSearchParams();
   const paramSlug = searchParams.get("doc");
 
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [headings, setHeadings] = useState<HeadingItem[]>([]);
   const [activeHeadingId, setActiveHeadingId] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -84,12 +83,10 @@ function DocsView() {
   const [openDropdown, setOpenDropdown] = useState(false);
   const [anchorNavigation, setAnchorNavigation] = useState(0);
 
-  // Derive activeSlug directly from searchParams or user selection
+  // The URL selects the article, including when browser history has no doc parameter.
   const activeSlug =
     paramSlug && DOC_ARTICLES[paramSlug.toLowerCase()]
       ? paramSlug.toLowerCase()
-      : selectedSlug && DOC_ARTICLES[selectedSlug.toLowerCase()]
-      ? selectedSlug.toLowerCase()
       : DEFAULT_DOC_SLUG;
 
   const article: DocArticle = DOC_ARTICLES[activeSlug] || DOC_ARTICLES[DEFAULT_DOC_SLUG];
@@ -112,7 +109,6 @@ function DocsView() {
   const navigateToDoc = (slug: string, anchor?: string) => {
     const clean = slug.toLowerCase();
     if (DOC_ARTICLES[clean]) {
-      setSelectedSlug(clean);
       setSidebarOpen(false);
       setSearchOpen(false);
       setOpenDropdown(false);
