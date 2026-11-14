@@ -2,7 +2,7 @@
 
 // Below an agent's MEMORY.md editor: its topic notes, the notes proposed from
 // quiet conversations, and the history of changes with Undo (docs/MEMORY.md).
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, type Agent, type MemoryJournalRow, type MemoryProposal, type TopicDoc, type TopicList } from "@/lib/api";
 import { useT } from "@/lib/use-i18n";
 import { journalLabel, topicFileName } from "@/lib/memory";
@@ -33,12 +33,15 @@ export function MemoryPanel({
   const [tab, setTab] = useState<Tab>("topics");
   const [proposed, setProposed] = useState<MemoryProposal[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const proposalRequest = useRef(0);
 
   const loadProposed = useCallback(async () => {
+    const request = ++proposalRequest.current;
     try {
-      setProposed(await api.memoryProposals(agentId));
+      const items = await api.memoryProposals(agentId);
+      if (request === proposalRequest.current) setProposed(items);
     } catch (err) {
-      setError(errorText(err));
+      if (request === proposalRequest.current) setError(errorText(err));
     }
   }, [agentId]);
 
@@ -46,6 +49,11 @@ export function MemoryPanel({
     // Reading the queue also reads any conversation that went quiet since.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadProposed();
+    return () => {
+      // Invalidate requests belonging to the old agent or an unmounted panel.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      proposalRequest.current++;
+    };
   }, [loadProposed]);
 
   const tabs: [Tab, string][] = [
@@ -77,7 +85,8 @@ export function MemoryPanel({
           agentId={agentId}
           items={proposed}
           onError={setError}
-          onDone={() => {
+          onDone={(id) => {
+            setProposed((items) => items?.filter((item) => item.id !== id) ?? null);
             void loadProposed();
             onNotesChanged();
           }}
@@ -261,7 +270,7 @@ function Proposed({
   agentId: number;
   items: MemoryProposal[] | null;
   onError: (e: string | null) => void;
-  onDone: () => void;
+  onDone: (id: string) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const decide = async (p: MemoryProposal, accept: boolean) => {
@@ -270,7 +279,7 @@ function Proposed({
     try {
       if (accept) await api.acceptProposal(agentId, p.id);
       else await api.rejectProposal(agentId, p.id);
-      onDone();
+      onDone(p.id);
     } catch (err) {
       onError(errorText(err));
     } finally {
