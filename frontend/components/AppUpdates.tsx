@@ -101,6 +101,10 @@ function WebAppUpdates() {
     api.getVersionInfo(isRefresh)
       .then((data) => {
         if (cancelled) return;
+        if (isRefresh && !data.latest_version) {
+          setError("No release information was available");
+          return;
+        }
         setInfo(data);
         setError(null);
       })
@@ -166,6 +170,8 @@ function WebAppUpdates() {
         </p>
       </div>
 
+      {error && <p role="alert" className="text-sm text-danger">Could not check for updates: {error}. Showing the previous result.</p>}
+
       {info.update_available ? (
         <div className="space-y-3">
           <p role="status" className="text-sm font-medium text-accent">
@@ -183,7 +189,7 @@ function WebAppUpdates() {
         </div>
       ) : (
         <p role="status" className="text-sm text-muted">
-          {info.latest_version ? "Suparagent is up to date." : "Suparagent checks for new versions in the background."}
+          {info.latest_version ? "Suparagent is up to date." : "Release information is currently unavailable."}
         </p>
       )}
 
