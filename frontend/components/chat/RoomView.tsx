@@ -43,6 +43,7 @@ export function RoomView({ roomId, agents, onClose, onSelect, onTitleChange }: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [webhookBusy, setWebhookBusy] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { session } = useSession();
@@ -147,7 +148,7 @@ export function RoomView({ roomId, agents, onClose, onSelect, onTitleChange }: {
     description={t("room.description")}
     size="lg"
     onOpenChange={open => {
-      if (open) return;
+      if (open || webhookBusy) return;
       if (roomId === "new") onClose();
       else setEditing(false);
     }}
@@ -158,6 +159,7 @@ export function RoomView({ roomId, agents, onClose, onSelect, onTitleChange }: {
         key={roomId}
         room={room ?? undefined}
         agents={agents}
+        onWebhookBusyChange={setWebhookBusy}
         onSaved={saved => { setEditing(false); setRoom(saved); onSelect(saved.id); void refresh(); }}
         onCancel={() => { if (roomId === "new") onClose(); else setEditing(false); }}
       /> : <p className="text-sm text-muted">{t("room.fullAccessRequired")}</p>}

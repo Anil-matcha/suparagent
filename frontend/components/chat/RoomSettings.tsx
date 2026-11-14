@@ -9,7 +9,7 @@ import { useT } from "@/lib/use-i18n";
 import { RoomWebhook } from "./RoomWebhook";
 
 const FIELD = "mt-1 w-full rounded-field border border-line bg-raised px-3 py-2 text-sm";
-export function RoomSettings({ room, agents, onSaved, onCancel }: { room?: Room; agents: Agent[]; onSaved: (room: Room) => void; onCancel: () => void }) {
+export function RoomSettings({ room, agents, onSaved, onCancel, onWebhookBusyChange }: { room?: Room; agents: Agent[]; onSaved: (room: Room) => void; onCancel: () => void; onWebhookBusyChange?: (busy: boolean) => void }) {
   const t = useT();
   const [name, setName] = useState(room?.name ?? "");
   const [bulletin, setBulletin] = useState(room?.bulletin ?? "");
@@ -18,6 +18,7 @@ export function RoomSettings({ room, agents, onSaved, onCancel }: { room?: Room;
   const [kind, setKind] = useState<Room["default_responder_kind"]>(room?.default_responder_kind ?? "mentions");
   const [responder, setResponder] = useState<number | null>(room?.default_responder_agent_id ?? null);
   const [busy, setBusy] = useState(false);
+  const [webhookBusy, setWebhookBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const choices = [
     ...agents.filter(agent => !agent.archived_at || expectedMembers.includes(agent.id)),
@@ -48,8 +49,8 @@ export function RoomSettings({ room, agents, onSaved, onCancel }: { room?: Room;
     <label className="block text-sm">{t("room.responderQuestion")}<Select className={FIELD} value={kind} onChange={event => setKind(event.target.value as Room["default_responder_kind"])}><option value="mentions">{t("room.taggedOnly")}</option><option value="member">{t("room.oneMember")}</option><option value="auto">{t("room.autoRoute")}</option><option value="everyone">{t("room.everyone")}</option></Select></label>
     {kind === "member" && <label className="block text-sm">{t("room.defaultResponder")}<Select required className={FIELD} value={responder ?? ""} onChange={event => setResponder(Number(event.target.value) || null)}><option value="">{t("room.chooseMember")}</option>{agents.filter(agent => members.includes(agent.id)).map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</Select></label>}
     {kind === "auto" && <label className="block text-sm">{t("room.autoFallback")}<Select className={FIELD} value={responder ?? ""} onChange={event => setResponder(Number(event.target.value) || null)}><option value="">{t("room.autoFallbackNone")}</option>{agents.filter(agent => members.includes(agent.id)).map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</Select></label>}
-    {room && <RoomWebhook room={room} />}
+    {room && <RoomWebhook room={room} onBusyChange={value => { setWebhookBusy(value); onWebhookBusyChange?.(value); }} />}
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-    <div className="flex gap-2"><button className="rounded-field border border-line px-3 py-2 text-sm hover:bg-hover" type="submit" disabled={!name.trim() || members.length === 0 || members.length > 12 || (kind === "member" && (!responder || !members.includes(responder)))}>{busy ? t("room.saving") : room ? t("room.save") : t("room.create")}</button><button className="px-3 py-2 text-sm underline" type="button" onClick={onCancel}>{t("room.cancel")}</button></div>
+    <div className="flex gap-2"><button className="rounded-field border border-line px-3 py-2 text-sm hover:bg-hover" type="submit" disabled={webhookBusy || !name.trim() || members.length === 0 || members.length > 12 || (kind === "member" && (!responder || !members.includes(responder)))}>{busy ? t("room.saving") : room ? t("room.save") : t("room.create")}</button><button className="px-3 py-2 text-sm underline" type="button" disabled={webhookBusy} onClick={onCancel}>{t("room.cancel")}</button></div>
   </fieldset></form>;
 }
