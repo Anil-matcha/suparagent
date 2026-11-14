@@ -1029,6 +1029,9 @@ export function ChatApp() {
     if (await copyToClipboard(link)) {
       setLinkCopied(true);
       window.setTimeout(() => setLinkCopied(false), 2000);
+    } else {
+      setLinkCopied(false);
+      toast(t("header.linkCopyFailed"), "danger");
     }
   } : undefined;
   // Rewinds the workspace to just before the latest task. The server refuses while a turn runs and
