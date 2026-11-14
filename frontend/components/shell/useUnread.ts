@@ -5,18 +5,18 @@ import type { Thread } from "@/lib/api";
 import { isUnread, loadSeen, reconcileSeen, saveSeen, type SeenMap } from "@/lib/unread";
 
 // The ids of conversations that moved since the person last opened them (per browser).
-export function useUnread(threads: Thread[] | null, selectedId: number | null): Set<number> {
+export function useUnread(threads: Thread[] | null, selectedId: number | null, selectedThread: Thread | null): Set<number> {
   const [seen, setSeen] = useState<SeenMap | null>(null);
 
   useEffect(() => {
     if (threads === null) return;
     const base = seen ?? loadSeen();
-    const next = reconcileSeen(threads, base, selectedId);
+    const next = reconcileSeen(threads, base, selectedId, selectedThread);
     if (next !== base || seen === null) saveSeen(next);
     // Syncing with localStorage, an external store: the state must follow the stored map.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (next !== seen) setSeen(next);
-  }, [threads, selectedId, seen]);
+  }, [threads, selectedId, selectedThread, seen]);
 
   return useMemo(() => {
     const ids = new Set<number>();

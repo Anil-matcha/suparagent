@@ -31,7 +31,7 @@ export function saveSeen(seen: SeenMap): void {
 // nothing is unread on first run), the open one is read now, and absent entries are dropped only
 // when the list is shorter than the request limit and is therefore complete.
 // Returns the same object when nothing changed.
-export function reconcileSeen(threads: readonly ThreadLike[], seen: SeenMap, selectedId: number | null): SeenMap {
+export function reconcileSeen(threads: readonly ThreadLike[], seen: SeenMap, selectedId: number | null, selectedThread: ThreadLike | null = null): SeenMap {
   const next: SeenMap = threads.length < THREAD_LIST_LIMIT ? {} : { ...seen };
   let changed = false;
   for (const thread of threads) {
@@ -40,6 +40,13 @@ export function reconcileSeen(threads: readonly ThreadLike[], seen: SeenMap, sel
     const value = known === undefined || thread.id === selectedId ? thread.updated_at : known;
     next[key] = value;
     if (value !== known) changed = true;
+  }
+  if (selectedThread?.id === selectedId && !threads.some((thread) => thread.id === selectedId)) {
+    const key = String(selectedThread.id);
+    const previous = seen[key];
+    const value = previous && Date.parse(previous) > Date.parse(selectedThread.updated_at) ? previous : selectedThread.updated_at;
+    next[key] = value;
+    if (value !== previous) changed = true;
   }
   if (Object.keys(seen).length !== Object.keys(next).length) changed = true;
   return changed ? next : seen;

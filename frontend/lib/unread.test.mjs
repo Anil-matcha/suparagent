@@ -40,3 +40,15 @@ test("a thread outside a full recent list retains its last-seen time", () => {
   assert.equal(isUnread(returned, afterReturn, null), true);
   assert.equal(isUnread(returned, reconcileSeen([returned, ...recent.slice(0, 99)], afterReturn, 101), null), false);
 });
+
+test("viewing a loaded thread outside a full list marks its current activity read", () => {
+  const original = th(101, "2026-10-30T10:00:00Z");
+  const updated = th(101, "2026-10-30T12:00:00Z");
+  const recent = Array.from({ length: 100 }, (_, i) => th(i + 1, "2026-10-30T10:00:00Z"));
+  const seen = reconcileSeen(recent, { 101: original.updated_at }, 101, updated);
+  assert.equal(seen[101], updated.updated_at);
+  const returned = reconcileSeen([updated, ...recent.slice(0, 99)], seen, null);
+  assert.equal(isUnread(updated, returned, null), false);
+  const later = th(101, "2026-10-30T13:00:00Z");
+  assert.equal(isUnread(later, returned, null), true);
+});

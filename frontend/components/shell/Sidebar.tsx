@@ -82,6 +82,7 @@ export function Sidebar({
   agents,
   threads,
   selectedThreadId,
+  selectedThread,
   selectedAgentId,
   live,
   showArchived,
@@ -106,6 +107,7 @@ export function Sidebar({
   agents: Agent[] | null;
   threads: Thread[] | null;
   selectedThreadId: number | null;
+  selectedThread: Thread | null;
   selectedAgentId: number | null;
   live: SidebarLive;
   showArchived: boolean;
@@ -137,7 +139,7 @@ export function Sidebar({
   const [recentCollapsed, setRecentCollapsed] = useState(false);
   const listed = sidebarAgents(agents);
   const [agentsCollapsed, setAgentsCollapsed] = useState(false);
-  const unread = useUnread(threads, selectedThreadId);
+  const unread = useUnread(threads, selectedThreadId, selectedThread);
 
   const names = new Map((agents ?? []).map((agent) => [agent.id, agent.name]));
   const shownAgents = showAllAgents
