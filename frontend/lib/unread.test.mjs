@@ -52,3 +52,19 @@ test("viewing a loaded thread outside a full list marks its current activity rea
   const later = th(101, "2026-10-30T13:00:00Z");
   assert.equal(isUnread(later, returned, null), true);
 });
+
+test("selected detail cannot be regressed by a stale listed row", () => {
+  const older = th(1, "2026-10-30T10:00:00Z");
+  const viewed = th(1, "2026-10-30T12:00:00Z");
+  const seen = reconcileSeen([older], { 1: viewed.updated_at }, 1, viewed);
+  assert.equal(seen[1], viewed.updated_at);
+  assert.equal(isUnread(viewed, reconcileSeen([viewed], seen, null), null), false);
+});
+
+test("a newer list row is not marked viewed by older selected detail", () => {
+  const viewed = th(1, "2026-10-30T12:00:00Z");
+  const newer = th(1, "2026-10-30T13:00:00Z");
+  const seen = reconcileSeen([newer], { 1: viewed.updated_at }, 1, viewed);
+  assert.equal(seen[1], viewed.updated_at);
+  assert.equal(isUnread(newer, seen, null), true);
+});

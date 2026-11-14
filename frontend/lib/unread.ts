@@ -37,7 +37,10 @@ export function reconcileSeen(threads: readonly ThreadLike[], seen: SeenMap, sel
   for (const thread of threads) {
     const key = String(thread.id);
     const known = seen[key];
-    const value = known === undefined || thread.id === selectedId ? thread.updated_at : known;
+    const selected = thread.id === selectedId;
+    const viewed = selected && selectedThread?.id === selectedId ? selectedThread.updated_at : thread.updated_at;
+    const value = known === undefined ? (selected ? viewed : thread.updated_at)
+      : selected && Date.parse(viewed) > Date.parse(known) ? viewed : known;
     next[key] = value;
     if (value !== known) changed = true;
   }
