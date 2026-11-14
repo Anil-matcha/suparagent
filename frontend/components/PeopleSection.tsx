@@ -34,13 +34,16 @@ function failure(err: unknown, fallback: string): string {
 // Shown once, right after an invitation is made: the secret is not kept in readable form.
 function NewInvite({ invite, onDone }: { invite: Invite & { token: string }; onDone: () => void }) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const link = inviteLink(window.location.origin, BASE_PATH, invite);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
+      setCopyError(false);
     } catch {
       setCopied(false);
+      setCopyError(true);
     }
   };
   return (
@@ -50,6 +53,7 @@ function NewInvite({ invite, onDone }: { invite: Invite & { token: string }; onD
         It is shown only now.
       </p>
       <p className="break-all rounded bg-inset p-2 font-mono text-xs" data-testid="invite-link">{link}</p>
+      {copyError && <Banner tone="danger">Could not copy the link. Select and copy it above.</Banner>}
       <div className="flex gap-2">
         <Button type="button" onClick={copy}>{copied ? "Copied" : "Copy link"}</Button>
         <Button type="button" variant="ghost" onClick={onDone}>Done</Button>
