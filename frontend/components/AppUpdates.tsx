@@ -38,8 +38,9 @@ function DesktopAppUpdates({ bridge }: { bridge: UpdatesBridge }) {
 
   useEffect(() => {
     let alive = true;
-    void bridge.run("state").then((value) => { if (alive) setState(value); }).catch(() => {});
-    const stop = bridge.onState((value) => { if (alive) setState(value); });
+    let receivedEvent = false;
+    const stop = bridge.onState((value) => { if (alive) { receivedEvent = true; setState(value); } });
+    void bridge.run("state").then((value) => { if (alive && !receivedEvent) setState(value); }).catch(() => {});
     api.getVersionInfo().then((data) => { if (alive) setInfo(data); }).catch(() => {});
     return () => { alive = false; stop(); };
   }, [bridge]);
