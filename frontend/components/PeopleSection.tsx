@@ -121,7 +121,7 @@ function LocalPeopleSection() {
   const invite = () => act(async () => {
     const made = await people.invite(email, access.role, access.role === "member" ? access.permissions : undefined);
     setCreated(made as Invite & { token: string });
-    setEmail("");
+    setEmail((current) => current === email ? "" : current);
     setAccess(DEFAULT_ACCESS);
   }, "Could not create the invitation.");
 
