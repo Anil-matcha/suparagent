@@ -366,11 +366,16 @@ export function AgentsPanel({
       setOriginalDraft(savedDraft);
       setFromTemplate(null);
       setRoleChoice({ id: agent.id, value: isLead });
-      if (isLead) for (const [id, included] of Object.entries(memberChoices)) {
-        if (included) await collaboration.addMember(Number(id));
-        else if (team?.agents.some(member => member.id === Number(id))) await collaboration.removeMember(Number(id));
+      let teamNotice: string | null = null;
+      try {
+        if (isLead) for (const [id, included] of Object.entries(memberChoices)) {
+          if (included) await collaboration.addMember(Number(id));
+          else if (team?.agents.some(member => member.id === Number(id))) await collaboration.removeMember(Number(id));
+        }
+        setTeam(await collaboration.team());
+      } catch (err) {
+        teamNotice = `The agent was created, but team setup or refresh failed: ${errorText(err)}`;
       }
-      setTeam(await collaboration.team());
       const chosen = source.template.skills.filter((skill) => source.skills.includes(skill.name));
       const notice = skillInstallNotice(await installTemplateSkills(agent.id, source.template.id, chosen, api.installTemplateSkill));
       setDraft(null);
@@ -378,7 +383,7 @@ export function AgentsPanel({
       toast("Agent saved.");
       onChanged();
       onCreated?.(agent);
-      if (notice) setError(notice);
+      if (teamNotice || notice) setError([teamNotice, notice].filter(Boolean).join(" "));
       else onClose();
     } catch (err) {
       setError(errorText(err));
