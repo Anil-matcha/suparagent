@@ -1,6 +1,7 @@
 import type { MessageKey } from "../i18n";
 
 export const tr: Record<MessageKey, string> = {
+  "room.messageTooLong": "Oda mesajları en fazla {limit} karakter içerebilir.",
   "theme.label": "Tema",
   "theme.system": "Sistem",
   "theme.light": "Açık",

@@ -1,6 +1,7 @@
 import type { MessageKey } from "../i18n";
 
 export const ja: Record<MessageKey, string> = {
+  "room.messageTooLong": "ルームのメッセージは{limit}文字以内にしてください。",
   "theme.label": "テーマ",
   "theme.system": "システム",
   "theme.light": "ライト",

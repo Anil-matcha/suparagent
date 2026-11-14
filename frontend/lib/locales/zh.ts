@@ -1,6 +1,7 @@
 import type { MessageKey } from "../i18n";
 
 export const zh: Record<MessageKey, string> = {
+  "room.messageTooLong": "房间消息最多可包含 {limit} 个字符。",
   "theme.label": "主题",
   "theme.system": "系统",
   "theme.light": "浅色",

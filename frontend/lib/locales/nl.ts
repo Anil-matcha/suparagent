@@ -1,6 +1,7 @@
 import type { MessageKey } from "../i18n";
 
 export const nl: Record<MessageKey, string> = {
+  "room.messageTooLong": "Ruimteberichten mogen maximaal {limit} tekens bevatten.",
   "theme.label": "Thema",
   "theme.system": "Systeem",
   "theme.light": "Licht",

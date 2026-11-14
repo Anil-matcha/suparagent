@@ -1,6 +1,7 @@
 import type { MessageKey } from "../i18n";
 
 export const ko: Record<MessageKey, string> = {
+  "room.messageTooLong": "룸 메시지는 최대 {limit}자까지 입력할 수 있습니다.",
   "theme.label": "테마",
   "theme.system": "시스템",
   "theme.light": "라이트",

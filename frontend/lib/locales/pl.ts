@@ -1,6 +1,7 @@
 import type { MessageKey } from "../i18n";
 
 export const pl: Record<MessageKey, string> = {
+  "room.messageTooLong": "Wiadomości w pokoju mogą zawierać maksymalnie {limit} znaków.",
   "theme.label": "Motyw",
   "theme.system": "Systemowy",
   "theme.light": "Jasny",

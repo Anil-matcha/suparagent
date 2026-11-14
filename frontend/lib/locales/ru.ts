@@ -1,6 +1,7 @@
 import type { MessageKey } from "../i18n";
 
 export const ru: Record<MessageKey, string> = {
+  "room.messageTooLong": "Сообщения комнаты могут содержать не более {limit} символов.",
   "theme.label": "Тема",
   "theme.system": "Системная",
   "theme.light": "Светлая",

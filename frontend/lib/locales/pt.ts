@@ -1,6 +1,7 @@
 import type { MessageKey } from "../i18n";
 
 export const pt: Record<MessageKey, string> = {
+  "room.messageTooLong": "As mensagens da sala podem conter no máximo {limit} caracteres.",
   "theme.label": "Tema",
   "theme.system": "Sistema",
   "theme.light": "Claro",
