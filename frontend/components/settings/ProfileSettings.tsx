@@ -150,37 +150,6 @@ function ProfileSettingsSkeleton() {
   );
 }
 
-function defaultEmptyStats(): ProfileStats {
-  const days: ProfileDay[] = [];
-  const now = new Date();
-  for (let i = 364; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    days.push({
-      date: d.toISOString().slice(0, 10),
-      weekday: d.getDay(),
-      tokens: 0,
-      messages: 0,
-    });
-  }
-  return {
-    days,
-    tokens: 0,
-    messages: 0,
-    cost: null,
-    activeDays: 0,
-    peak: null,
-    currentStreak: 0,
-    currentStreakStart: null,
-    longestStreak: 0,
-    longestStreakDates: null,
-    busiestWeekday: null,
-    providers: [],
-    models: [],
-    teammates: [],
-  };
-}
-
 /* ─── Main Profile Settings Component ─── */
 export function ProfileSettings() {
   const confirmation = useSavedConfirmation();
@@ -205,6 +174,7 @@ export function ProfileSettings() {
   });
   const [stats, setStats] = useState<ProfileStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [statsAttempt, setStatsAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -224,6 +194,11 @@ export function ProfileSettings() {
         console.warn("Could not load user profile:", err);
       });
 
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
     profileApi
       .getAnnualStats(365)
       .then((s) => {
@@ -242,7 +217,7 @@ export function ProfileSettings() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [statsAttempt]);
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -261,7 +236,7 @@ export function ProfileSettings() {
   }
 
   const accountName = profile?.name?.trim() || profile?.email?.split("@")[0] || "User";
-  const displayStats = stats ?? (statsLoading ? null : defaultEmptyStats());
+  const displayStats = stats;
 
   return (
     <div className="space-y-8" data-setting-root>
@@ -273,6 +248,7 @@ export function ProfileSettings() {
       <span id="setting-profile-models" className="sr-only" />
       <span id="setting-profile-account" className="sr-only" />
       {error && <Banner tone="danger">{error}</Banner>}
+      {!statsLoading && !stats && <Banner tone="danger">Could not load activity statistics. <button type="button" className="underline" onClick={() => { setStatsLoading(true); setStatsAttempt((n) => n + 1); }}>Retry activity</button></Banner>}
 
       {/* 1. Profile Hero Section */}
       <section
@@ -294,7 +270,7 @@ export function ProfileSettings() {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <Button variant="secondary" onClick={() => setShareOpen(true)}>
+          <Button variant="secondary" disabled={!displayStats} onClick={() => setShareOpen(true)}>
             <Share2 size={15} aria-hidden="true" />
             <span>Share</span>
           </Button>
