@@ -205,6 +205,9 @@ export function ProfileSettings() {
   });
   const [stats, setStats] = useState<ProfileStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [profileReady, setProfileReady] = useState(false);
+  const [profileLoadFailed, setProfileLoadFailed] = useState(false);
+  const [profileAttempt, setProfileAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -218,10 +221,13 @@ export function ProfileSettings() {
       .then((p) => {
         if (alive) {
           setProfile(p);
+          setProfileReady(true);
+          setProfileLoadFailed(false);
         }
       })
       .catch((err) => {
         console.warn("Could not load user profile:", err);
+        if (alive) setProfileLoadFailed(true);
       });
 
     profileApi
@@ -242,7 +248,7 @@ export function ProfileSettings() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [profileAttempt]);
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -273,6 +279,7 @@ export function ProfileSettings() {
       <span id="setting-profile-models" className="sr-only" />
       <span id="setting-profile-account" className="sr-only" />
       {error && <Banner tone="danger">{error}</Banner>}
+      {profileLoadFailed && <Banner tone="danger">Could not load your current profile. <button type="button" className="underline" onClick={() => { setProfileLoadFailed(false); setProfileAttempt((n) => n + 1); }}>Try again</button></Banner>}
 
       {/* 1. Profile Hero Section */}
       <section
@@ -298,7 +305,7 @@ export function ProfileSettings() {
             <Share2 size={15} aria-hidden="true" />
             <span>Share</span>
           </Button>
-          <Button variant="secondary" onClick={() => setEditOpen(true)}>
+          <Button variant="secondary" disabled={!profileReady} onClick={() => setEditOpen(true)}>
             <Pencil size={15} aria-hidden="true" />
             <span>Edit profile</span>
           </Button>
@@ -741,8 +748,10 @@ function ProfileEditDialog({
   const [bio, setBio] = useState(profile?.bio || "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile?.avatar_url || null);
   const [saving, setSaving] = useState(false);
+  const [readingAvatar, setReadingAvatar] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileReadId = useRef(0);
   const originalName = profile?.name || "";
   const originalBio = profile?.bio || "";
   const originalAvatarUrl = profile?.avatar_url || null;
@@ -762,16 +771,23 @@ function ProfileEditDialog({
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    const readId = ++fileReadId.current;
+    setReadingAvatar(true);
+    setSaveError(null);
     const reader = new FileReader();
     reader.onload = (event) => {
+      if (readId !== fileReadId.current) return;
       const result = event.target?.result as string;
       if (result) { setAvatarUrl(result); setSaveError(null); }
     };
+    reader.onerror = () => { if (readId === fileReadId.current) setSaveError("Could not read the photo. Please try again."); };
+    reader.onloadend = () => { if (readId === fileReadId.current) setReadingAvatar(false); };
     reader.readAsDataURL(file);
   }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    if (saving || readingAvatar) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -792,12 +808,13 @@ function ProfileEditDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(next) => { if (!saving) { if (!next) { fileReadId.current++; setReadingAvatar(false); } onOpenChange(next); } }}
       title="Edit profile"
       description="Update your display name, avatar, and personal bio."
       size="sm"
     >
       <form id="profile-edit-form" onSubmit={handleSave} className="space-y-4">
+        <fieldset disabled={saving} className="space-y-4">
         {/* Avatar Picker */}
         <div className="flex flex-col items-center gap-2 pb-2">
           <UserAvatar user={{ name, avatar_url: avatarUrl }} size={84} />
@@ -815,7 +832,7 @@ function ProfileEditDialog({
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => { setAvatarUrl(null); setSaveError(null); }}
+                onClick={() => { fileReadId.current++; setReadingAvatar(false); setAvatarUrl(null); setSaveError(null); }}
               >
                 Remove
               </Button>
@@ -854,10 +871,12 @@ function ProfileEditDialog({
           />
         </div>
 
+        </fieldset>
         <Applies when="now" />
         <SaveBar
           dirty={dirty}
           saving={saving}
+          canSave={!readingAvatar}
           error={saveError}
           saved={false}
           saveLabel="Save changes"
@@ -866,6 +885,8 @@ function ProfileEditDialog({
             if (form instanceof HTMLFormElement) form.requestSubmit();
           }}
           onDiscard={() => {
+            fileReadId.current++;
+            setReadingAvatar(false);
             setName(originalName);
             setBio(originalBio);
             setAvatarUrl(originalAvatarUrl);
