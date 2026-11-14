@@ -33,12 +33,21 @@ function summary(state: UpdateState) {
 
 function UpdateCommand({ command }: { command: string }) {
   const [result, setResult] = useState<"idle" | "copied" | "failed">("idle");
+  const [pending, setPending] = useState(false);
+  useEffect(() => {
+    if (result !== "copied") return;
+    const timer = setTimeout(() => setResult("idle"), 2000);
+    return () => clearTimeout(timer);
+  }, [result]);
   const copy = async () => {
+    setPending(true);
     try {
       await navigator.clipboard.writeText(command);
       setResult("copied");
     } catch {
       setResult("failed");
+    } finally {
+      setPending(false);
     }
   };
   return (
@@ -46,7 +55,7 @@ function UpdateCommand({ command }: { command: string }) {
       <p className="text-xs text-muted">Run this command to update:</p>
       <div className="flex items-center justify-between gap-3 rounded-field border border-line bg-surface p-2.5 font-mono text-xs">
         <span className="overflow-x-auto whitespace-pre">{command}</span>
-        <Button size="sm" variant="secondary" onClick={copy}>{result === "copied" ? "Copied!" : "Copy"}</Button>
+        <Button size="sm" variant="secondary" disabled={pending} onClick={copy}>{result === "copied" ? "Copied!" : "Copy"}</Button>
       </div>
       {result === "failed" && <p role="alert" className="text-xs text-danger">Could not copy. Select and copy the command manually.</p>}
     </div>
@@ -77,7 +86,7 @@ function DesktopAppUpdates({ bridge }: { bridge: UpdatesBridge }) {
       </div>
       <p role={state.status === "error" ? "alert" : "status"} className={`text-sm ${state.status === "error" ? "text-danger" : ""}`}>{summary(state)}</p>
       {state.status === "available" && info?.update_command && (
-        <UpdateCommand command={info.update_command} />
+        <UpdateCommand key={info.update_command} command={info.update_command} />
       )}
       <div className="flex flex-wrap gap-2">
         {state.status === "available" && state.canDownload && <Button onClick={() => act("download")}>Download version {state.version}</Button>}
@@ -162,7 +171,7 @@ function WebAppUpdates() {
           <p role="status" className="text-sm font-medium text-accent">
             Version {info.latest_version} is available.
           </p>
-          <UpdateCommand command={info.update_command} />
+          <UpdateCommand key={info.update_command} command={info.update_command} />
         </div>
       ) : (
         <p role="status" className="text-sm text-muted">
