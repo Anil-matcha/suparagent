@@ -101,9 +101,6 @@ async def routine_calendar(start: AwareDatetime, end: AwareDatetime, rt=Depends(
     async with rt.session() as db:
         routines = (await db.scalars(select(Routine).where(Routine.owner_id == rt.owner_id).order_by(Routine.id))).all()
         for routine in routines:
-            if len(events) >= MAX_PROJECTED_EVENTS:
-                warnings.append(f"Showing the first {MAX_PROJECTED_EVENTS:,} scheduled occurrences. Choose a shorter window to see more.")
-                break
             if routine.paused or routine.schedule_kind == "manual":
                 continue
             cursor = max(start, now) - timedelta(microseconds=1)
@@ -118,11 +115,12 @@ async def routine_calendar(start: AwareDatetime, end: AwareDatetime, rt=Depends(
                                        state="scheduled", thread_id=None))
                     cursor = at
                 else:
-                    if capacity == 500:
+                    next_at = routine_schedule.next_after(routine.schedule_kind, routine.schedule_spec, routine.timezone, cursor)
+                    if next_at is not None and next_at < end:
+                        if len(events) >= MAX_PROJECTED_EVENTS:
+                            warnings.append(f"Showing the first {MAX_PROJECTED_EVENTS:,} scheduled occurrences. Choose a shorter window to see more.")
+                            break
                         warnings.append(f"{routine.name}: showing the first 500 occurrences in this window.")
-                    else:
-                        warnings.append(f"Showing the first {MAX_PROJECTED_EVENTS:,} scheduled occurrences. Choose a shorter window to see more.")
-                        break
             except (routine_schedule.InvalidSchedule, KeyError, ValueError):
                 warnings.append(f"{routine.name}: the schedule could not be read.")
         at_column = func.coalesce(RoutineRun.scheduled_for, RoutineRun.created_at)

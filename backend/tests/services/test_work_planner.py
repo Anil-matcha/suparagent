@@ -294,3 +294,50 @@ async def test_calendar_high_frequency_routine_has_its_own_cap(client, sessions)
     assert response.status_code == 200
     assert len(response.json()["events"]) == 500
     assert any("first 500 occurrences" in warning for warning in response.json()["warnings"])
+
+
+@pytest.mark.parametrize("occurrences", [3, 4])
+async def test_calendar_global_cap_warns_only_when_occurrences_are_omitted(client, sessions, monkeypatch, occurrences):
+    start = datetime.now(UTC) + timedelta(days=2)
+    end = start + timedelta(minutes=5 * occurrences)
+    monkeypatch.setattr(planner_routes, "MAX_PROJECTED_EVENTS", 3)
+    async with sessions() as db:
+        db.add(Routine(owner_id="alice", agent_id=1, name="Frequent routine", prompt="Hello", schedule_kind="interval",
+                       schedule_spec={"every_minutes": 5, "anchor": start.isoformat()}, timezone="UTC"))
+        await db.commit()
+    response = await client.get("/planner/routine-calendar", params={"start": start.isoformat(), "end": end.isoformat()})
+    assert response.status_code == 200
+    assert len(response.json()["events"]) == 3
+    assert bool(response.json()["warnings"]) is (occurrences > 3)
+
+
+@pytest.mark.parametrize("occurrences", [500, 501])
+async def test_calendar_per_routine_cap_warns_only_for_an_extra_occurrence(client, sessions, occurrences):
+    start = datetime.now(UTC) + timedelta(days=2)
+    end = start + timedelta(minutes=5 * occurrences)
+    async with sessions() as db:
+        db.add(Routine(owner_id="alice", agent_id=1, name="Frequent routine", prompt="Hello", schedule_kind="interval",
+                       schedule_spec={"every_minutes": 5, "anchor": start.isoformat()}, timezone="UTC"))
+        await db.commit()
+    response = await client.get("/planner/routine-calendar", params={"start": start.isoformat(), "end": end.isoformat()})
+    assert response.status_code == 200
+    assert len(response.json()["events"]) == 500
+    assert bool(response.json()["warnings"]) is (occurrences > 500)
+
+
+async def test_calendar_full_global_cap_still_checks_later_routines(client, sessions, monkeypatch):
+    start = datetime.now(UTC) + timedelta(days=2)
+    end = start + timedelta(minutes=15)
+    monkeypatch.setattr(planner_routes, "MAX_PROJECTED_EVENTS", 3)
+    async with sessions() as db:
+        db.add_all([
+            Routine(owner_id="alice", agent_id=1, name="First", prompt="Hello", schedule_kind="interval",
+                    schedule_spec={"every_minutes": 5, "anchor": start.isoformat()}, timezone="UTC"),
+            Routine(owner_id="alice", agent_id=1, name="Later", prompt="Hello", schedule_kind="once",
+                    schedule_spec={"at": (start + timedelta(minutes=1)).isoformat()}, timezone="UTC"),
+        ])
+        await db.commit()
+    response = await client.get("/planner/routine-calendar", params={"start": start.isoformat(), "end": end.isoformat()})
+    assert response.status_code == 200
+    assert len(response.json()["events"]) == 3
+    assert any("first 3 scheduled occurrences" in warning for warning in response.json()["warnings"])
