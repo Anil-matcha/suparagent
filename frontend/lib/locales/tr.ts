@@ -5,6 +5,7 @@ export const tr: Record<MessageKey, string> = {
   "theme.system": "Sistem",
   "theme.light": "Açık",
   "theme.dark": "Koyu",
+  "theme.notSaved": "Tema şimdilik uygulandı ancak bu tarayıcıya kaydedilemedi.",
   "common.close": "Kapat",
   "common.loading": "Yükleniyor…",
   "common.cancel": "İptal",

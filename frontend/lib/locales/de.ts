@@ -5,6 +5,7 @@ export const de: Record<MessageKey, string> = {
   "theme.system": "System",
   "theme.light": "Hell",
   "theme.dark": "Dunkel",
+  "theme.notSaved": "Das Design gilt vorerst, konnte aber in diesem Browser nicht gespeichert werden.",
   "common.close": "Schließen",
   "common.loading": "Wird geladen…",
   "common.cancel": "Abbrechen",

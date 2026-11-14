@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { AppUpdates } from "@/components/AppUpdates";
 import { SettingsCard } from "./SettingsCard";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
@@ -12,10 +13,12 @@ import { useT } from "@/lib/use-i18n";
 export function GeneralSettings() {
   const t = useT();
   const confirmation = useSavedConfirmation();
+  const [themeNotSaved, setThemeNotSaved] = useState(false);
   return <div className="space-y-6">
     <div id="setting-general-appearance" data-setting-id="setting-general-appearance" data-setting-container tabIndex={-1}>
-      <SettingsCard title={t("appSettings.general.appearance")} description={t("appSettings.general.appearanceHelp")} action={<ThemeToggle onChange={() => confirmation.showSaved("theme")} />}>
+      <SettingsCard title={t("appSettings.general.appearance")} description={t("appSettings.general.appearanceHelp")} action={<ThemeToggle onChange={(_, persisted) => { setThemeNotSaved(!persisted); if (persisted) confirmation.showSaved("theme"); else confirmation.clearSaved("theme"); }} />}>
         <div className="flex items-center gap-3"><Applies when="now" /><SavedConfirmation visible={confirmation.saved.has("theme")} /></div>
+        {themeNotSaved && <p role="status" className="mt-2 text-xs text-danger">{t("theme.notSaved")}</p>}
       </SettingsCard>
     </div>
     <div id="setting-general-language" data-setting-id="setting-general-language" data-setting-container tabIndex={-1}>

@@ -5,6 +5,7 @@ export const pt: Record<MessageKey, string> = {
   "theme.system": "Sistema",
   "theme.light": "Claro",
   "theme.dark": "Escuro",
+  "theme.notSaved": "O tema foi aplicado por enquanto, mas não pôde ser salvo neste navegador.",
   "common.close": "Fechar",
   "common.loading": "Carregando…",
   "common.cancel": "Cancelar",

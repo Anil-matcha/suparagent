@@ -5,6 +5,7 @@ export const zh: Record<MessageKey, string> = {
   "theme.system": "系统",
   "theme.light": "浅色",
   "theme.dark": "深色",
+  "theme.notSaved": "主题已暂时应用，但无法保存在此浏览器中。",
   "common.close": "关闭",
   "common.loading": "正在加载…",
   "common.cancel": "取消",
