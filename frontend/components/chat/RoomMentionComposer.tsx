@@ -149,7 +149,7 @@ export function RoomMentionComposer({
       {suggestions.map((suggestion, index) => {
         const member = suggestion.key === "everyone" ? undefined : members.find(item => String(item.agent_id) === suggestion.key);
         const identity = member?.name.normalize("NFKC").toLocaleLowerCase();
-        const isDuplicate = member && (duplicateNames.get(identity ?? "") ?? 0) > 1;
+        const needsIdentity = member && ((duplicateNames.get(identity ?? "") ?? 0) > 1 || member.name.toLowerCase() === "everyone");
         const optionId = `${id}-option-${suggestion.key}`;
         return <li
           id={optionId}
@@ -159,7 +159,7 @@ export function RoomMentionComposer({
           onMouseDown={event => event.preventDefault()}
           onClick={() => choose(suggestion)}
           className={`cursor-pointer rounded px-3 py-2 text-sm focus:outline-none ${index === activeIndex ? "bg-hover" : ""}`}
-        >{suggestion.label}{isDuplicate ? <span className="ml-2 text-xs text-muted">{memberIdentityLabel(member.agent_id)}</span> : null}</li>;
+        >{suggestion.label}{needsIdentity ? <span className="ml-2 text-xs text-muted">{memberIdentityLabel(member.agent_id)}</span> : null}</li>;
       })}
     </ul>}
   </div>;

@@ -205,6 +205,21 @@ def test_mentions(text, expected):
     assert parse(text, [(1,'Lead'), (2,'Reviewer')]) == expected
 
 
+async def test_everyone_mention_and_named_member_dispatch(harness, sessions):
+    rt, _, lead, worker = harness
+    async with sessions() as db:
+        agent = await db.get(Agent, worker.id)
+        agent.name = 'Everyone'
+        await db.commit()
+    room = await rt.rooms.create({'name': 'Review room', 'member_ids': [lead.id, worker.id], 'default_responder_kind': 'mentions'})
+    broadcast = await rt.rooms.post(room['id'], '@everyone')
+    addressed = await rt.rooms.post(room['id'], f'@Everyone (#{worker.id})')
+    async with sessions() as db:
+        dispatches = list((await db.execute(select(RoomDispatch).where(RoomDispatch.room_id == room['id']))).scalars())
+    assert {d.agent_id for d in dispatches if d.message_seq == broadcast} == {lead.id, worker.id}
+    assert {d.agent_id for d in dispatches if d.message_seq == addressed} == {worker.id}
+
+
 async def test_room_saved_message_queue_then_sequential_reply(harness, sessions):
     rt, engine, lead, worker = harness
     room = await rt.rooms.create({'name':'Review room', 'member_ids':[lead.id,worker.id], 'default_responder_kind':'everyone'})
