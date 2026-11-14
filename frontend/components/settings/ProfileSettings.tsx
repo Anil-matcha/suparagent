@@ -748,8 +748,10 @@ function ProfileEditDialog({
   const [bio, setBio] = useState(profile?.bio || "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile?.avatar_url || null);
   const [saving, setSaving] = useState(false);
+  const [readingAvatar, setReadingAvatar] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileReadId = useRef(0);
   const originalName = profile?.name || "";
   const originalBio = profile?.bio || "";
   const originalAvatarUrl = profile?.avatar_url || null;
@@ -769,16 +771,23 @@ function ProfileEditDialog({
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    const readId = ++fileReadId.current;
+    setReadingAvatar(true);
+    setSaveError(null);
     const reader = new FileReader();
     reader.onload = (event) => {
+      if (readId !== fileReadId.current) return;
       const result = event.target?.result as string;
       if (result) { setAvatarUrl(result); setSaveError(null); }
     };
+    reader.onerror = () => { if (readId === fileReadId.current) setSaveError("Could not read the photo. Please try again."); };
+    reader.onloadend = () => { if (readId === fileReadId.current) setReadingAvatar(false); };
     reader.readAsDataURL(file);
   }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    if (saving || readingAvatar) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -799,7 +808,7 @@ function ProfileEditDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={(next) => { if (!saving) onOpenChange(next); }}
+      onOpenChange={(next) => { if (!saving) { if (!next) { fileReadId.current++; setReadingAvatar(false); } onOpenChange(next); } }}
       title="Edit profile"
       description="Update your display name, avatar, and personal bio."
       size="sm"
@@ -823,7 +832,7 @@ function ProfileEditDialog({
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => { setAvatarUrl(null); setSaveError(null); }}
+                onClick={() => { fileReadId.current++; setReadingAvatar(false); setAvatarUrl(null); setSaveError(null); }}
               >
                 Remove
               </Button>
@@ -867,6 +876,7 @@ function ProfileEditDialog({
         <SaveBar
           dirty={dirty}
           saving={saving}
+          canSave={!readingAvatar}
           error={saveError}
           saved={false}
           saveLabel="Save changes"
@@ -875,6 +885,8 @@ function ProfileEditDialog({
             if (form instanceof HTMLFormElement) form.requestSubmit();
           }}
           onDiscard={() => {
+            fileReadId.current++;
+            setReadingAvatar(false);
             setName(originalName);
             setBio(originalBio);
             setAvatarUrl(originalAvatarUrl);
