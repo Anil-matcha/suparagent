@@ -95,11 +95,12 @@ export function resolveEngineModel(
  * Reads the cached engine preference from localStorage for instant 0ms hydration.
  */
 export function readCachedPreference(
-  storage: Storage | null = typeof window !== "undefined" ? window.localStorage : null
+  storage?: Storage | null
 ): { provider: string | null; model: string | null; effort?: string | null } | null {
-  if (!storage) return null;
   try {
-    const raw = storage.getItem(PREFERRED_ENGINE_STORAGE_KEY);
+    const target = storage === undefined ? (typeof window !== "undefined" ? window.localStorage : null) : storage;
+    if (!target) return null;
+    const raw = target.getItem(PREFERRED_ENGINE_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (typeof parsed === "object" && parsed !== null) {
@@ -123,10 +124,11 @@ export function readCachedPreference(
  */
 export function writeCachedPreference(
   choice: { provider: string | null; model: string | null; effort?: string | null },
-  storage: Storage | null = typeof window !== "undefined" ? window.localStorage : null
+  storage?: Storage | null
 ): void {
-  if (!storage) return;
   try {
+    const target = storage === undefined ? (typeof window !== "undefined" ? window.localStorage : null) : storage;
+    if (!target) return;
     const payload: { provider: string | null; model: string | null; effort?: string | null } = {
       provider: choice.provider?.trim() || null,
       model: choice.model?.trim() || null,
@@ -134,7 +136,7 @@ export function writeCachedPreference(
     if (choice.effort?.trim()) {
       payload.effort = choice.effort.trim();
     }
-    storage.setItem(PREFERRED_ENGINE_STORAGE_KEY, JSON.stringify(payload));
+    target.setItem(PREFERRED_ENGINE_STORAGE_KEY, JSON.stringify(payload));
   } catch {
     // storage blocked
   }
