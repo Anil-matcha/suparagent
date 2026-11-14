@@ -2,6 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveEngineModel, readCachedPreference, writeCachedPreference } from "./engine-selection.ts";
 
+test("denied localStorage getter does not break engine preference cache", () => {
+  globalThis.window = { get localStorage() { throw new DOMException("denied", "SecurityError"); } };
+  try {
+    assert.equal(readCachedPreference(), null);
+    assert.doesNotThrow(() => writeCachedPreference({ provider: "claude", model: null }));
+  } finally { delete globalThis.window; }
+});
+
 const mockEngines = [
   {
     id: "claude",
