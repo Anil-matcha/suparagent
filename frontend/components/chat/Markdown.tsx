@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, Fragment, memo, useContext, useState, type ReactNode } from "react";
+import { createContext, Fragment, memo, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { copyToClipboard } from "@/lib/clipboard";
 import { api, ApiError } from "@/lib/api";
 import { parseMarkdown, workspaceRelativePath, type Block, type Inline } from "@/lib/markdown";
@@ -93,12 +93,23 @@ function renderInline(nodes: Inline[]): ReactNode {
 
 function CodeBlock({ lang, text, closed }: { lang: string; text: string; closed: boolean }) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (resetTimer.current) clearTimeout(resetTimer.current); }, []);
   const copy = async () => {
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+    setCopied(false);
+    setCopyError(false);
+    setCopying(true);
     const ok = await copyToClipboard(text);
     if (ok) {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      resetTimer.current = setTimeout(() => setCopied(false), 2000);
+    } else {
+      setCopyError(true);
     }
+    setCopying(false);
   };
 
   return (
@@ -107,13 +118,15 @@ function CodeBlock({ lang, text, closed }: { lang: string; text: string; closed:
         <span>{lang || "text"}</span>
         <button
           onClick={copy}
-          disabled={!closed && text === ""}
+          disabled={copying || (!closed && text === "")}
           aria-label="Copy code"
           className="cursor-pointer rounded px-1.5 py-0.5 hover:bg-hover touch:px-3 touch:py-2"
         >
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
+      <span role="status" className="sr-only">{copied ? "Code copied." : copyError ? "Could not copy code. Select the code and copy it manually." : ""}</span>
+      {copyError && <p className="px-3 pt-2 text-xs text-danger">Could not copy code. Select the code and copy it manually.</p>}
       <pre className="overflow-x-auto bg-code p-3 font-mono text-xs leading-relaxed text-ink">
         <code>{text}</code>
       </pre>
