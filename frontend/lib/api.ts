@@ -1364,8 +1364,8 @@ export const api = {
       body: JSON.stringify(expectedHash ? { text, expected_hash: expectedHash } : { text }),
     }),
 
-  deleteTopic: (agentId: number, name: string) =>
-    request<void>(`/agents/${agentId}/memory/topics/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  deleteTopic: (agentId: number, name: string, expectedHash: string) =>
+    request<void>(`/agents/${agentId}/memory/topics/${encodeURIComponent(name)}?${new URLSearchParams({ expected_hash: expectedHash })}`, { method: "DELETE" }),
 
   memoryJournal: (agentId: number) => request<MemoryJournalRow[]>(`/agents/${agentId}/memory/journal`),
 

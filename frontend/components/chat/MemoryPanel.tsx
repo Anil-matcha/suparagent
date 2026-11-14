@@ -151,12 +151,14 @@ function Topics({ agentId, onError }: { agentId: number; onError: (e: string | n
   const remove = async () => {
     if (!open) return;
     setBusy(true);
+    onError(null);
     try {
-      await api.deleteTopic(agentId, open.doc.name);
+      await api.deleteTopic(agentId, open.doc.name, open.doc.hash);
       setOpen(null);
       await refresh();
     } catch (err) {
-      onError(errorText(err));
+      if (err instanceof ApiError && err.code === "memory_changed") setOpen({ ...open, conflict: true, saved: null });
+      else onError(errorText(err));
     } finally {
       setBusy(false);
     }
