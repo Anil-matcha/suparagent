@@ -358,8 +358,12 @@ export function AboutMeTab({ onError }: { onError: (e: string | null) => void })
       setSaved(next.redacted ? `Saved. ${next.redacted} thing(s) that looked like secrets were replaced.` : "Saved.");
     } catch (err) {
       if (err instanceof ApiError && err.code === "memory_changed") {
-        const current = await api.aboutMe();
-        setConflict({ current: current.text, hash: current.hash });
+        try {
+          const current = await api.aboutMe();
+          setConflict({ current: current.text, hash: current.hash });
+        } catch (reloadError) {
+          onError(`About me changed and your edit was not saved. Could not load the new version: ${errorText(reloadError)}. Try saving again.`);
+        }
       } else onError(errorText(err));
     } finally {
       setBusy(false);
