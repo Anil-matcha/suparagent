@@ -31,10 +31,31 @@ function summary(state: UpdateState) {
   }
 }
 
+function UpdateCommand({ command }: { command: string }) {
+  const [result, setResult] = useState<"idle" | "copied" | "failed">("idle");
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setResult("copied");
+    } catch {
+      setResult("failed");
+    }
+  };
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs text-muted">Run this command to update:</p>
+      <div className="flex items-center justify-between gap-3 rounded-field border border-line bg-surface p-2.5 font-mono text-xs">
+        <span className="overflow-x-auto whitespace-pre">{command}</span>
+        <Button size="sm" variant="secondary" onClick={copy}>{result === "copied" ? "Copied!" : "Copy"}</Button>
+      </div>
+      {result === "failed" && <p role="alert" className="text-xs text-danger">Could not copy. Select and copy the command manually.</p>}
+    </div>
+  );
+}
+
 function DesktopAppUpdates({ bridge }: { bridge: UpdatesBridge }) {
   const [state, setState] = useState<UpdateState | null>(null);
   const [info, setInfo] = useState<VersionInfo | null>(null);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -48,17 +69,6 @@ function DesktopAppUpdates({ bridge }: { bridge: UpdatesBridge }) {
   const act = (action: Parameters<UpdatesBridge["run"]>[0]) => void bridge.run(action).then(setState).catch((error) => setState({ ...state, status: "error", message: String(error?.message ?? error) }));
   const working = state.status === "checking" || state.status === "downloading";
 
-  const copyCommand = async () => {
-    if (!info?.update_command) return;
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard) {
-        await navigator.clipboard.writeText(info.update_command);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }
-    } catch {}
-  };
-
   return (
     <section aria-labelledby="app-updates" className="space-y-3 rounded-card border border-line bg-raised p-5">
       <div>
@@ -67,15 +77,7 @@ function DesktopAppUpdates({ bridge }: { bridge: UpdatesBridge }) {
       </div>
       <p role={state.status === "error" ? "alert" : "status"} className={`text-sm ${state.status === "error" ? "text-danger" : ""}`}>{summary(state)}</p>
       {state.status === "available" && info?.update_command && (
-        <div className="space-y-1.5 pt-1">
-          <p className="text-xs text-muted">Run this command to update:</p>
-          <div className="flex items-center justify-between gap-3 rounded-field border border-line bg-surface p-2.5 font-mono text-xs">
-            <span className="overflow-x-auto whitespace-pre">{info.update_command}</span>
-            <Button size="sm" variant="secondary" onClick={copyCommand}>
-              {copied ? "Copied!" : "Copy"}
-            </Button>
-          </div>
-        </div>
+        <UpdateCommand command={info.update_command} />
       )}
       <div className="flex flex-wrap gap-2">
         {state.status === "available" && state.canDownload && <Button onClick={() => act("download")}>Download version {state.version}</Button>}
@@ -91,7 +93,6 @@ function DesktopAppUpdates({ bridge }: { bridge: UpdatesBridge }) {
 function WebAppUpdates() {
   const [info, setInfo] = useState<VersionInfo | null>(null);
   const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshCounter, setRefreshCounter] = useState(0);
 
@@ -146,16 +147,6 @@ function WebAppUpdates() {
 
   if (!info) return null;
 
-  const copyCommand = async () => {
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard) {
-        await navigator.clipboard.writeText(info.update_command);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }
-    } catch {}
-  };
-
   return (
     <section aria-labelledby="app-updates" className="space-y-3 rounded-card border border-line bg-raised p-5">
       <div>
@@ -171,15 +162,7 @@ function WebAppUpdates() {
           <p role="status" className="text-sm font-medium text-accent">
             Version {info.latest_version} is available.
           </p>
-          <div className="space-y-1.5">
-            <p className="text-xs text-muted">Run this command to update:</p>
-            <div className="flex items-center justify-between gap-3 rounded-field border border-line bg-surface p-2.5 font-mono text-xs">
-              <span className="overflow-x-auto whitespace-pre">{info.update_command}</span>
-              <Button size="sm" variant="secondary" onClick={copyCommand}>
-                {copied ? "Copied!" : "Copy"}
-              </Button>
-            </div>
-          </div>
+          <UpdateCommand command={info.update_command} />
         </div>
       ) : (
         <p role="status" className="text-sm text-muted">
