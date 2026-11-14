@@ -154,6 +154,7 @@ export const nl: Record<MessageKey, string> = {
   "roomWebhook.copySecret": "Geheim kopiëren",
   "roomWebhook.copyCurl": "curl-voorbeeld kopiëren",
   "roomWebhook.copied": "Gekopieerd",
+  "roomWebhook.copyFailed": "Kopiëren mislukt. Probeer het opnieuw.",
   "roomWebhook.disableTitle": "Webhook van de ruimte uitzetten?",
   "roomWebhook.disableBody": "Tools met het huidige geheim kunnen dan niet meer posten.",
   "roomWebhook.rotateTitle": "Nieuw geheim maken?",

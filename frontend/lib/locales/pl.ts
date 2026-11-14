@@ -154,6 +154,7 @@ export const pl: Record<MessageKey, string> = {
   "roomWebhook.copySecret": "Kopiuj sekret",
   "roomWebhook.copyCurl": "Kopiuj przykład curl",
   "roomWebhook.copied": "Skopiowano",
+  "roomWebhook.copyFailed": "Nie udało się skopiować. Spróbuj ponownie.",
   "roomWebhook.disableTitle": "Wyłączyć webhook pokoju?",
   "roomWebhook.disableBody": "Narzędzia używające obecnego sekretu nie będą mogły już publikować.",
   "roomWebhook.rotateTitle": "Utworzyć nowy sekret?",

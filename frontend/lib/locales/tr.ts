@@ -154,6 +154,7 @@ export const tr: Record<MessageKey, string> = {
   "roomWebhook.copySecret": "Gizli anahtarı kopyala",
   "roomWebhook.copyCurl": "curl örneğini kopyala",
   "roomWebhook.copied": "Kopyalandı",
+  "roomWebhook.copyFailed": "Kopyalanamadı. Lütfen tekrar deneyin.",
   "roomWebhook.disableTitle": "Oda webhook'u kapatılsın mı?",
   "roomWebhook.disableBody": "Mevcut gizli anahtarı kullanan araçlar artık gönderemez.",
   "roomWebhook.rotateTitle": "Yeni gizli anahtar oluşturulsun mu?",
