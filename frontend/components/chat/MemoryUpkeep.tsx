@@ -43,14 +43,16 @@ export function UpkeepCard({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (preserveDraft = false) => {
     try {
       const [nextStatus, nextSettings] = await Promise.all([api.memoryUpkeep(agent.id), api.memorySettings()]);
       setStatus(nextStatus);
       setSettings(nextSettings);
-      setModel(nextSettings.helper_models[nextStatus.engine ?? agent.provider] ?? "");
-      setHelperEngine(nextSettings.helper?.engine ?? "");
-      setHelperName(nextSettings.helper?.model ?? "");
+      if (!preserveDraft) {
+        setModel(nextSettings.helper_models[nextStatus.engine ?? agent.provider] ?? "");
+        setHelperEngine(nextSettings.helper?.engine ?? "");
+        setHelperName(nextSettings.helper?.model ?? "");
+      }
     } catch (err) {
       onError(errorText(err));
     }
@@ -59,7 +61,7 @@ export function UpkeepCard({
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
-  }, [load, upkeepOn]);
+  }, [load]);
 
   useEffect(() => {
     api.getEngines().then(setEngines).catch(() => setEngines([]));
@@ -87,13 +89,14 @@ export function UpkeepCard({
     guard(async () => {
       await api.updateAgent(agent.id, { use_helper: !helperAllowed });
       onAgentChange({ use_helper: !helperAllowed });
-      await load();
+      await load(true);
     });
 
   const toggleUpkeep = () =>
     guard(async () => {
       await api.updateAgent(agent.id, { memory_upkeep: !upkeepOn });
       onAgentChange({ memory_upkeep: !upkeepOn });
+      await load(true);
     });
 
   const tidyNow = () =>
@@ -101,13 +104,13 @@ export function UpkeepCard({
       const report = await api.tidyAgentMemory(agent.id);
       setResult(tidyLine(report));
       onNotesChanged();
-      await load();
+      await load(true);
     });
 
   const change = (patch: Partial<MemorySettings>) =>
     guard(async () => {
       setSettings(await api.saveMemorySettings(patch));
-      await load();
+      await load(true);
     });
 
   const engine = status?.engine ?? agent.provider;
@@ -192,6 +195,7 @@ export function UpkeepCard({
                 id={`helper-model-${agent.id}`}
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
+                disabled={!settings}
                 placeholder="the agent's own model"
                 className={`${FIELD} max-w-56`}
               />
