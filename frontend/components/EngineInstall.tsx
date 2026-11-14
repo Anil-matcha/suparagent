@@ -26,25 +26,33 @@ export function EngineInstall({ engine, installed, onChanged }: {
   const [operation, setOperation] = useState<Operation | null>(null);
   const [managedInstalled, setManagedInstalled] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const onChangedRef = useRef(onChanged);
   const notifiedOperationId = useRef<string | null>(null);
+  const statusRequest = useRef(0);
+  const statusApplied = useRef(0);
   const running = operation?.status === "queued" || operation?.status === "running";
 
   useEffect(() => { onChangedRef.current = onChanged; }, [onChanged]);
 
   const refresh = useCallback(async () => {
+    const requestId = ++statusRequest.current;
     try {
       const result = await request<Status>(`/engine-install/${engine}/status`);
+      if (requestId < statusApplied.current) return;
+      statusApplied.current = requestId;
       setOperation(result.operation);
       setManagedInstalled(result.installed);
-      setError(null);
+      setStatusError(null);
       if (result.operation?.status === "succeeded" && notifiedOperationId.current !== result.operation.id) {
         notifiedOperationId.current = result.operation.id;
         onChangedRef.current();
       }
     } catch (err) {
-      setError(err instanceof Error ? `Could not check install status. ${err.message}` : "Could not check install status.");
+      if (requestId < statusApplied.current) return;
+      statusApplied.current = requestId;
+      setStatusError(err instanceof Error ? `Could not check install status. ${err.message}` : "Could not check install status.");
     }
   }, [engine]);
 
@@ -64,17 +72,21 @@ export function EngineInstall({ engine, installed, onChanged }: {
   }, [running, refresh]);
 
   const start = async (action: "install" | "update") => {
+    statusApplied.current = ++statusRequest.current;
     setBusy(true); setError(null);
     try {
-      setOperation(await request<Operation>(`/engine-install/${engine}`, {
+      const result = await request<Operation>(`/engine-install/${engine}`, {
         method: "POST", body: JSON.stringify({ action }),
-      }));
+      });
+      statusApplied.current = ++statusRequest.current;
+      setOperation(result);
     } catch (err) {
       setError(err instanceof Error ? `Could not start the install. ${err.message}` : "Could not start the install.");
     } finally { setBusy(false); }
   };
 
   const cancel = async () => {
+    statusApplied.current = ++statusRequest.current;
     setBusy(true); setError(null);
     try {
       await request<void>(`/engine-install/${engine}`, { method: "DELETE" });
@@ -95,6 +107,7 @@ export function EngineInstall({ engine, installed, onChanged }: {
     {operation && <p role="status" className="text-xs text-muted">{operation.progress}</p>}
     {operation?.error && <Banner tone="warning">{operation.error}</Banner>}
     {error && <Banner tone="warning">{error}</Banner>}
+    {statusError && <Banner tone="warning">{statusError}</Banner>}
     {operation?.output && <details className="text-xs"><summary className="cursor-pointer">Installer output</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words text-muted">{operation.output}</pre></details>}
   </section>;
 }
