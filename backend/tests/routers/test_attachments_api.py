@@ -3,6 +3,7 @@ storage, the transcript record, what reaches the engine, and the refusal for
 an engine that cannot read images."""
 
 import base64
+import contextlib
 import json
 import os
 import struct
@@ -268,6 +269,26 @@ async def test_audio_consent_upload_and_grounded_turn(api, owner, sessions, monk
     original = await api.get(path + '/' + saved['id'])
     assert original.content == wav()
     assert original.headers['content-type'] == 'audio/wav'
+
+
+async def test_audio_non_text_provider_response_returns_transcription_error(api, owner, sessions, monkeypatch):
+    from app.services import audio_ingestion as audio
+    thread_id = (await new_thread(sessions, owner)).id
+    monkeypatch.setattr(audio.settings, 'AUDIO_TRANSCRIPTION_MODEL', 'gpt-transcribe')
+    monkeypatch.setattr(audio.settings, 'AUDIO_TRANSCRIPTION_API_KEY', 'fixture-only-key')
+    monkeypatch.setattr(audio.shutil, 'which', lambda name: '/fixture/' + name)
+    monkeypatch.setattr(audio.local_whisper, 'is_available', lambda: False)
+    monkeypatch.setattr(audio, 'validate', lambda *args: ('audio/wav', 1.0))
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        @contextlib.asynccontextmanager
+        async def stream(self, *args, **kwargs): yield httpx.Response(200, json={'text': None})
+    monkeypatch.setattr(audio.httpx, 'AsyncClient', Client)
+    response = await api.post(f'/api/v1/threads/{thread_id}/attachments', files={'file': ('sample.wav', b'synthetic', 'audio/wav')}, data={'consent_provider': 'openai'})
+    assert response.status_code == 502
+    assert response.json()['detail']['error_code'] == 'transcription_failed'
 
 
 @pytest.mark.parametrize('via_url', [False, True])

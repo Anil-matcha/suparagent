@@ -187,7 +187,10 @@ async def transcribe(name: str, data: bytes, provider: str | None) -> dict:
             provider_duration = float(body['duration'])
             if not math.isfinite(provider_duration) or abs(provider_duration - duration) > max(2, duration * 0.02):
                 raise ValueError()
-        text = body['text'].strip()
+        text = body['text']
+        if not isinstance(text, str):
+            raise ValueError()
+        text = text.strip()
         if not text or len(text) > 200_000:
             raise ValueError()
         segments = []
@@ -195,7 +198,10 @@ async def transcribe(name: str, data: bytes, provider: str | None) -> dict:
             start, end = float(segment['start']), float(segment['end'])
             if not math.isfinite(start) or not math.isfinite(end) or not 0 <= start <= end <= duration + 2:
                 raise ValueError()
-            segment_text = str(segment['text']).strip()
+            segment_text = segment['text']
+            if not isinstance(segment_text, str):
+                raise ValueError()
+            segment_text = segment_text.strip()
             if float(segment.get('avg_logprob', 0)) < -1 or float(segment.get('no_speech_prob', 0)) > .6:
                 segment_text = '[uncertain transcription] ' + segment_text
             segments.append({'id': len(segments) + 1, 'start': start, 'end': end, 'text': segment_text})
