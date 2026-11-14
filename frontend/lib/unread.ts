@@ -7,6 +7,7 @@ export type SeenMap = Record<string, string>;
 type ThreadLike = { id: number; updated_at: string; archived_at: string | null };
 
 const KEY = "suparagent:thread-seen";
+export const THREAD_LIST_LIMIT = 100;
 
 export function loadSeen(): SeenMap {
   try {
@@ -27,17 +28,32 @@ export function saveSeen(seen: SeenMap): void {
 }
 
 // Moves the map forward for the threads now listed: one never seen before is taken as read (so
-// nothing is unread on first run), the open one is read now, and ones that are gone are dropped.
+// nothing is unread on first run), the open one is read now, and absent entries are dropped only
+// when the list is shorter than the request limit and is therefore complete.
 // Returns the same object when nothing changed.
-export function reconcileSeen(threads: readonly ThreadLike[], seen: SeenMap, selectedId: number | null): SeenMap {
-  const next: SeenMap = {};
+export function reconcileSeen(threads: readonly ThreadLike[], seen: SeenMap, selectedId: number | null, selectedThread: ThreadLike | null = null): SeenMap {
+  const next: SeenMap = threads.length < THREAD_LIST_LIMIT ? {} : { ...seen };
   let changed = false;
   for (const thread of threads) {
     const key = String(thread.id);
     const known = seen[key];
-    const value = known === undefined || thread.id === selectedId ? thread.updated_at : known;
+    const selected = thread.id === selectedId;
+    if (selected && selectedThread?.id !== selectedId) {
+      if (known !== undefined) next[key] = known;
+      continue;
+    }
+    const viewed = selected ? selectedThread!.updated_at : thread.updated_at;
+    const value = known === undefined ? (selected ? viewed : thread.updated_at)
+      : selected && Date.parse(viewed) > Date.parse(known) ? viewed : known;
     next[key] = value;
     if (value !== known) changed = true;
+  }
+  if (selectedThread?.id === selectedId && !threads.some((thread) => thread.id === selectedId)) {
+    const key = String(selectedThread.id);
+    const previous = seen[key];
+    const value = previous && Date.parse(previous) > Date.parse(selectedThread.updated_at) ? previous : selectedThread.updated_at;
+    next[key] = value;
+    if (value !== previous) changed = true;
   }
   if (Object.keys(seen).length !== Object.keys(next).length) changed = true;
   return changed ? next : seen;

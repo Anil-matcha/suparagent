@@ -1151,6 +1151,7 @@ export function ChatApp() {
       agents={agents}
       threads={threads}
       selectedThreadId={threadId}
+      selectedThread={openedThread?.id === threadId ? openedThread : null}
       selectedAgentId={roomId !== null ? null : thread?.agent_id ?? (threadId === null ? startingAgentId : null)}
       live={{ threadId, agentId: thread?.agent_id ?? null, working: transcript.runningTurnId !== null, waiting }}
       showArchived={showArchived}
