@@ -2,7 +2,7 @@
 
 import { Select } from "@/components/ui/Select";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type DecisionEntry, type DecisionEvent } from "@/lib/api";
 import { DECISION_EVENTS, csvFileName, decisionEventLabel, decisionText } from "@/lib/approvals";
 import { BUTTON, FIELD_BOX } from "./styles";
@@ -19,9 +19,16 @@ export function DecisionLog({ threadId = null }: { threadId?: number | null }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const revision = useRef(0);
 
   const threadFilter = /^\d+$/.test(thread.trim()) ? Number(thread.trim()) : null;
   const filter = { event: event || null, thread_id: threadFilter };
+  const invalidate = () => {
+    revision.current += 1;
+    setItems(null);
+    setNext(null);
+    setError(null);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -44,12 +51,14 @@ export function DecisionLog({ threadId = null }: { threadId?: number | null }) {
   const older = async () => {
     if (!next) return;
     setBusy(true);
+    const requestRevision = revision.current;
     try {
       const page = await api.listDecisions({ ...filter, limit: PAGE, before: next });
+      if (requestRevision !== revision.current) return;
       setItems((prev) => [...(prev ?? []), ...page.items]);
       setNext(page.next_before);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not load older entries.");
+      if (requestRevision === revision.current) setError(err instanceof ApiError ? err.message : "Could not load older entries.");
     } finally {
       setBusy(false);
     }
@@ -79,7 +88,7 @@ export function DecisionLog({ threadId = null }: { threadId?: number | null }) {
         <Select
           aria-label="Event"
           value={event}
-          onChange={(e) => setEvent(e.target.value as DecisionEvent | "")}
+          onChange={(e) => { if (e.target.value !== event) invalidate(); setEvent(e.target.value as DecisionEvent | ""); }}
           className={`${FIELD_BOX} w-auto`}
         >
           <option value="">Every event</option>
@@ -94,10 +103,15 @@ export function DecisionLog({ threadId = null }: { threadId?: number | null }) {
           inputMode="numeric"
           placeholder="Conversation #"
           value={thread}
-          onChange={(e) => setThread(e.target.value)}
+          onChange={(e) => {
+            const value = e.target.value;
+            const nextFilter = /^\d+$/.test(value.trim()) ? Number(value.trim()) : null;
+            if (nextFilter !== threadFilter) invalidate();
+            setThread(value);
+          }}
           className={`${FIELD_BOX} w-36`}
         />
-        <button className={BUTTON} onClick={() => setTick((n) => n + 1)} disabled={busy}>
+        <button className={BUTTON} onClick={() => { invalidate(); setTick((n) => n + 1); }} disabled={busy}>
           Refresh
         </button>
         <button className={BUTTON} onClick={exportCsv} disabled={busy}>
