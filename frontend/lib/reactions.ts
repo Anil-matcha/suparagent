@@ -5,6 +5,8 @@ export type ReactionKind = "thumbs_up" | "thumbs_down";
 
 export type ReactionsMap = Record<string, ReactionKind>;
 
+const unsavedReactions = new Map<string, ReactionsMap>();
+
 export type PendingApprovalRef = {
   kind: "approval";
   approvalId: string;
@@ -50,9 +52,12 @@ export function getReactionsStorageKey(threadId: number | null | undefined): str
 }
 
 export function loadThreadReactions(threadId: number | null | undefined): ReactionsMap {
-  if (typeof window === "undefined" || !window.localStorage) return {};
+  if (typeof window === "undefined") return {};
+  const key = getReactionsStorageKey(threadId);
+  const unsaved = unsavedReactions.get(key);
+  if (unsaved) return { ...unsaved };
   try {
-    const raw = window.localStorage.getItem(getReactionsStorageKey(threadId));
+    const raw = window.localStorage.getItem(key);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -84,16 +89,17 @@ export function saveThreadReaction(
     next[messageKey] = reaction;
   }
 
-  if (typeof window !== "undefined" && window.localStorage) {
+  if (typeof window !== "undefined") {
+    const key = getReactionsStorageKey(threadId);
     try {
-      const key = getReactionsStorageKey(threadId);
       if (Object.keys(next).length === 0) {
         window.localStorage.removeItem(key);
       } else {
         window.localStorage.setItem(key, JSON.stringify(next));
       }
+      unsavedReactions.delete(key);
     } catch {
-      // ignore storage errors
+      unsavedReactions.set(key, next);
     }
   }
 
