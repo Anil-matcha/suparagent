@@ -28,7 +28,8 @@ frontend/.next
 frontend/out
 backend/build
 backend/dist
-desktop
+desktop/*
+!desktop/package.json
 electron
 
 # Not needed to run the server

@@ -27,9 +27,42 @@ def test_compare_versions():
     assert compare_versions("0.8.1-rc1", "0.8.1-rc2") == -1
 
 
-def test_the_fallback_version_is_used_only_when_no_project_files_exist(monkeypatch):
+def test_the_fallback_version_is_used_only_when_no_project_files_exist(monkeypatch, tmp_path):
+    monkeypatch.setattr(version_service, "__file__", str(tmp_path / "version_service.py"))
     monkeypatch.setattr(version_service, "find_project_root", lambda: None)
     assert version_service.get_current_version() == version_service.APP_VERSION
+
+
+def test_version_reads_bundled_package_without_a_checkout_marker(monkeypatch, tmp_path):
+    service = tmp_path / "backend" / "app" / "services" / "version_service.py"
+    service.parent.mkdir(parents=True)
+    service.touch()
+    package = tmp_path / "desktop" / "package.json"
+    package.parent.mkdir()
+    package.write_text('{"version": "9.8.7"}', encoding="utf-8")
+    monkeypatch.setattr(version_service, "__file__", str(service))
+    assert version_service.get_current_version() == "9.8.7"
+
+
+@pytest.mark.asyncio
+async def test_bundled_version_endpoint_does_not_offer_its_current_release(api, monkeypatch, tmp_path):
+    monkeypatch.setattr(version_service, "_cache", None)
+    service = tmp_path / "backend" / "app" / "services" / "version_service.py"
+    service.parent.mkdir(parents=True)
+    service.touch()
+    package = tmp_path / "desktop" / "package.json"
+    package.parent.mkdir()
+    package.write_text('{"version": "9.8.7"}', encoding="utf-8")
+    monkeypatch.setattr(version_service, "__file__", str(service))
+
+    async def mock_fetch_release(client=None):
+        return "9.8.7", None
+
+    monkeypatch.setattr(version_service, "fetch_latest_release", mock_fetch_release)
+    response = await api.get("/api/v1/version?refresh=true")
+    assert response.status_code == 200
+    assert response.json()["current_version"] == "9.8.7"
+    assert response.json()["update_available"] is False
 
 
 def test_install_kind_and_update_command():
