@@ -26,18 +26,20 @@ SEMVER_REGEX = re.compile(
 
 
 def get_current_version() -> str:
-    """Reads current app version from desktop/package.json or CHANGELOG.md if present, else APP_VERSION."""
-    root = find_project_root()
-    if root:
-        pkg = root / "desktop" / "package.json"
+    """Reads the bundled desktop package version or checkout changelog, else APP_VERSION."""
+    current = Path(__file__).resolve().parent
+    for parent in (current, *current.parents):
+        pkg = parent / "desktop" / "package.json"
         if pkg.is_file():
             try:
                 import json
                 data = json.loads(pkg.read_text(encoding="utf-8"))
                 if isinstance(data.get("version"), str) and data["version"].strip():
                     return data["version"].strip()
-            except Exception:
+            except (OSError, ValueError, AttributeError):
                 pass
+    root = find_project_root()
+    if root:
         changelog = root / "CHANGELOG.md"
         if changelog.is_file():
             try:

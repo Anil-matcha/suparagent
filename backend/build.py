@@ -51,6 +51,8 @@ def main() -> int:
         # The bundled marketplace catalog remains available when offline or
         # when the public catalog endpoint cannot be reached.
         "--add-data", f"{HERE.parent / 'marketplace'}{';' if sys.platform == 'win32' else ':'}marketplace",
+        # The version API needs the release version in a frozen backend too.
+        "--add-data", f"{HERE.parent / 'desktop' / 'package.json'}{';' if sys.platform == 'win32' else ':'}desktop",
     ]
     for module in COLLECT_SUBMODULES:
         args += ["--collect-submodules", module]

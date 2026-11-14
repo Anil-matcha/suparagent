@@ -70,6 +70,7 @@ RUN apt-get update \
 COPY --from=backend /opt/venv /opt/venv
 COPY --from=engines /out /opt/engines
 COPY backend /app/backend
+COPY desktop/package.json /app/desktop/package.json
 COPY --from=pages /src/frontend/out /app/ui
 
 # HOME is the volume, so an engine's sign-in (~/.claude, ~/.codex) and everything the app keeps
