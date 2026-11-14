@@ -166,6 +166,8 @@ function WebAppUpdates() {
         </p>
       </div>
 
+      {error && <p role="alert" className="text-sm text-danger">Could not check for updates: {error}. Showing the previous result.</p>}
+
       {info.update_available ? (
         <div className="space-y-3">
           <p role="status" className="text-sm font-medium text-accent">
