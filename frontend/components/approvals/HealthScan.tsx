@@ -40,7 +40,8 @@ export function HealthScan() {
         <Select
           aria-label="How far back"
           value={hours}
-          onChange={(e) => setHours(Number(e.target.value))}
+          disabled={busy}
+          onChange={(e) => { setHours(Number(e.target.value)); setReport(null); setError(null); }}
           className={`${FIELD_BOX} w-auto`}
         >
           <option value={1}>Last hour</option>
