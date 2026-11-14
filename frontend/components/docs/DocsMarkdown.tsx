@@ -24,7 +24,7 @@ export interface HeadingItem {
 interface DocsMarkdownProps {
   content: string;
   articleTitle?: string;
-  onNavigateDoc?: (slug: string) => void;
+  onNavigateDoc?: (slug: string, anchor?: string) => void;
   onHeadingsExtracted?: (headings: HeadingItem[]) => void;
 }
 
@@ -106,13 +106,14 @@ function CardView({
   title: string;
   href: string;
   description: string;
-  onNavigateDoc?: (slug: string) => void;
+  onNavigateDoc?: (slug: string, anchor?: string) => void;
 }) {
   const handleClick = (e: React.MouseEvent) => {
     if (href.startsWith("/docs?doc=") || href.startsWith("?doc=") || href.startsWith("/docs/")) {
       e.preventDefault();
       const slug = href.replace(/^\/docs\?doc=/, "").replace(/^\?doc=/, "").replace(/^\/docs\//, "").replace(/\.mdx?$/, "");
-      onNavigateDoc?.(slug);
+      const [doc, anchor] = slug.split("#");
+      onNavigateDoc?.(doc.replace(/\.mdx?$/i, ""), anchor);
     }
   };
 
@@ -171,7 +172,16 @@ export function DocsMarkdown({ content, articleTitle, onNavigateDoc, onHeadingsE
       const isExternal = /^https?:\/\//i.test(href);
       const isInternalDoc = /^\/docs\?doc=|\?doc=|\.mdx?(#.*)?$/i.test(href);
 
-      if (isInternalDoc) {
+      if (/^\/docs\?doc=readme(?:#.*)?$/i.test(href)) {
+        const anchor = href.split("#")[1];
+        parts.push(
+          <a key={match.index} href={`https://github.com/Anil-matcha/suparagent/blob/main/README.md${anchor ? `#${anchor}` : ""}`}
+            target="_blank" rel="noreferrer"
+            className="inline-flex items-center gap-0.5 font-medium text-emerald-500 underline underline-offset-4 decoration-emerald-500/40 hover:decoration-emerald-500">
+            <span>{label}</span><ExternalLink size={11} className="inline ml-0.5 opacity-70" /><span className="text-xs text-muted">(GitHub; requires internet)</span>
+          </a>
+        );
+      } else if (isInternalDoc) {
         const slug = href
           .replace(/^\/docs\?doc=/, "")
           .replace(/^\?doc=/, "")
@@ -183,7 +193,7 @@ export function DocsMarkdown({ content, articleTitle, onNavigateDoc, onHeadingsE
           <button
             key={match.index}
             type="button"
-            onClick={() => onNavigateDoc?.(docSlug)}
+            onClick={() => onNavigateDoc?.(docSlug, anchor)}
             className="inline font-medium text-emerald-500 underline underline-offset-4 decoration-emerald-500/40 hover:decoration-emerald-500 cursor-pointer"
           >
             {label}
