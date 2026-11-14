@@ -178,7 +178,7 @@ export function DocsMarkdown({ content, articleTitle, onNavigateDoc, onHeadingsE
           <a key={match.index} href={`https://github.com/Anil-matcha/suparagent/blob/main/README.md${anchor ? `#${anchor}` : ""}`}
             target="_blank" rel="noreferrer"
             className="inline-flex items-center gap-0.5 font-medium text-emerald-500 underline underline-offset-4 decoration-emerald-500/40 hover:decoration-emerald-500">
-            <span>{label}</span><ExternalLink size={11} className="inline ml-0.5 opacity-70" />
+            <span>{label}</span><ExternalLink size={11} className="inline ml-0.5 opacity-70" /><span className="text-xs text-muted">(GitHub; requires internet)</span>
           </a>
         );
       } else if (isInternalDoc) {
