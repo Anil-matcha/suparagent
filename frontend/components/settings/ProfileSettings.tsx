@@ -799,12 +799,13 @@ function ProfileEditDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(next) => { if (!saving) onOpenChange(next); }}
       title="Edit profile"
       description="Update your display name, avatar, and personal bio."
       size="sm"
     >
       <form id="profile-edit-form" onSubmit={handleSave} className="space-y-4">
+        <fieldset disabled={saving} className="space-y-4">
         {/* Avatar Picker */}
         <div className="flex flex-col items-center gap-2 pb-2">
           <UserAvatar user={{ name, avatar_url: avatarUrl }} size={84} />
@@ -861,6 +862,7 @@ function ProfileEditDialog({
           />
         </div>
 
+        </fieldset>
         <Applies when="now" />
         <SaveBar
           dirty={dirty}
