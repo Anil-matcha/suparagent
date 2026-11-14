@@ -434,11 +434,14 @@ export function AgentsPanel({
 
   const loadTheirs = async () => {
     if (!notes) return;
+    setBusy(true);
     try {
       const memory = await api.getAgentMemory(notes.agent.id);
       setNotes({ ...notes, memory, text: memory.text, conflict: false, saved: null });
     } catch (err) {
       setError(errorText(err));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -1486,6 +1489,7 @@ function NotesEditor({
       <textarea
         value={notes.text}
         rows={12}
+        disabled={busy}
         onChange={(e) => onText(e.target.value)}
         aria-label="Notes"
         placeholder={"- Facts this agent should remember\n- One per line"}
