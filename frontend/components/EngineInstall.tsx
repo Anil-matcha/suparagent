@@ -30,6 +30,7 @@ export function EngineInstall({ engine, installed, onChanged }: {
   const onChangedRef = useRef(onChanged);
   const notifiedOperationId = useRef<string | null>(null);
   const statusRequest = useRef(0);
+  const statusApplied = useRef(0);
   const running = operation?.status === "queued" || operation?.status === "running";
 
   useEffect(() => { onChangedRef.current = onChanged; }, [onChanged]);
@@ -38,7 +39,8 @@ export function EngineInstall({ engine, installed, onChanged }: {
     const requestId = ++statusRequest.current;
     try {
       const result = await request<Status>(`/engine-install/${engine}/status`);
-      if (requestId !== statusRequest.current) return;
+      if (requestId < statusApplied.current) return;
+      statusApplied.current = requestId;
       setOperation(result.operation);
       setManagedInstalled(result.installed);
       setError(null);
@@ -47,7 +49,8 @@ export function EngineInstall({ engine, installed, onChanged }: {
         onChangedRef.current();
       }
     } catch (err) {
-      if (requestId !== statusRequest.current) return;
+      if (requestId < statusApplied.current) return;
+      statusApplied.current = requestId;
       setError(err instanceof Error ? `Could not check install status. ${err.message}` : "Could not check install status.");
     }
   }, [engine]);
@@ -68,13 +71,13 @@ export function EngineInstall({ engine, installed, onChanged }: {
   }, [running, refresh]);
 
   const start = async (action: "install" | "update") => {
-    ++statusRequest.current;
+    statusApplied.current = ++statusRequest.current;
     setBusy(true); setError(null);
     try {
       const result = await request<Operation>(`/engine-install/${engine}`, {
         method: "POST", body: JSON.stringify({ action }),
       });
-      ++statusRequest.current;
+      statusApplied.current = ++statusRequest.current;
       setOperation(result);
     } catch (err) {
       setError(err instanceof Error ? `Could not start the install. ${err.message}` : "Could not start the install.");
@@ -82,7 +85,7 @@ export function EngineInstall({ engine, installed, onChanged }: {
   };
 
   const cancel = async () => {
-    ++statusRequest.current;
+    statusApplied.current = ++statusRequest.current;
     setBusy(true); setError(null);
     try {
       await request<void>(`/engine-install/${engine}`, { method: "DELETE" });
