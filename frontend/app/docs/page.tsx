@@ -82,6 +82,7 @@ function DocsView() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [copiedMd, setCopiedMd] = useState(false);
   const [openDropdown, setOpenDropdown] = useState(false);
+  const [anchorNavigation, setAnchorNavigation] = useState(0);
 
   // Derive activeSlug directly from searchParams or user selection
   const activeSlug =
@@ -108,15 +109,16 @@ function DocsView() {
   };
 
   // Navigate doc helper
-  const navigateToDoc = (slug: string) => {
+  const navigateToDoc = (slug: string, anchor?: string) => {
     const clean = slug.toLowerCase();
     if (DOC_ARTICLES[clean]) {
       setSelectedSlug(clean);
       setSidebarOpen(false);
       setSearchOpen(false);
       setOpenDropdown(false);
-      window.history.pushState(null, "", `/docs?doc=${clean}`);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.history.pushState(null, "", `/docs?doc=${encodeURIComponent(clean)}${anchor ? `#${anchor}` : ""}`);
+      if (anchor) setAnchorNavigation((value) => value + 1);
+      else window.scrollTo({ top: 0, behavior: "smooth" });
 
       // Ensure its parent category is expanded
       for (const cat of DOC_CATEGORIES) {
@@ -127,6 +129,29 @@ function DocsView() {
       }
     }
   };
+
+  useEffect(() => {
+    const updateAnchor = () => setAnchorNavigation((value) => value + 1);
+    window.addEventListener("hashchange", updateAnchor);
+    window.addEventListener("popstate", updateAnchor);
+    return () => {
+      window.removeEventListener("hashchange", updateAnchor);
+      window.removeEventListener("popstate", updateAnchor);
+    };
+  }, []);
+
+  useEffect(() => {
+    const fragment = window.location.hash.slice(1);
+    if (!fragment) return;
+    const requested = new URLSearchParams(window.location.search).get("doc");
+    if (requested && requested.toLowerCase() !== activeSlug) return;
+    const frame = requestAnimationFrame(() => {
+      let id = fragment;
+      try { id = decodeURIComponent(fragment); } catch { /* Preserve the literal fragment. */ }
+      document.getElementById(id)?.scrollIntoView();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeSlug, anchorNavigation]);
 
   // Keyboard shortcut ⌘K or / for search
   useEffect(() => {
