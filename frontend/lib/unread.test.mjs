@@ -15,7 +15,7 @@ test("a thread that moves after it was seen becomes unread; opening it reads it"
   const later = th(1, "2026-10-30T12:00:00Z");
   assert.equal(isUnread(later, seen, null), true);
   assert.equal(isUnread(later, seen, 1), false);
-  const afterOpen = reconcileSeen([later], seen, 1);
+  const afterOpen = reconcileSeen([later], seen, 1, later);
   assert.equal(isUnread(later, afterOpen, null), false);
 });
 
@@ -38,7 +38,7 @@ test("a thread outside a full recent list retains its last-seen time", () => {
   const returned = th(101, "2026-10-30T12:00:00Z");
   const afterReturn = reconcileSeen([returned, ...recent.slice(0, 99)], afterEviction, null);
   assert.equal(isUnread(returned, afterReturn, null), true);
-  assert.equal(isUnread(returned, reconcileSeen([returned, ...recent.slice(0, 99)], afterReturn, 101), null), false);
+  assert.equal(isUnread(returned, reconcileSeen([returned, ...recent.slice(0, 99)], afterReturn, 101, returned), null), false);
 });
 
 test("viewing a loaded thread outside a full list marks its current activity read", () => {
@@ -67,4 +67,15 @@ test("a newer list row is not marked viewed by older selected detail", () => {
   const seen = reconcileSeen([newer], { 1: viewed.updated_at }, 1, viewed);
   assert.equal(seen[1], viewed.updated_at);
   assert.equal(isUnread(newer, seen, null), true);
+});
+
+test("a selected list row does not advance read state before detail loads", () => {
+  const older = th(1, "2026-10-30T10:00:00Z");
+  const newer = th(1, "2026-10-30T13:00:00Z");
+  const beforeDetail = reconcileSeen([newer], { 1: older.updated_at }, 1, null);
+  assert.equal(beforeDetail[1], older.updated_at);
+  const detail = th(1, "2026-10-30T12:00:00Z");
+  const afterDetail = reconcileSeen([newer], beforeDetail, 1, detail);
+  assert.equal(afterDetail[1], detail.updated_at);
+  assert.equal(isUnread(newer, afterDetail, null), true);
 });
