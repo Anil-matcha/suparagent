@@ -112,12 +112,15 @@ function Topics({ agentId, onError }: { agentId: number; onError: (e: string | n
   }, [refresh]);
 
   const openTopic = async (name: string) => {
+    setBusy(true);
     onError(null);
     try {
       const doc = await api.getTopic(agentId, name);
       setOpen({ doc, text: doc.text, conflict: false, saved: null });
     } catch (err) {
       onError(errorText(err));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -175,6 +178,7 @@ function Topics({ agentId, onError }: { agentId: number; onError: (e: string | n
         <textarea
           value={open.text}
           rows={10}
+          disabled={busy}
           onChange={(e) => setOpen({ ...open, text: e.target.value, saved: null })}
           aria-label={`Topic note ${open.doc.name}`}
           placeholder={"---\ntitle: Travel\naliases: [trips, flights]\n---\n- Prefers aisle seats"}
@@ -224,7 +228,7 @@ function Topics({ agentId, onError }: { agentId: number; onError: (e: string | n
         <ul className="space-y-1">
           {list.topics.map((t) => (
             <li key={t.name}>
-              <button onClick={() => openTopic(t.name)} className="text-left text-sm hover:underline">
+              <button onClick={() => openTopic(t.name)} disabled={busy} className="text-left text-sm hover:underline">
                 <span className="font-mono">{t.name}</span>
                 {t.title && <span className="text-muted"> — {t.title}</span>}
                 <span className="text-xs text-muted"> · {Math.max(1, Math.round(t.bytes / 1024))} KB</span>
@@ -244,7 +248,7 @@ function Topics({ agentId, onError }: { agentId: number; onError: (e: string | n
           aria-label="New topic name"
           className={FIELD}
         />
-        <button onClick={create} disabled={!newName.trim()} className={SMALL}>
+        <button onClick={create} disabled={busy || !newName.trim()} className={SMALL}>
           New topic
         </button>
       </div>
