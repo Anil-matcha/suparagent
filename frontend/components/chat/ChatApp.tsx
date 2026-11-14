@@ -240,6 +240,7 @@ export function ChatApp() {
   const [todayLoading, setTodayLoading] = useState(false);
   const [todayError, setTodayError] = useState<string | null>(null);
   const [todaySnapshot, setTodaySnapshot] = useState<NeedsYouSnapshot | null>(null);
+  const todayRequest = useRef(0);
   // Files chosen for the next message, and why one was refused.
   const [attached, setAttached] = useState<File[]>([]);
   const audioAbort = useRef<AbortController | null>(null);
@@ -990,16 +991,18 @@ export function ChatApp() {
   };
 
   const refreshToday = async () => {
+    const request = ++todayRequest.current;
     setTodayOpen(true);
     setTodayLoading(true);
     setTodayError(null);
     setTodaySnapshot(null);
     try {
-      setTodaySnapshot(await api.getNeedsYou());
+      const snapshot = await api.getNeedsYou();
+      if (request === todayRequest.current) setTodaySnapshot(snapshot);
     } catch {
-      setTodayError(t("chat.refreshTodayError"));
+      if (request === todayRequest.current) setTodayError(t("chat.refreshTodayError"));
     } finally {
-      setTodayLoading(false);
+      if (request === todayRequest.current) setTodayLoading(false);
     }
   };
 
