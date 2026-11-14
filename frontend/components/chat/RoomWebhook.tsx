@@ -12,7 +12,7 @@ import { useT } from "@/lib/use-i18n";
 const BTN = "rounded-field border border-line px-3 py-1.5 text-sm hover:bg-hover disabled:opacity-50";
 
 /** Owner-only controls for the room webhook. The secret is shown once, right after it is created. */
-export function RoomWebhook({ room, onChanged }: { room: Room; onChanged?: () => void }) {
+export function RoomWebhook({ room, onChanged, onBusyChange }: { room: Room; onChanged?: () => void; onBusyChange?: (busy: boolean) => void }) {
   const t = useT();
   const toast = useToast();
   const [enabled, setEnabled] = useState(Boolean(room.webhook_enabled));
@@ -26,19 +26,19 @@ export function RoomWebhook({ room, onChanged }: { room: Room; onChanged?: () =>
     try { await navigator.clipboard.writeText(text); toast(t("roomWebhook.copied"), "success"); } catch { /* clipboard unavailable */ }
   };
   const enable = async () => {
-    setBusy(true); setError(null);
+    setBusy(true); onBusyChange?.(true); setError(null);
     try {
       const result = await api.enableRoomWebhook(room.id);
       setShown({ url: webhookUrl(result.path), secret: result.secret });
       setEnabled(true); onChanged?.();
     } catch (err) { setError(err instanceof ApiError ? err.message : t("roomWebhook.failed")); }
-    finally { setBusy(false); setConfirm(null); }
+    finally { setBusy(false); onBusyChange?.(false); setConfirm(null); }
   };
   const disable = async () => {
-    setBusy(true); setError(null);
+    setBusy(true); onBusyChange?.(true); setError(null);
     try { await api.disableRoomWebhook(room.id); setShown(null); setEnabled(false); onChanged?.(); }
     catch (err) { setError(err instanceof ApiError ? err.message : t("roomWebhook.failed")); }
-    finally { setBusy(false); setConfirm(null); }
+    finally { setBusy(false); onBusyChange?.(false); setConfirm(null); }
   };
 
   return <section className="space-y-2 rounded-field border border-line p-3" aria-label={t("roomWebhook.title")}>
