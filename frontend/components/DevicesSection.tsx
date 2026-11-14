@@ -78,6 +78,8 @@ export function DevicesSection() {
   const { session } = useSession();
   const router = useRouter();
   const [devices, setDevices] = useState<Device[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scope, setScope] = useState<PairingScope>("chat");
   const [label, setLabel] = useState("");
@@ -88,11 +90,14 @@ export function DevicesSection() {
   const admin = session !== null && session.kind !== "desktop" && session.scopes.includes("admin");
 
   const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
       setDevices(await auth.devices());
-      setError(null);
     } catch (err) {
-      setError(err instanceof ApiError ? `Could not load devices. ${err.message}` : "Could not load devices.");
+      setLoadError(err instanceof ApiError ? `Could not load devices. ${err.message}` : "Could not load devices.");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -123,6 +128,7 @@ export function DevicesSection() {
     }
     setConfirming(null);
     setBusy(true);
+    setError(null);
     try {
       await auth.revokeDevice(device.id);
       if (device.current) {
@@ -177,7 +183,8 @@ export function DevicesSection() {
           )}
           <div>
             <h4 className="mb-2 text-sm font-medium">Signed in</h4>
-            {devices === null ? <SkeletonList rows={3} /> : devices.length === 0 ? (
+            {loadError && <div className="mb-2 space-y-2"><Banner tone="danger">{loadError}</Banner><Button type="button" disabled={loading} onClick={() => void load()}>Retry loading devices</Button></div>}
+            {devices === null ? (!loadError && <SkeletonList rows={3} />) : devices.length === 0 ? (
               <EmptyState title="No signed-in browsers or paired devices." description="Create a pairing code above to add your phone." className="py-6" />
             ) : (
               <ul className="divide-y divide-line">
