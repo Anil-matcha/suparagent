@@ -452,6 +452,9 @@ Phone app 0.4.0: chat is now the default screen, with a sidebar of conversations
 - Engine Settings now builds connection forms from engine descriptors and groups ready engines first. Generic endpoint address templates cover Ollama, LM Studio, Groq, Cerebras, Mistral and OpenAI. Desktop setup detects a ready engine and offers advanced model selection. Tested with scripted engine responses; real preset accounts and packaged setup were not run.
 - OpenRouter readiness authenticates the saved key, lists up to 600 models with free labels, and chooses a free default only for a free-tier key. Its address is fixed to OpenRouter; proxy users must use the generic endpoint engine. Keys refused by the service no longer appear ready. Checked with a mock endpoint, including conversation fallback; a real OpenRouter account was not run.
 
+### Fixed
+- Desktop on Linux: on desktops Chromium does not recognise (Hyprland, sway, i3), the app now selects the running GNOME Keyring or KWallet explicitly. Chromium used to fall back to `basic_text` there, so the first start stopped with "This computer's secret storage is not available" even with a keyring running. KDE and an explicit `--password-store` are left alone.
+
 ## v0.2.0 (2026-10-22)
 
 ### Changed

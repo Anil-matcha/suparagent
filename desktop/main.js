@@ -15,6 +15,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { layout, packagedLayout } = require("./src/paths");
+const { choosePasswordStore } = require("./src/password-store");
 const { createKeyStore, KeyStoreError } = require("./src/keystore");
 const { startBackend, backendEnvironment, newToken } = require("./src/backend");
 const { attachTokenTo, lockDown, sameOrigin } = require("./src/origin");
@@ -34,6 +35,14 @@ const { registerApplicationMenu } = require("./src/application-menu");
 const { createHostedWorkspace, createWorkspaceStore, PLAN_URL } = require("./src/hosted-workspace");
 const { HEADER } = require("./src/origin");
 const { registerHostedWorkspace } = require("./src/hosted-workspace-ipc");
+
+// Chromium fixes its Linux password store before the app is ready. Pick a real
+// keyring on desktops it does not recognise; without this, safeStorage reports
+// encryption as unavailable there even though GNOME Keyring is running.
+if (!app.commandLine.hasSwitch("password-store")) {
+  const passwordStore = choosePasswordStore();
+  if (passwordStore) app.commandLine.appendSwitch("password-store", passwordStore);
+}
 
 const mode = process.argv.includes("--mode=dev") ? "dev" : "start";
 // Running from source: use the app icon for the window and the dock. Installers carry the icon in the
