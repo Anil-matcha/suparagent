@@ -15,12 +15,21 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { layout, packagedLayout } = require("./src/paths");
+const { choosePasswordStore } = require("./src/password-store");
 const { createKeyStore, KeyStoreError } = require("./src/keystore");
 const { startBackend, backendEnvironment, newToken } = require("./src/backend");
 const { attachTokenTo, lockDown, sameOrigin } = require("./src/origin");
 const { registerPathPicker } = require("./src/path-picker");
 const { lastReason, describeFailure, describeUnexpectedExit } = require("./src/messages");
 const { NativeControl, registerNativeControl } = require("./src/native-control");
+
+// Chromium fixes its Linux password store before the app is ready. Pick a real
+// keyring on desktops it does not recognise; without this, safeStorage reports
+// encryption as unavailable there even though GNOME Keyring is running.
+if (!app.commandLine.hasSwitch("password-store")) {
+  const passwordStore = choosePasswordStore();
+  if (passwordStore) app.commandLine.appendSwitch("password-store", passwordStore);
+}
 
 const mode = process.argv.includes("--mode=dev") ? "dev" : "start";
 // An installed app carries its own frozen backend and page; a checkout uses its own folders.
