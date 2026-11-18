@@ -1,4 +1,4 @@
-"""Local Desktop management of the API keys used by cloud computers (Boat, Muapi).
+"""Local Desktop management of the API keys used by cloud computers (Boat, Muapi, boxd).
 
 These routes store the key only. They never contact the provider or return the secret.
 """
@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.routes import require_admin
 from app.db.models import Computer
 from app.db.session import get_db
-from app.desktop import boat_credentials, muapi_credentials, profile
+from app.desktop import boat_credentials, boxd_credentials, muapi_credentials, profile
 from app.services.local_access_policy import require_local_access
 
 MAX_BODY_BYTES = 8192
@@ -113,3 +113,4 @@ def build_router(provider: str, creds, label: str) -> APIRouter:
 
 router = build_router("boat", boat_credentials, "Boat")
 muapi_router = build_router("muapi", muapi_credentials, "Muapi")
+boxd_router = build_router("boxd", boxd_credentials, "boxd")
