@@ -55,6 +55,28 @@ class ImageProvider(Protocol):
     async def generate(self, prompt: str, size: str) -> bytes: ...
 
 
+async def _request_image(base: str, key: str, model: str, prompt: str, size: str) -> bytes:
+    """Ask an OpenAI-style images endpoint for one picture and return its bytes."""
+    base = base.strip().rstrip("/")
+    headers = {"Authorization": f"Bearer {key.strip()}"}
+    body = {"model": model, "prompt": prompt, "size": size, "n": 1}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(tool_timeout.seconds()), follow_redirects=False) as client:
+        response = await client.post(f"{base}/images/generations", json=body, headers=headers)
+    if response.status_code != 200:
+        raise ImageError(502, "provider_failed", "The image service could not make that image.")
+    not_an_image = ImageError(502, "provider_failed", "The image service returned something that is not an image.")
+    try:
+        item = response.json()["data"][0]
+        if item.get("b64_json"):
+            return base64.b64decode(item["b64_json"], validate=True)
+        url = item.get("url")
+    except Exception:
+        raise not_an_image from None
+    if isinstance(url, str) and _allowed_image_url(url):
+        return await _download(url)
+    raise not_an_image
+
+
 class OpenAICompatibleProvider:
     id = "openai"
     label = "OpenAI-compatible images API"
@@ -63,24 +85,26 @@ class OpenAICompatibleProvider:
         return bool(settings.IMAGE_API_KEY.strip())
 
     async def generate(self, prompt: str, size: str) -> bytes:
-        base = settings.IMAGE_API_BASE_URL.strip().rstrip("/")
-        headers = {"Authorization": f"Bearer {settings.IMAGE_API_KEY.strip()}"}
-        body = {"model": settings.IMAGE_MODEL, "prompt": prompt, "size": size, "n": 1}
-        async with httpx.AsyncClient(timeout=httpx.Timeout(tool_timeout.seconds()), follow_redirects=False) as client:
-            response = await client.post(f"{base}/images/generations", json=body, headers=headers)
-        if response.status_code != 200:
-            raise ImageError(502, "provider_failed", "The image service could not make that image.")
-        not_an_image = ImageError(502, "provider_failed", "The image service returned something that is not an image.")
-        try:
-            item = response.json()["data"][0]
-            if item.get("b64_json"):
-                return base64.b64decode(item["b64_json"], validate=True)
-            url = item.get("url")
-        except Exception:
-            raise not_an_image from None
-        if isinstance(url, str) and _allowed_image_url(url):
-            return await _download(url)
-        raise not_an_image
+        return await _request_image(settings.IMAGE_API_BASE_URL, settings.IMAGE_API_KEY, settings.IMAGE_MODEL, prompt, size)
+
+
+# MuAPI answers on an OpenAI-style route and takes the key the owner saved under Settings, Integrations.
+MUAPI_IMAGE_BASE_URL = "https://api.muapi.ai/v1"
+MUAPI_IMAGE_MODEL = "flux-schnell"
+
+
+class MuapiImageProvider:
+    id = "muapi"
+    label = "MuAPI images"
+
+    def __init__(self, api_key: str | None) -> None:
+        self._key = (api_key or "").strip()
+
+    def available(self) -> bool:
+        return bool(self._key)
+
+    async def generate(self, prompt: str, size: str) -> bytes:
+        return await _request_image(MUAPI_IMAGE_BASE_URL, self._key, MUAPI_IMAGE_MODEL, prompt, size)
 
 
 def _allowed_image_url(url: str) -> bool:
@@ -117,8 +141,12 @@ async def _download(url: str) -> bytes:
 _PROVIDERS: dict[str, ImageProvider] = {"openai": OpenAICompatibleProvider()}
 
 
-def providers() -> list[dict]:
-    return [{"id": p.id, "label": p.label, "available": p.available()} for p in _PROVIDERS.values()]
+def _all_providers(muapi_key: str | None) -> dict[str, ImageProvider]:
+    return {**_PROVIDERS, "muapi": MuapiImageProvider(muapi_key)}
+
+
+def providers(muapi_key: str | None = None) -> list[dict]:
+    return [{"id": p.id, "label": p.label, "available": p.available()} for p in _all_providers(muapi_key).values()]
 
 
 def sniff(data: bytes) -> tuple[str, str] | None:
@@ -154,7 +182,7 @@ def _trim() -> None:
         old.unlink(missing_ok=True)
 
 
-async def generate(prompt: str, provider: str | None = None, size: str | None = None) -> dict:
+async def generate(prompt: str, provider: str | None = None, size: str | None = None, muapi_key: str | None = None) -> dict:
     text = " ".join((prompt or "").split())
     if not text:
         raise ImageError(422, "empty_prompt", "Describe the image first.")
@@ -163,11 +191,13 @@ async def generate(prompt: str, provider: str | None = None, size: str | None = 
     size = size or DEFAULT_SIZE
     if size not in SIZES:
         raise ImageError(422, "bad_size", "Pick one of the offered sizes.")
-    chosen = _PROVIDERS.get(provider or "openai")
+    known = _all_providers(muapi_key)
+    # With no provider named, keep the OpenAI-compatible one; fall back to MuAPI only when that is the one that is set up.
+    chosen = known.get(provider or ("muapi" if muapi_key and not known["openai"].available() else "openai"))
     if chosen is None:
         raise ImageError(422, "unknown_provider", "That image provider does not exist.")
     if not chosen.available():
-        raise ImageError(409, "provider_not_configured", f"{chosen.label} is not set up. Add an image API key in the server settings.")
+        raise ImageError(409, "provider_not_configured", f"{chosen.label} is not set up. Connect MuAPI under Settings, Integrations, or add an image API key in the server settings.")
     try:
         data = await asyncio.wait_for(chosen.generate(text, size), timeout=tool_timeout.seconds())
     except asyncio.TimeoutError:

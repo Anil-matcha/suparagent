@@ -8,6 +8,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.routers.agents import _agent_or_404, get_runtime
+from app.routers.muapi import _api_key as saved_muapi_key
 from app.services import image_gen
 from app.services.local_access_policy import require_local_access
 from app.services.thread_runtime import ThreadRuntime
@@ -42,15 +43,21 @@ def _refuse(error: image_gen.ImageError) -> HTTPException:
     return HTTPException(status_code=error.status, detail={"error_code": error.code, "message": error.message})
 
 
+async def _muapi_key(rt: ThreadRuntime) -> str | None:
+    """The MuAPI key the owner saved under Settings, Integrations; the pictures provider is set up when there is one."""
+    async with rt.session() as db:
+        return await saved_muapi_key(db)
+
+
 @router.get("/images/providers", response_model=list[ProviderOut])
-async def list_providers():
-    return image_gen.providers()
+async def list_providers(rt: ThreadRuntime = Depends(get_runtime)):
+    return image_gen.providers(await _muapi_key(rt))
 
 
 @router.post("/images/generate", response_model=ImageOut, status_code=201)
-async def generate_image(payload: GenerateRequest):
+async def generate_image(payload: GenerateRequest, rt: ThreadRuntime = Depends(get_runtime)):
     try:
-        return await image_gen.generate(payload.prompt, payload.provider, payload.size)
+        return await image_gen.generate(payload.prompt, payload.provider, payload.size, await _muapi_key(rt))
     except image_gen.ImageError as error:
         raise _refuse(error) from None
 

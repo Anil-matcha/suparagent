@@ -69,7 +69,7 @@ async def client(tmp_path, monkeypatch):
         agent_id = (await store.create_agent(db, owner_id="o1", name="Ada", instructions="x")).id
         other = (await store.create_agent(db, owner_id="o2", name="Eve", instructions="x")).id
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
-        c.agent_id, c.other = agent_id, other
+        c.agent_id, c.other, c.sessions = agent_id, other, sessions
         yield c
     await engine.dispose()
 
@@ -204,3 +204,94 @@ async def test_response_with_neither_image_nor_link_is_rejected(monkeypatch):
     _serve(monkeypatch, lambda url: httpx.Response(200, json={"data": [{}]}))
     with pytest.raises(image_gen.ImageError):
         await image_gen.OpenAICompatibleProvider().generate("fox", "1024x1024")
+
+
+# ---- the MuAPI provider uses the key saved under Settings, Integrations ----
+
+import json  # noqa: E402
+
+from app.services import user_credential_service  # noqa: E402
+from app.services.thread_runtime import LOCAL_OWNER_ID  # noqa: E402
+
+MUAPI_KEY = "muapi-secret-key-0123456789"
+
+
+async def _save_muapi_key(client, key=MUAPI_KEY):
+    async with client.sessions() as db:
+        await user_credential_service.save_token(
+            db, user_id=LOCAL_OWNER_ID, provider="integration:muapi:data-api", file_path="-", plaintext=json.dumps(key))
+
+
+async def test_muapi_provider_is_listed_and_unavailable_until_a_key_is_saved(client, monkeypatch):
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "")
+    rows = {row["id"]: row for row in (await client.get("/images/providers")).json()}
+    assert rows["muapi"] == {"id": "muapi", "label": "MuAPI images", "available": False}
+    await _save_muapi_key(client)
+    rows = {row["id"]: row for row in (await client.get("/images/providers")).json()}
+    assert rows["muapi"]["available"] is True and rows["openai"]["available"] is False
+    assert MUAPI_KEY not in (await client.get("/images/providers")).text
+
+
+async def test_muapi_provider_calls_muapi_with_the_saved_key_and_stores_the_image(client, monkeypatch):
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "")
+    await _save_muapi_key(client)
+    sent = {}
+
+    def routes(url):
+        if "images/generations" in url:
+            return httpx.Response(200, json={"data": [{"url": CDN}]})
+        return httpx.Response(200, content=PNG)
+
+    real = httpx.AsyncClient
+
+    def handler(request):
+        sent.setdefault("urls", []).append((str(request.url), request.headers.get("authorization")))
+        if request.method == "POST":
+            sent["body"] = json.loads(request.content)
+        return routes(str(request.url))
+
+    monkeypatch.setattr(image_gen.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    r = await client.post("/images/generate", json={"prompt": "a fox", "provider": "muapi"})
+    assert r.status_code == 201 and r.json()["provider"] == "muapi"
+    first_url, first_auth = sent["urls"][0]
+    assert first_url == "https://api.muapi.ai/v1/images/generations" and first_auth == f"Bearer {MUAPI_KEY}"
+    assert sent["body"]["model"] == "flux-schnell" and sent["body"]["prompt"] == "a fox"
+    assert sent["urls"][1] == (CDN, None)
+    assert MUAPI_KEY not in r.text
+
+
+async def test_no_provider_named_falls_back_to_muapi_only_when_openai_is_not_set_up(client, monkeypatch):
+    await _save_muapi_key(client)
+    seen = []
+    real = httpx.AsyncClient
+
+    def handler(request):
+        seen.append(str(request.url))
+        return httpx.Response(200, json={"data": [{"url": CDN}]}) if request.method == "POST" else httpx.Response(200, content=PNG)
+
+    monkeypatch.setattr(image_gen.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "")
+    assert (await client.post("/images/generate", json={"prompt": "a fox"})).status_code == 201
+    assert seen[0].startswith("https://api.muapi.ai/")
+    seen.clear()
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "sk-openai-key-0123456789")
+    monkeypatch.setattr(settings, "IMAGE_API_BASE_URL", "https://api.openai.com/v1")
+    await client.post("/images/generate", json={"prompt": "a fox"})
+    assert seen[0].startswith("https://api.openai.com/")
+
+
+async def test_muapi_provider_without_a_key_says_where_to_connect_it(client, monkeypatch):
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "")
+    r = await client.post("/images/generate", json={"prompt": "a fox", "provider": "muapi"})
+    assert r.status_code == 409 and r.json()["detail"]["error_code"] == "provider_not_configured"
+    assert "Integrations" in r.json()["detail"]["message"]
+
+
+async def test_muapi_failure_does_not_leak_the_key(client, monkeypatch):
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "")
+    await _save_muapi_key(client)
+    real = httpx.AsyncClient
+    monkeypatch.setattr(image_gen.httpx, "AsyncClient", lambda **kw: real(
+        transport=httpx.MockTransport(lambda request: httpx.Response(401, text=f"bad key {MUAPI_KEY}")), **kw))
+    r = await client.post("/images/generate", json={"prompt": "a fox", "provider": "muapi"})
+    assert r.status_code == 502 and MUAPI_KEY not in r.text

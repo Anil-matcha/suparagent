@@ -41,7 +41,7 @@ export const INTEGRATIONS: readonly IntegrationManifest[] = [
     id: "muapi",
     name: "MuAPI",
     anchorId: "setting-integration-muapi",
-    description: "This first-party connection calls MuAPI's REST API directly. Its data API key is separate from the key used by MuAPI cloud computers.",
+    description: "This first-party connection calls MuAPI's REST API directly. Its data API key is separate from the key used by MuAPI cloud computers. Once connected, MuAPI is also offered as an image provider for agent pictures.",
     secret: {
       label: "MuAPI API key",
       placeholder: "Paste your MuAPI API key",
