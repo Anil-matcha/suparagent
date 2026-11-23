@@ -1,0 +1,15 @@
+{
+  "slug": "levea",
+  "name": "Levea AI Video Editor",
+  "version": "0.7.1",
+  "summary": "Hosted autonomous AI video editor MCP: turn natural-language prompts into finished videos with viral clips, 280+ animated caption templates, 9:16 vertical speaker reframing, silence cleanup, B-roll, motion graphics, voiceover, music, and cloud MP4 export. Uses a Levea bearer API key. Grant only the individual tools you want.",
+  "publisher": "LiveCore AI",
+  "source_repo": "https://github.com/brajendrak00068/agentic-ai-video-production",
+  "endpoint": "https://api.livecore.ai/api/v1/misc/mcp",
+  "auth_mode": "bearer_token",
+  "privacy_url": "https://www.livecore.ai/privacy",
+  "terms_url": "https://www.livecore.ai/terms",
+  "license": "MIT (client and MCP contract); proprietary cloud rendering service",
+  "setup_instructions": "Sign in at https://www.livecore.ai and create an API key from your account settings. In Suparagent, connect this listing and save the key as its bearer token. Grant only the individual tools each agent needs (for example list_caption_templates, list_projects, autonomous_edit, queue_edit, and check_task_status). Full edits and cloud MP4 exports can consume account credits, and delete_* tools permanently remove projects, assets, brand kits, or templates. Do not paste the API key into chat or a tool argument.",
+  "test_instructions": "Grant editor_health or list_caption_templates to an agent and call it once to verify the connection without starting a paid video edit or export. A successful call returns service status or the list of built-in caption templates. Avoid calling autonomous_edit or queue_edit during connection testing because they run an editing and export pipeline."
+}
