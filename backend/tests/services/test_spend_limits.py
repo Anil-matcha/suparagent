@@ -343,7 +343,8 @@ async def test_a_call_that_clearly_never_ran_costs_nothing(world):
                   McpError("remote_error", "x", 502, not_run=True),
                   McpError("connect_failed", "x", 502)):
         result = await paid_call(world, Failing(error), max_cost_usd=0.5, q=error.code)
-        assert result["code"] == "outcome_unknown"
+        # A known refusal keeps its own code; a failed connection is not marked not_run, so it stays unknown.
+        assert result["code"] == (error.code if error.not_run else "outcome_unknown")
     rows = await ledger(world)
     assert [(r.status, r.settled_cents) for r in rows] == [("released", 0)] * 3
     assert [r.reason for r in rows] == ["not_run:authentication_failed", "not_run:remote_error", "not_run:connect_failed"]
