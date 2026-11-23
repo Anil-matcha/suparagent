@@ -101,11 +101,11 @@ def all_text(t):
 
 def test_there_are_eight_worker_templates_with_plain_names():
     assert [t.id for t in workers()] == [
-        "operations-chief-of-staff", "growth-gtm-engineer", "sales-sales", "marketing-seo",
+        "operations-analyst", "growth-gtm-engineer", "sales-sales", "marketing-seo",
         "marketing-social-media", "marketing-ad-manager", "support-customer-satisfaction", "web-web-developer",
     ]
     assert [t.name for t in workers()] == [
-        "Chief of Staff", "GTM engineer", "Sales", "SEO",
+        "Operations analyst", "GTM engineer", "Sales", "SEO",
         "Social media", "Ad manager", "Customer satisfaction", "Web developer",
     ]
     assert [t.category for t in workers()] == ["operations", "growth", "sales", "marketing", "marketing", "marketing", "support", "web"]
@@ -217,9 +217,9 @@ def test_every_endpoint_a_skill_names_is_on_the_vetted_list_and_each_worker_has_
     assert not any(n.startswith(("social-publish", "sandbox")) for n in VETTED_ENDPOINTS)
 
 
-def test_the_chief_of_staff_worker_is_not_a_team_lead_role():
-    t = catalog.get("operations-chief-of-staff")
-    assert t.name == "Chief of Staff" and t.role != "Team lead (Chief of Staff)"
+def test_the_operations_analyst_worker_is_not_a_team_lead_role():
+    t = catalog.get("operations-analyst")
+    assert t.name == "Operations analyst" and "lead" not in t.role.lower()
     assert "manage other workers" in t.instructions
 
 

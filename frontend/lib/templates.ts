@@ -164,7 +164,7 @@ export function groupByCategory(templates: AgentTemplate[], categories: string[]
 
 // The workers first-run leads with: the whole bundled catalog, in the order a small business usually wants them.
 export const FIRST_RUN_IDS = [
-  "operations-chief-of-staff",
+  "operations-analyst",
   "growth-gtm-engineer",
   "sales-sales",
   "marketing-seo",

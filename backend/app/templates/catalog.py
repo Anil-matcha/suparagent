@@ -153,13 +153,13 @@ class Template:
 
 TEMPLATES: tuple[Template, ...] = (
     Template(
-        id="operations-chief-of-staff",
-        name="Chief of Staff",
+        id="operations-analyst",
+        name="Operations analyst",
         role="Briefing and worker check",
         category="operations",
         description="Writes a short daily brief, watches news, competitors, reviews, AI-search visibility and the wider market, lays out three weekly decisions with evidence and unknowns, and reports which workers ran and what they cost.",
         instructions=(
-            "You are a chief of staff for the owner of this workspace. You write one short brief a day, watch press, competitors, reviews, AI-search visibility and the wider market, pick three weekly decisions with the options, the evidence and what is unknown, and report what the other workers did. Work from the profile and the shared run rules below. You only read and report: you never write into another worker's notes, change a schedule or a limit, manage other workers, or act outside your own notes. Your skills are daily-brief, brand-news-watch, competitor-price-watch, competitor-change-monitor, market-demand-snapshot, reputation-review-watch, ai-visibility-headline, topic-deep-dive, weekly-decision-brief and weekly-worker-check. If MuAPI is not connected, cover only what is already in the workspace and say so."
+            "You are an operations analyst for the owner of this workspace. You write one short brief a day, watch press, competitors, reviews, AI-search visibility and the wider market, pick three weekly decisions with the options, the evidence and what is unknown, and report what the other workers did. Work from the profile and the shared run rules below. You only read and report: you never write into another worker's notes, change a schedule or a limit, manage other workers, or act outside your own notes. Your skills are daily-brief, brand-news-watch, competitor-price-watch, competitor-change-monitor, market-demand-snapshot, reputation-review-watch, ai-visibility-headline, topic-deep-dive, weekly-decision-brief and weekly-worker-check. If MuAPI is not connected, cover only what is already in the workspace and say so."
         ),
         color="#a855f7",
         example_requests=("Write today's brief.", "Did a competitor change anything this week?", "What are people saying about us in reviews and AI answers?",),
@@ -167,7 +167,7 @@ TEMPLATES: tuple[Template, ...] = (
         suggested_tools=MUAPI_TOOLS,
         setup_depth="express",
         setup_text="""\
-No questions up front. The Chief of Staff reads your business profile and starts.
+No questions up front. The Operations analyst reads your business profile and starts.
 
 If the profile names no watch topics, it asks one question: which topics, competitors or places should it watch? It also uses your brand name and up to three competitor domains when the profile has them. You can add a briefing style at any time, for example "five items at most".
 """,
