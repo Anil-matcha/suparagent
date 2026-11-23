@@ -185,7 +185,7 @@ class Settings(BaseSettings):
     # Image generation (BL-114): any OpenAI-compatible images endpoint. Off until a key is set.
     IMAGE_API_BASE_URL: str = "https://api.openai.com/v1"
     IMAGE_API_KEY: str = ""
-    IMAGE_MODEL: str = "gpt-image-1"
+    IMAGE_MODEL: str = "gpt-image-2"
     AUTH_LIMITS_DIR: str = ""
     # Whether a request from this machine needs no sign-in:
     #   off       every request signs in (default; safest)

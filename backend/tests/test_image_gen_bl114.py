@@ -145,3 +145,23 @@ async def test_openai_adapter_decodes_b64_and_hides_errors(monkeypatch):
         await image_gen.OpenAICompatibleProvider().generate("fox", "1024x1024")
     assert "sk-" not in e.value.message
     assert image_gen.OpenAICompatibleProvider().available()
+
+
+async def test_openai_adapter_default_model_is_served(monkeypatch):
+    # OpenAI retired gpt-image-1 on 2026-10-23, so the shipped default must be a served model.
+    from app.core.config import Settings
+
+    default = Settings.model_fields["IMAGE_MODEL"].default
+    assert default == "gpt-image-2"
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "sk-test")
+    monkeypatch.setattr(settings, "IMAGE_MODEL", default)
+    seen = {}
+
+    def handler(request):
+        seen["body"] = request.content
+        return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(PNG).decode()}]})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(image_gen.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    assert await image_gen.OpenAICompatibleProvider().generate("fox", "1024x1024") == PNG
+    assert b'"model":"gpt-image-2"' in seen["body"].replace(b" ", b"")
