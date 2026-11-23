@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from app.core.config import settings
 from app.routers.templates import router as templates_router
 from app.schemas.agent import AgentCreateRequest
+from app.services import muapi_data_api
 from app.templates import catalog
 
 # The catalog is public text: it must not name any other product.
@@ -62,9 +63,9 @@ def test_every_category_has_a_template_and_most_roles_need_no_connection():
 
 
 def test_a_missing_connection_makes_a_template_unavailable():
-    needs_email = dataclasses.replace(catalog.get("web-site-keeper"), requires=("email",))
+    needs_email = dataclasses.replace(catalog.get("web-web-developer"), requires=("email",))
     assert not needs_email.available
-    assert catalog.get("web-site-keeper").available
+    assert catalog.get("web-web-developer").available
 
 
 
@@ -100,26 +101,51 @@ def all_text(t):
 
 def test_there_are_eight_worker_templates_with_plain_names():
     assert [t.id for t in workers()] == [
-        "everyday-daily-briefer", "sales-lead-researcher", "sales-outreach-drafter", "marketing-seo-writer",
-        "marketing-social-manager", "marketing-ad-manager", "support-customer-care", "web-site-keeper",
+        "operations-chief-of-staff", "growth-gtm-engineer", "sales-sales", "marketing-seo",
+        "marketing-social-media", "marketing-ad-manager", "support-customer-satisfaction", "web-web-developer",
     ]
     assert [t.name for t in workers()] == [
-        "Daily briefer", "Lead researcher", "Outreach drafter", "SEO writer",
-        "Social media manager", "Ad manager", "Customer care", "Site keeper",
+        "Chief of Staff", "GTM engineer", "Sales", "SEO",
+        "Social media", "Ad manager", "Customer satisfaction", "Web developer",
     ]
+    assert [t.category for t in workers()] == ["operations", "growth", "sales", "marketing", "marketing", "marketing", "support", "web"]
+    assert catalog.CATALOG_VERSION == 7
     assert "marketing" in catalog.CATEGORIES
 
 
 def test_only_workers_that_use_paid_data_need_muapi_and_only_suggest_its_tools():
-    paid = {"everyday-daily-briefer", "sales-lead-researcher", "sales-outreach-drafter", "marketing-seo-writer", "marketing-social-manager", "marketing-ad-manager"}
+    paid = {"operations-chief-of-staff", "growth-gtm-engineer", "sales-sales", "marketing-seo", "marketing-social-media", "marketing-ad-manager"}
     for t in workers():
         if t.id in paid:
             assert t.requires == ("muapi",), t.id
-            assert t.suggested_tools == catalog.MUAPI_TOOLS, t.id
+            media = t.id in {"marketing-social-media", "marketing-ad-manager"}
+            assert t.suggested_tools == (catalog.MUAPI_TOOLS + catalog.MUAPI_MEDIA_TOOLS if media else catalog.MUAPI_TOOLS), t.id
         else:
             assert t.requires == () and t.suggested_tools == (), t.id
             assert "MuAPI" not in t.full_instructions, t.id
     assert set(catalog.MUAPI_TOOLS) == {"muapi_data_api_search", "muapi_data_api_inspect", "muapi_data_api_estimate", "muapi_data_api_call", "muapi_predict_result"}
+
+
+def test_paid_skills_name_real_tools_and_media_skills_are_capped():
+    known = set(catalog.MUAPI_TOOLS) | set(catalog.MUAPI_MEDIA_TOOLS)
+    for t in workers():
+        for skill in t.skills:
+            for name in re.findall(r"`(muapi_[a-z_]+)`", skill.body):
+                assert name in known, (t.id, skill.name, name)
+                assert t.requires == ("muapi",), (t.id, skill.name)
+    for t in (catalog.get("marketing-social-media"), catalog.get("marketing-ad-manager")):
+        text = " ".join(s.body for s in t.skills)
+        assert "cheapest" in text and "approved" in text and "muapi_media_generate" in text and "max_cost_usd" in text
+        assert "muapi_image_generate" not in text and "muapi_video_generate" not in text
+    assert all(x in catalog.RUN_RULES for x in catalog.MUAPI_MEDIA_TOOLS)
+    assert "muapi_image_generate" not in catalog.RUN_RULES
+    assert set(catalog.MUAPI_MEDIA_TOOLS) <= set(muapi_data_api.TOOL_BY_NAME)
+
+
+def test_the_chief_of_staff_worker_is_not_a_team_lead_role():
+    t = catalog.get("operations-chief-of-staff")
+    assert t.name == "Chief of Staff" and t.role != "Team lead (Chief of Staff)"
+    assert "manage other workers" in t.instructions
 
 
 def test_run_rules_are_written_once_and_composed_into_each_worker():
@@ -131,7 +157,7 @@ def test_run_rules_are_written_once_and_composed_into_each_worker():
         assert "Profile first" not in t.instructions, t.id
         for skill in t.skills:
             assert "Profile first" not in skill.body and "[shared run rules]" not in skill.body, (t.id, skill.name)
-    ordinary = dataclasses.replace(catalog.get("web-site-keeper"), uses_run_rules=False)
+    ordinary = dataclasses.replace(catalog.get("web-web-developer"), uses_run_rules=False)
     assert ordinary.full_instructions == ordinary.instructions
 
 
@@ -186,7 +212,7 @@ def test_workers_pass_validation_as_new_agents():
 
 async def test_the_api_returns_the_composed_instructions_and_paused_routines():
     async with client() as c:
-        body = (await c.get("/api/v1/templates/marketing-seo-writer")).json()
+        body = (await c.get("/api/v1/templates/marketing-seo")).json()
         listing = (await c.get("/api/v1/templates", params={"category": "marketing"})).json()
     assert body["instructions"].endswith(catalog.RUN_RULES.rstrip())
     assert body["suggested_tools"] == list(catalog.MUAPI_TOOLS)
@@ -194,4 +220,4 @@ async def test_the_api_returns_the_composed_instructions_and_paused_routines():
     assert [r["id"] for r in body["routines"]] == ["seo-keyword-brief", "seo-draft-article", "seo-rank-check", "seo-competitor-gap", "seo-site-check"]
     assert all(r["enabled_after_install"] is False for r in body["routines"])
     assert listing["version"] == catalog.CATALOG_VERSION and "marketing" in listing["categories"]
-    assert [x["id"] for x in listing["templates"]] == ["marketing-seo-writer", "marketing-social-manager", "marketing-ad-manager"]
+    assert [x["id"] for x in listing["templates"]] == ["marketing-seo", "marketing-social-media", "marketing-ad-manager"]

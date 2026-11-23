@@ -39,7 +39,7 @@ def test_every_goal_names_only_bundled_workers():
 
 def test_a_known_goal_ranks_its_workers_first_with_a_reason():
     found = suggest.suggest(["leads"])
-    assert found[0].template_id == "sales-lead-researcher"
+    assert found[0].template_id == "sales-sales"
     assert found[0].reason.startswith("Fits your goal")
     assert all(f.template_id in KNOWN for f in found)
 
@@ -96,7 +96,7 @@ def test_team_lead_tool_is_listed_read_only_and_validates():
     member = policy.TurnTeam(1, 2, False, False)
     assert policy.automatic("mcp__team__suggest_workers", "plan", member, {})[0] == "allowed"
     result = setup.suggest_workers({"goals": ["briefing"]})
-    assert result["suggestions"][0]["template_id"] == "everyday-daily-briefer"
+    assert result["suggestions"][0]["template_id"] == "operations-chief-of-staff"
     assert {s["template_id"] for s in result["suggestions"]} <= KNOWN
     for bad in ({"goals": "leads"}, {"goals": ["x"] * 9}, {"about": 5}, {"max_setup": "slow"}, {"create": True}):
         with pytest.raises(service.TeamError):

@@ -11,6 +11,7 @@ import { onboarding, onboardingChatHref, STARTER_ROLES, type OnboardingDraft, ty
 import { EngineSettings } from "./EngineSettings";
 import { EngineModelFields } from "./chat/EngineModelFields";
 import { ChooseTeam } from "./chat/ChooseTeam";
+import { leadHelpAvailable, showWorkerCards } from "@/lib/templates";
 import { DesktopPermissions } from "./DesktopPermissions";
 import { Banner } from "./ui/Banner";
 import { Button } from "./ui/Button";
@@ -176,7 +177,8 @@ export function OnboardingApp() {
 
   // Stored step 3 (the old separate Team step) is shown on the agent screen, so saved progress still opens somewhere sensible.
   const screen = draft.step === 3 ? 2 : draft.step;
-  const showTeam = draft.create_agent && draft.make_lead && !!engine?.capabilities.mcp;
+  const showTeam = showWorkerCards(draft.create_agent);
+  const leadHelp = leadHelpAvailable(!!engine?.capabilities.mcp, draft.make_lead);
   const pendingTicks = screen === 2 && showTeam ? unaddedTicks : 0;
   const locked = saving || working;
   const canContinue = !locked && !saveError && pendingTicks === 0
@@ -238,6 +240,7 @@ export function OnboardingApp() {
                     <h2 className="text-sm font-semibold">Add a few helpers (optional)</h2>
                     <ChooseTeam
                       shortlist
+                      leadHelp={leadHelp}
                       provider={draft.provider || undefined}
                       model={draft.model || undefined}
                       onHired={(receipt) => setHiredCount(receipt.workers.length)}

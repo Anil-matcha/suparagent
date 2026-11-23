@@ -38,7 +38,7 @@ import { EngineModelFields } from "./EngineModelFields";
 import { MemoryPanel } from "./MemoryPanel";
 import { ChooseTeam } from "./ChooseTeam";
 import { TemplateSkillChoices, TemplatesGallery } from "./TemplatesGallery";
-import { installTemplateSkills, skillInstallNotice, uniqueAgentName, type AgentTemplate } from "@/lib/templates";
+import { hireSummary, installTemplateSkills, skillInstallNotice, uniqueAgentName, type AgentTemplate } from "@/lib/templates";
 import { useSession } from "@/components/AuthGate";
 import { collaboration, type TeamState } from "@/lib/collaboration";
 import { AgentSetupEntry } from "./AgentSetupEntry";
@@ -387,6 +387,18 @@ export function AgentsPanel({
       setError(errorText(err));
     } finally {
       setBusy(false);
+    }
+  };
+
+  // One-click hire of a single worker: routines paused, Ask first, nothing else granted.
+  const [hireNote, setHireNote] = useState<string | null>(null);
+  const hireOne = async (template: AgentTemplate) => {
+    setHireNote(null);
+    try {
+      setHireNote(hireSummary(await api.hireTemplates([template.id])));
+      onChanged();
+    } catch (err) {
+      setHireNote(errorText(err));
     }
   };
 
@@ -983,7 +995,8 @@ export function AgentsPanel({
                   <button type="button" onClick={() => setHireSeveral(true)} className={BUTTON}>
                     Hire several
                   </button>
-                  <TemplatesGallery onAdd={addTemplate} />
+                  {hireNote && <p role="status" className="text-xs text-muted">{hireNote}</p>}
+                  <TemplatesGallery onAdd={addTemplate} onHire={(template) => void hireOne(template)} />
                 </>
               )}
               <button type="button" onClick={() => { setHireSeveral(false); back(); }} className={BUTTON}>

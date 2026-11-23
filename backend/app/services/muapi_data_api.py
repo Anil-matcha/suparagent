@@ -1,8 +1,9 @@
 """First-party MuAPI data API client.
 
 The API key is sent only to MuAPI's fixed HTTPS API origin. This client exposes
-the read-only data API families used by worker templates; it does not use the
-MuAPI Community MCP endpoint or the cloud-computer credential store.
+the read-only data API domains used by worker templates and capped image, video
+and audio generation; it does not use the MuAPI Community MCP endpoint or the
+cloud-computer credential store.
 """
 
 from __future__ import annotations
@@ -19,8 +20,20 @@ import httpx
 from app.core.config import settings
 
 API_ROOT = "https://api.muapi.ai/api/v1"
-DATA_FAMILIES = frozenset({"seo"})
-SEARCH_DOMAINS = DATA_FAMILIES
+# MuAPI's public GET /api/v1/models and /models/{name} expose a `domain` field
+# (seo, lead_enrichment, scraping, market_data, social, sandbox; "ai" for
+# generation models). `family` is a model grouping, not the domain. Only these
+# read-only domains are allowed; social publishing and sandbox control are not.
+DATA_DOMAINS = frozenset({"seo", "lead_enrichment", "scraping", "market_data"})
+# MuAPI's own server reports this endpoint, filed under lead_enrichment, as web research.
+DATA_EXTRA_NAMES = {"research-web-answer": "web_research"}
+SEARCH_DOMAINS = DATA_DOMAINS | frozenset({"web_research"})
+# Generation models carry domain "ai" and one of these categories.
+MEDIA_KINDS = {
+    "image": frozenset({"Text to Image", "Image to Image"}),
+    "video": frozenset({"Text to Video", "Image to Video", "Video to Video", "Audio to Video"}),
+    "audio": frozenset({"Text to Audio"}),
+}
 API_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 PREDICTION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 MAX_RESPONSE_BYTES = 1_000_000
@@ -29,11 +42,12 @@ MAX_REQUEST_BYTES = 64_000
 TOOL_DEFINITIONS = (
     {
         "name": "muapi_data_api_search",
-        "description": "Search MuAPI's live SEO and data model catalog. Returns current input fields and price metadata. Publishing and sandbox-control endpoints are excluded.",
+        "description": "Search MuAPI's live data model catalog (SEO, lead enrichment, scraping, market data, web research). Returns current input fields and price metadata. Publishing and sandbox-control endpoints are excluded.",
         "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
             "query": {"type": "string", "maxLength": 200,
                       "description": "Task or endpoint search, such as backlinks, company enrichment or public posts."},
-            "domain": {"type": "string", "enum": ["seo"]},
+            "domain": {"type": "string",
+                       "enum": ["seo", "lead_enrichment", "scraping", "market_data", "web_research"]},
             "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20},
         }},
     },
@@ -69,6 +83,29 @@ TOOL_DEFINITIONS = (
         }},
     },
     {
+        "name": "muapi_media_search",
+        "description": "Search MuAPI's live image, video and audio generation models. Returns each model's price metadata and input fields. Free. Use muapi_media_generate to make one item.",
+        "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
+            "query": {"type": "string", "maxLength": 200,
+                      "description": "Model or task search, such as flux, product photo or text to video."},
+            "kind": {"type": "string", "enum": ["image", "video", "audio"]},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20},
+        }},
+    },
+    {
+        "name": "muapi_media_generate",
+        "description": "Generate one image, video or audio item with a model found by muapi_media_search. This spends MuAPI credits. MuAPI supplies a fresh quote and the app refuses the call when it exceeds max_cost_usd. Returns a request_id to check with muapi_predict_result.",
+        "inputSchema": {"type": "object", "additionalProperties": False,
+                         "required": ["api_name", "input", "max_cost_usd"], "properties": {
+            "api_name": {"type": "string", "maxLength": 128,
+                         "description": "Model name returned by muapi_media_search."},
+            "input": {"type": "object", "additionalProperties": True,
+                      "description": "The JSON input for the selected model."},
+            "max_cost_usd": {"type": "number", "minimum": 0,
+                              "description": "Maximum quoted USD cost allowed for this item."},
+        }},
+    },
+    {
         "name": "muapi_predict_result",
         "description": "Fetch the current status and result of an asynchronous MuAPI prediction by request ID.",
         "inputSchema": {"type": "object", "additionalProperties": False, "required": ["request_id"],
@@ -97,8 +134,22 @@ def agent_grant_lock(agent_id: int) -> asyncio.Lock:
 
 
 def data_domain(model: dict) -> str | None:
-    family = model.get("family")
-    return family.lower() if isinstance(family, str) and family.lower() in DATA_FAMILIES else None
+    """The allowed read-only data domain of a model, or None (social, sandbox and generation models)."""
+    extra = DATA_EXTRA_NAMES.get(model.get("name"))
+    if extra and model.get("domain") == "lead_enrichment":
+        return extra
+    domain = model.get("domain")
+    return domain if isinstance(domain, str) and domain in DATA_DOMAINS else None
+
+
+def media_kind(model: dict) -> str | None:
+    """image, video or audio for an ordinary generation model; None for anything else."""
+    if model.get("domain") != "ai":
+        return None
+    name, category = model.get("name"), model.get("category")
+    if not isinstance(name, str) or "spicy" in name.lower() or not isinstance(category, str):
+        return None  # adult-tier models are not offered to workers
+    return next((kind for kind, categories in MEDIA_KINDS.items() if category in categories), None)
 
 
 def _model_endpoint(model: dict) -> str:
@@ -107,6 +158,9 @@ def _model_endpoint(model: dict) -> str:
     if not isinstance(raw, str) or not raw:
         raise MuapiError("unsafe_endpoint", "MuAPI did not return a valid model endpoint.", 502, not_run=True)
     parsed = urlsplit(raw)
+    if not parsed.scheme and not parsed.netloc and not raw.startswith("/"):
+        # MuAPI's catalog reports endpoint_url as the bare model path, such as "seo-google-serp".
+        parsed = urlsplit("/api/v1/" + raw)
     if parsed.scheme or parsed.netloc:
         if parsed.scheme != "https" or parsed.netloc.lower() != "api.muapi.ai":
             raise MuapiError("unsafe_endpoint", "MuAPI returned an endpoint outside its API origin.", 502,
@@ -231,17 +285,23 @@ class MuapiDataApi:
             raise MuapiError("invalid_response", "MuAPI returned an unreadable model catalog.", 502)
         return [item for item in models if isinstance(item, dict)]
 
-    async def _data_model(self, name: str) -> dict:
+    async def _model(self, name: str, *, media: bool = False) -> dict:
         if not valid_api_name(name):
             raise MuapiError("bad_arguments", "Choose an API name returned by MuAPI search.", 422, not_run=True)
         result = await self._request("GET", "models/" + quote(name, safe=""))
-        if (not isinstance(result, dict) or not data_domain(result) or result.get("is_coming_soon")
-                or result.get("is_enabled") in (0, False)):
-            raise MuapiError("unsupported_api", "This is not an available MuAPI data API.", 404, not_run=True)
+        allowed = media_kind if media else data_domain
+        if (not isinstance(result, dict) or result.get("name") != name or not allowed(result)
+                or result.get("is_coming_soon") or result.get("is_enabled") in (0, False)):
+            raise MuapiError("unsupported_api",
+                             "This is not an available MuAPI " + ("media model." if media else "data API."),
+                             404, not_run=True)
         return result
 
-    async def _estimate(self, name: str, payload: dict) -> tuple[dict, dict]:
-        model = await self._data_model(name)
+    async def _data_model(self, name: str) -> dict:
+        return await self._model(name)
+
+    async def _estimate(self, name: str, payload: dict, *, media: bool = False) -> tuple[dict, dict]:
+        model = await self._model(name, media=media)
         if model.get("dynamic_pricing") is True:
             result = await self._request("POST", f"models/{quote(name, safe='')}/estimate-cost", body=payload)
         else:
@@ -253,6 +313,27 @@ class MuapiDataApi:
         if price is None or currency != "USD":
             raise MuapiError("invalid_quote", "MuAPI returned an invalid USD cost quote.", 502)
         return {**result, "cost": price, "currency": "USD"}, model
+
+    async def _submit(self, model: dict, estimate: dict, payload: dict, raw_max_cost: object) -> dict:
+        """Submit a quoted model call unless the fresh quote is above the cap. Nothing is sent when it is."""
+        max_cost = _quote(raw_max_cost)
+        cost = _quote(estimate.get("cost"))
+        if max_cost is None or cost is None:
+            raise MuapiError("bad_arguments", "Give a valid non-negative max_cost_usd.", 422, not_run=True)
+        if cost > max_cost:
+            raise MuapiError("quote_over_cap", f"MuAPI quoted ${cost:.6f} USD, above the approved cap; no request was submitted.",
+                             422, not_run=True)
+        submission = await self._request("POST", _model_endpoint(model), body=payload, timeout=90.0)
+        if not isinstance(submission, dict):
+            submission = {"result": submission}
+        request_id = submission.get("request_id") or submission.get("id")
+        if not isinstance(request_id, str) or PREDICTION_ID.fullmatch(request_id) is None:
+            raise MuapiError("invalid_submission", "MuAPI did not return a valid request ID. The call may have run.",
+                             502)
+        actual_cost = submission.get("cost")
+        actual_cost = _quote(actual_cost.get("amount_usd")) if isinstance(actual_cost, dict) else None
+        return {"quoted_cost_usd": cost, "cost_usd": actual_cost if actual_cost is not None else cost,
+                "currency": "USD", "request_id": request_id, "submission": submission}
 
     async def call_tool(self, tool_name: str, arguments: dict) -> dict:
         if tool_name == "muapi_data_api_search":
@@ -273,7 +354,7 @@ class MuapiDataApi:
                         or model.get("is_enabled") in (0, False)):
                     continue
                 haystack = " ".join(str(model.get(field) or "") for field in
-                                     ("name", "description", "category", "family", "endpoint", "endpoint_url")).lower()
+                                     ("name", "description", "category", "domain", "endpoint", "endpoint_url")).lower()
                 if needle and needle not in haystack:
                     continue
                 matches.append({
@@ -296,7 +377,7 @@ class MuapiDataApi:
                 "api_name": name,
                 "description": str(model.get("description") or "")[:1000],
                 "category": str(model.get("category") or "")[:100],
-                "family": data_domain(model),
+                "family": data_domain(model), "domain": data_domain(model),
                 "cost": model.get("cost"),
                 "cost_currency": model.get("cost_currency", "USD"),
                 "dynamic_pricing": model.get("dynamic_pricing", False),
@@ -314,25 +395,45 @@ class MuapiDataApi:
             estimate, model = await self._estimate(name, payload)
             if tool_name == "muapi_data_api_estimate":
                 return estimate
-            max_cost = _quote(arguments.get("max_cost_usd"))
-            cost = _quote(estimate.get("cost"))
-            if max_cost is None or cost is None:
-                raise MuapiError("bad_arguments", "Give a valid non-negative max_cost_usd.", 422, not_run=True)
-            if cost > max_cost:
-                raise MuapiError("quote_over_cap", f"MuAPI quoted ${cost:.6f} USD, above the approved cap; no request was submitted.",
+            return await self._submit(model, estimate, payload, arguments.get("max_cost_usd"))
+
+        if tool_name == "muapi_media_search":
+            query, kind, limit = arguments.get("query", ""), arguments.get("kind"), arguments.get("limit", 20)
+            if not isinstance(query, str) or len(query) > 200 or (kind is not None and kind not in MEDIA_KINDS):
+                raise MuapiError("bad_arguments", "Use a short search and an optional kind: image, video or audio.",
                                  422, not_run=True)
-            submission = await self._request("POST", _model_endpoint(model), body=payload, timeout=90.0)
-            if not isinstance(submission, dict):
-                submission = {"result": submission}
-            request_id = submission.get("request_id") or submission.get("id")
-            if not isinstance(request_id, str) or PREDICTION_ID.fullmatch(request_id) is None:
-                raise MuapiError("invalid_submission", "MuAPI did not return a valid request ID. The call may have run.",
-                                 502)
-            actual_cost = submission.get("cost")
-            actual_cost = _quote(actual_cost.get("amount_usd")) if isinstance(actual_cost, dict) else None
-            return {"quoted_cost_usd": cost, "cost_usd": actual_cost if actual_cost is not None else cost,
-                    "currency": "USD", "request_id": request_id,
-                    "submission": submission}
+            if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
+                raise MuapiError("bad_arguments", "The search limit must be from 1 to 50.", 422, not_run=True)
+            needle = query.strip().lower()
+            matches = []
+            for model in await self._models():
+                current_kind = media_kind(model)
+                if (not valid_api_name(model.get("name")) or current_kind is None or (kind and current_kind != kind)
+                        or model.get("is_coming_soon") or model.get("is_enabled") in (0, False)):
+                    continue
+                haystack = " ".join(str(model.get(field) or "") for field in ("name", "description", "category")).lower()
+                if needle and needle not in haystack:
+                    continue
+                matches.append({
+                    "api_name": model.get("name"), "kind": current_kind,
+                    "description": str(model.get("description") or "")[:500],
+                    "cost": model.get("cost"), "cost_currency": model.get("cost_currency", "USD"),
+                    "dynamic_pricing": model.get("dynamic_pricing", False),
+                    "cost_strategy": _small(model.get("cost_strategy")),
+                    "input_fields": _small(model.get("input_fields", [])),
+                    "required_fields": _small(model.get("required_fields", [])),
+                })
+            return {"models": matches[:limit], "total_matches": len(matches)}
+
+        if tool_name == "muapi_media_generate":
+            name, payload = arguments.get("api_name"), arguments.get("input")
+            if not valid_api_name(name) or not isinstance(payload, dict):
+                raise MuapiError("bad_arguments", "Choose a searched media model and provide its JSON input.", 422,
+                                 not_run=True)
+            if _quote(arguments.get("max_cost_usd")) is None:
+                raise MuapiError("bad_arguments", "Give a valid non-negative max_cost_usd.", 422, not_run=True)
+            estimate, model = await self._estimate(name, payload, media=True)
+            return await self._submit(model, estimate, payload, arguments.get("max_cost_usd"))
 
         if tool_name == "muapi_predict_result":
             request_id = arguments.get("request_id")

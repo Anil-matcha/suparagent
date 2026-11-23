@@ -13,14 +13,14 @@ from app.templates import catalog
 # A short closed list the screen offers as choices. Each maps to the workers
 # that serve it, in the order they are preferred.
 GOALS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "briefing": ("Start each day with a short summary", ("everyday-daily-briefer",)),
-    "leads": ("Find companies and people who could buy", ("sales-lead-researcher", "sales-outreach-drafter")),
-    "outreach": ("Write to people who could become customers", ("sales-outreach-drafter", "sales-lead-researcher")),
-    "content": ("Write articles that bring in visitors", ("marketing-seo-writer", "marketing-social-manager")),
-    "social": ("Keep my social accounts active", ("marketing-social-manager",)),
+    "briefing": ("Start each day with a short summary", ("operations-chief-of-staff",)),
+    "leads": ("Find companies and people who could buy", ("sales-sales", "growth-gtm-engineer")),
+    "outreach": ("Write to people who could become customers", ("sales-sales", "growth-gtm-engineer")),
+    "content": ("Write articles that bring in visitors", ("marketing-seo", "marketing-social-media")),
+    "social": ("Keep my social accounts active", ("marketing-social-media",)),
     "ads": ("Get more from my advertising", ("marketing-ad-manager",)),
-    "support": ("Answer customers and keep them happy", ("support-customer-care",)),
-    "website": ("Keep my website healthy", ("web-site-keeper",)),
+    "support": ("Answer customers and keep them happy", ("support-customer-satisfaction",)),
+    "website": ("Keep my website healthy", ("web-web-developer",)),
 }
 
 SETUP_RANK = {"express": 0, "standard": 1, "guided": 2}

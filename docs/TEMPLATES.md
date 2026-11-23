@@ -1,6 +1,6 @@
 # Templates
 
-Templates are ready-made starting points for new agents. Open **Agents → Templates…** to browse a bundled list of roles, filter by category (Everyday, Sales, Marketing, Support, Web) and search by name, role, description or category.
+Templates are ready-made starting points for new agents. Open **Agents → Templates…** to browse a bundled list of roles, filter by category (Operations, Growth, Sales, Marketing, Support, Web) and search by name, role, description or category.
 
 ## What choosing one does
 
@@ -14,7 +14,7 @@ Some templates suggest skills (text instructions the agent can be asked to follo
 
 ## Workers
 
-The bundled templates are eight **workers**: Daily briefer, Lead researcher, Outreach drafter, SEO writer, Social media manager, Ad manager, Customer care and Site keeper. The first five use MuAPI data tools; Ad manager, Customer care and Site keeper work from what you paste or point them to and make no paid calls. Each card also shows its **starter routines (paused)** and a **setup depth** (Express, Standard or Guided). These are descriptions only: choosing a worker fills the form like any other template and creates no routine, schedules nothing and grants no tool. A worker's instructions are its short role text followed once by shared run rules (drafts only, a fixed order for paid lookups, one run record per run). Suggested MuAPI tools are named for you to grant later; they are never granted by choosing a template.
+The bundled templates are eight **workers**: Chief of Staff, GTM engineer, Sales, SEO, Social media, Ad manager, Customer satisfaction and Web developer. The first five use MuAPI data tools; Ad manager, Customer care and Site keeper work from what you paste or point them to and make no paid calls. Each card also shows its **starter routines (paused)** and a **setup depth** (Express, Standard or Guided). These are descriptions only: choosing a worker fills the form like any other template and creates no routine, schedules nothing and grants no tool. A worker's instructions are its short role text followed once by shared run rules (drafts only, a fixed order for paid lookups, one run record per run). Suggested MuAPI tools are named for you to grant later; they are never granted by choosing a template.
 
 ## Roles that need a connection
 

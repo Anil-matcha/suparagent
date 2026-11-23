@@ -9,6 +9,8 @@ const TOOLS = [
   ["muapi_data_api_inspect", "Inspect model schema"],
   ["muapi_data_api_estimate", "Estimate a call"],
   ["muapi_data_api_call", "Make a capped paid call"],
+  ["muapi_media_search", "Search image, video and audio models"],
+  ["muapi_media_generate", "Make one capped image, video or audio item"],
   ["muapi_predict_result", "Check a prediction result"],
 ] as const;
 
@@ -164,7 +166,7 @@ export function IntegrationsSettings() {
             {agents.map((agent) => {
               const selected = draft[agent.id] ?? [];
               const isDirty = JSON.stringify(sorted(selected)) !== JSON.stringify(sorted(saved[agent.id] ?? []));
-              const hasPaid = (saved[agent.id] ?? []).includes("muapi_data_api_call");
+              const hasPaid = (saved[agent.id] ?? []).some((tool) => tool === "muapi_data_api_call" || tool === "muapi_media_generate");
               return <li key={agent.id} className="space-y-2 rounded-md border border-line p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-sm font-medium">{agent.name}</h3>
