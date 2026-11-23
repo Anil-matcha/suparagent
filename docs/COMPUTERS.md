@@ -295,9 +295,13 @@ How it maps:
 | `read_file`, `write_file`, `list_files` | the boxd file API, limited to the workspace and `/tmp` like Boat. |
 | screen tools | a 1280x800 Xvfb display `:99` started on demand, driven with `xdotool`, captured with ImageMagick `import`. |
 
-The machine runs the boxd default image (Ubuntu 24.04) at the org's default
-size, with internet access; resource, image and network settings are not
-offered for it. Its desktop is not the machine's own boxd console Desktop view
+The machine is created isolated: it has no in-VM boxd CLI or connected
+integrations and is off the organization's private network. boxd env vars and
+secrets in its scope still reach commands, so keep sensitive ones out of that
+scope or bind them to a host. Isolation is set when a machine is created, so
+recreate any boxd computer made before this change. It runs the boxd default
+image (Ubuntu 24.04) at the org's default size, with internet access; resource,
+image and network settings are not offered for it. Its desktop is not the machine's own boxd console Desktop view
 (display `:100`, which resizes to whoever watches it), so the panel shows it
 as screenshots and there is
 no take-control view. Remove boxd computers before resetting the Desktop

@@ -14,6 +14,7 @@
 
 ### Changed
 
+- boxd computers are now created as isolated machines, with no in-VM boxd CLI, connected integrations or private network. Recreate any boxd computer made before this change.
 - Templates know which connections this workspace has: `GET /templates` now lists each role's `missing` connections, and a role that needs only Muapi can be added before Muapi is connected (it shows "Needs Muapi · Connect"). No bundled role needs Muapi yet. Tested with backend and frontend unit tests; no real Muapi connector, browser or packaged app was run.
 - Give team setup a versioned review card: the person can revise, approve or decline the specialist plan, and nothing changes before approval. Approval rechecks current team state and records its result and Undo data with the transcript event. The applied card opens each new specialist with an editable, unsent first-task draft. No automated, live-provider or packaged-release verification is claimed for this source change.
 - Expand the Muapi Community MCP listing to selected data research APIs. Search and estimate are read-only; paid lookups require a per-call USD cap and approval and can consume Muapi credits.
