@@ -109,20 +109,17 @@ def test_there_are_eight_worker_templates_with_plain_names():
         "Social media", "Ad manager", "Customer satisfaction", "Web developer",
     ]
     assert [t.category for t in workers()] == ["operations", "growth", "sales", "marketing", "marketing", "marketing", "support", "web"]
-    assert catalog.CATALOG_VERSION == 7
+    assert catalog.CATALOG_VERSION == 8
     assert "marketing" in catalog.CATEGORIES
 
 
-def test_only_workers_that_use_paid_data_need_muapi_and_only_suggest_its_tools():
-    paid = {"operations-chief-of-staff", "growth-gtm-engineer", "sales-sales", "marketing-seo", "marketing-social-media", "marketing-ad-manager"}
+def test_every_worker_needs_muapi_and_only_suggests_its_tools():
+    paid = {t.id for t in workers()}
     for t in workers():
         if t.id in paid:
             assert t.requires == ("muapi",), t.id
             media = t.id in {"marketing-social-media", "marketing-ad-manager"}
             assert t.suggested_tools == (catalog.MUAPI_TOOLS + catalog.MUAPI_MEDIA_TOOLS if media else catalog.MUAPI_TOOLS), t.id
-        else:
-            assert t.requires == () and t.suggested_tools == (), t.id
-            assert "MuAPI" not in t.full_instructions, t.id
     assert set(catalog.MUAPI_TOOLS) == {"muapi_data_api_search", "muapi_data_api_inspect", "muapi_data_api_estimate", "muapi_data_api_call", "muapi_predict_result"}
 
 
@@ -142,6 +139,84 @@ def test_paid_skills_name_real_tools_and_media_skills_are_capped():
     assert set(catalog.MUAPI_MEDIA_TOOLS) <= set(muapi_data_api.TOOL_BY_NAME)
 
 
+# Endpoint names the skills may mention, checked against MuAPI's model list (domains seo, lead_enrichment,
+# scraping and market_data, plus `research-web-answer`; no social-publishing or sandbox names).
+# Add a name here only after finding it in MuAPI's model list.
+VETTED_ENDPOINTS = frozenset({
+    "ad-library-search",
+    "company-buying-signals",
+    "company-enrich",
+    "company-funding",
+    "company-headcount-growth",
+    "company-job-postings",
+    "company-products",
+    "company-public-financials",
+    "company-technographics",
+    "creators-analytics",
+    "creators-lookalike",
+    "creators-profile",
+    "creators-search",
+    "ecommerce-keyword-metrics",
+    "ecommerce-marketplace-search",
+    "email-verify",
+    "facebook-fetch-reels",
+    "instagram-fetch-reels",
+    "linkedin-company-profile",
+    "linkedin-employees",
+    "linkedin-people-search",
+    "market-stock-history",
+    "market-stock-screener",
+    "news-search",
+    "people-rank-decision-makers",
+    "people-search",
+    "research-web-answer",
+    "seo-ai-mentions",
+    "seo-ai-mentions-metrics",
+    "seo-ai-response",
+    "seo-app-reviews",
+    "seo-backlinks",
+    "seo-backlinks-history",
+    "seo-backlinks-pages",
+    "seo-business-listings",
+    "seo-business-profile",
+    "seo-business-reviews",
+    "seo-business-updates",
+    "seo-domain-overview",
+    "seo-google-qa",
+    "seo-google-serp",
+    "seo-keyword-overview",
+    "seo-keyword-research",
+    "seo-keyword-trends",
+    "seo-keywords-for-keywords",
+    "seo-keywords-search-volume",
+    "seo-lighthouse-audit",
+    "seo-local-serp",
+    "seo-rank-track-batch",
+    "seo-related-keywords",
+    "seo-relevant-pages",
+    "seo-yelp-reviews",
+    "seo-youtube-organic",
+    "seo-youtube-video-comments",
+    "seo-youtube-video-info",
+    "seo-youtube-video-subtitles",
+    "social-read-posts",
+    "social-search-posts",
+    "tiktok-fetch-videos",
+    "twitter-fetch-posts",
+    "youtube-fetch-shorts",
+})
+
+
+def test_every_endpoint_a_skill_names_is_on_the_vetted_list_and_each_worker_has_five_to_twelve_skills():
+    skill_names = {s.name for t in workers() for s in t.skills}
+    for t in workers():
+        assert 5 <= len(t.skills) <= 12, (t.id, len(t.skills))
+        for skill in t.skills:
+            for name in re.findall(r"`([a-z0-9]+(?:-[a-z0-9]+)+)`", skill.body):
+                assert name in VETTED_ENDPOINTS or name in skill_names, (t.id, skill.name, name)
+    assert not any(n.startswith(("social-publish", "sandbox")) for n in VETTED_ENDPOINTS)
+
+
 def test_the_chief_of_staff_worker_is_not_a_team_lead_role():
     t = catalog.get("operations-chief-of-staff")
     assert t.name == "Chief of Staff" and t.role != "Team lead (Chief of Staff)"
@@ -157,6 +232,7 @@ def test_run_rules_are_written_once_and_composed_into_each_worker():
         assert "Profile first" not in t.instructions, t.id
         for skill in t.skills:
             assert "Profile first" not in skill.body and "[shared run rules]" not in skill.body, (t.id, skill.name)
+    assert all(t.run_rules == catalog.RUN_RULES for t in workers())
     ordinary = dataclasses.replace(catalog.get("web-web-developer"), uses_run_rules=False)
     assert ordinary.full_instructions == ordinary.instructions
 
@@ -217,7 +293,10 @@ async def test_the_api_returns_the_composed_instructions_and_paused_routines():
     assert body["instructions"].endswith(catalog.RUN_RULES.rstrip())
     assert body["suggested_tools"] == list(catalog.MUAPI_TOOLS)
     assert body["setup_depth"] == "standard"
-    assert [r["id"] for r in body["routines"]] == ["seo-keyword-brief", "seo-draft-article", "seo-rank-check", "seo-competitor-gap", "seo-site-check"]
+    assert [r["id"] for r in body["routines"]] == [
+        "seo-keyword-brief", "seo-draft-article", "seo-rank-check", "seo-ai-visibility",
+        "seo-competitor-gap", "seo-backlink-opportunities", "seo-site-check", "seo-seasonal-calendar",
+    ]
     assert all(r["enabled_after_install"] is False for r in body["routines"])
     assert listing["version"] == catalog.CATALOG_VERSION and "marketing" in listing["categories"]
     assert [x["id"] for x in listing["templates"]] == ["marketing-seo", "marketing-social-media", "marketing-ad-manager"]
