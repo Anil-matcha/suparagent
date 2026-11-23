@@ -148,11 +148,12 @@ async def test_openai_adapter_decodes_b64_and_hides_errors(monkeypatch):
 
 
 async def test_openai_adapter_default_model_is_served(monkeypatch):
-    # OpenAI retired gpt-image-1 on 2026-10-23, so the shipped default must be a served model.
+    # OpenAI retired gpt-image-1 on 2026-10-23 and shuts gpt-image-2 down on 2027-02-10,
+    # naming gpt-image-2.6-flare or -sunburst; the shipped default must be a served model.
     from app.core.config import Settings
 
     default = Settings.model_fields["IMAGE_MODEL"].default
-    assert default == "gpt-image-2"
+    assert default == "gpt-image-2.6-flare"
     monkeypatch.setattr(settings, "IMAGE_API_KEY", "sk-test")
     monkeypatch.setattr(settings, "IMAGE_MODEL", default)
     seen = {}
@@ -164,4 +165,4 @@ async def test_openai_adapter_default_model_is_served(monkeypatch):
     real = httpx.AsyncClient
     monkeypatch.setattr(image_gen.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
     assert await image_gen.OpenAICompatibleProvider().generate("fox", "1024x1024") == PNG
-    assert b'"model":"gpt-image-2"' in seen["body"].replace(b" ", b"")
+    assert b'"model":"gpt-image-2.6-flare"' in seen["body"].replace(b" ", b"")
