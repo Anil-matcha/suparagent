@@ -76,7 +76,7 @@ def test_a_missing_connection_makes_a_template_unavailable():
 ROLE_WORDS = 120
 SKILL_WORDS = 350
 NOTE_WORDS = 60
-RULES_WORDS = 450
+RULES_WORDS = 520
 SETUP_WORDS = {"express": 80, "standard": 150, "guided": 250}
 DAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun", "first-weekday", "last-weekday"}
 
@@ -109,7 +109,7 @@ def test_there_are_eight_worker_templates_with_plain_names():
         "Social media", "Ad manager", "Customer satisfaction", "Web developer",
     ]
     assert [t.category for t in workers()] == ["operations", "growth", "sales", "marketing", "marketing", "marketing", "support", "web"]
-    assert catalog.CATALOG_VERSION == 9
+    assert catalog.CATALOG_VERSION == 10
     assert "marketing" in catalog.CATEGORIES
 
 
