@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import time
 
 import pytest
@@ -68,7 +69,8 @@ def test_secrets_are_redacted_in_the_saved_copy(home):
 def test_saved_files_are_private_and_expire(home):
     ref = ltr.shrink("o", 1, big())["saved_ref"]
     path = next(home.rglob(ref + ".json"))
-    assert oct(path.stat().st_mode & 0o777) == "0o600"
+    if sys.platform != "win32":
+        assert oct(path.stat().st_mode & 0o777) == "0o600"
     later = time.time() + ltr.TTL_SECONDS + 5
     assert ltr.read("o", 1, {"ref": ref}, now=later)["code"] == "expired"
     assert not path.exists()
