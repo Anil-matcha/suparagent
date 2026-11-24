@@ -260,3 +260,46 @@ async def test_engine_unavailability_blocks_setup_when_agent_creation_is_disable
     response = await api.post("/api/v1/onboarding/complete", json={"expected_version": 2, "draft": saved})
     assert response.status_code == 409
     assert response.json()["detail"]["error_code"] == "engine_not_ready"
+
+
+@pytest.mark.asyncio
+async def test_reopen_after_last_agent_deleted(api, sessions, owner):
+    saved = draft(provider="claude", model="sonnet", name="First", purpose="Planning")
+    await api.put("/api/v1/onboarding", json={"expected_version": 1, "draft": saved})
+    completed = await api.post("/api/v1/onboarding/complete", json={"expected_version": 2, "draft": saved})
+    assert completed.status_code == 200
+    agent_id = completed.json()["agent_id"]
+    assert completed.json()["status"] == "configured"
+
+    # Add a second agent to verify that deleting while agents remain does not reopen
+    async with sessions() as db:
+        agent2 = Agent(owner_id=owner, name="Second", instructions="Helping", provider="claude", approval_mode="ask")
+        db.add(agent2)
+        await db.flush()
+        agent2_id = agent2.id
+        await db.commit()
+
+        await db.delete(await db.get(Agent, agent_id))
+        await db.commit()
+        reopened = await state_store.reopen_after_last_agent_deleted(db, owner)
+        assert reopened is False
+
+    status_resp = await api.get("/api/v1/onboarding")
+    assert status_resp.json()["status"] == "configured"
+
+    # Remove the final agent
+    async with sessions() as db:
+        await db.delete(await db.get(Agent, agent2_id))
+        await db.commit()
+        reopened = await state_store.reopen_after_last_agent_deleted(db, owner)
+        assert reopened is True
+
+    after_resp = await api.get("/api/v1/onboarding")
+    after = after_resp.json()
+    assert after["status"] == "pending"
+    assert after["draft"]["step"] == 2
+    assert after["draft"]["create_agent"] is True
+    assert after["draft"]["provider"] == "claude"
+    assert after["draft"]["model"] == "sonnet"
+    assert after["agent_id"] is None
+    assert after["first_reply_at"] is None
