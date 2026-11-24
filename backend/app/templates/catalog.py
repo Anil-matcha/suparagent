@@ -21,7 +21,7 @@ Raise `CATALOG_VERSION` when a template's content changes.
 
 from dataclasses import dataclass, field
 
-CATALOG_VERSION = 15
+CATALOG_VERSION = 16
 
 CATEGORIES = ("operations", "growth", "sales", "marketing", "support", "web")
 
@@ -463,8 +463,8 @@ One decision brief in the worker's notes, one page, with a table of the three de
 1. What is the offer, and who is it for?
 2. Where is it launching, or where do you want to be seen first?
 3. Which signals show a company needs your offer (hiring, funding, tool changes)?
-4. Where will you leave results, such as replies and sign-ups?
-5. Which companies or people are off limits?
+
+Where you leave results and who is off limits can wait. I ask when a skill needs them.
 """,
         uses_run_rules=True,
         skills=(
@@ -506,7 +506,7 @@ Your job this run: a plain answer to "is this segment big enough, and where do t
 
 ## Steps
 
-1. Read the profile and any earlier sizing note, so you do not repeat it.
+1. Read the profile and any earlier sizing note, so you do not repeat it. If one under thirty days old covers the same segment, spend nothing: end `skipped` and name it.
 2. Use `muapi_data_api_search` to find `company-technographics` (reverse mode), `seo-keywords-search-volume`, `seo-keyword-trends`, `seo-business-listings` and `research-web-answer`. Inspect and estimate before each paid call.
 3. Count what can be counted: companies that use a tool the segment shares (the lookup returns a limited page, so say it is a floor, not a total), local listings in a named area, and monthly search volume for three phrases the segment would use.
 4. Read search interest over time for those phrases (about 2 cents): rising, flat or falling, with the window.
@@ -531,7 +531,7 @@ Your job this run: tell the owner who has a reason to talk now, and what the rea
 
 ## Steps
 
-1. Read the profile for the signals that matter, then the latest lead list and the last sweep. Skip anyone on the do-not-contact list.
+1. Read the profile for the signals that matter, then the latest lead list and the last sweep. Skip anyone on the do-not-contact list. Skip any company checked under fourteen days ago in the last run; if every company is fresh, spend nothing: end `skipped` and say so.
 2. Use `muapi_data_api_search` to find `company-buying-signals`, `company-funding`, `news-search`, `company-technographics` and `ad-library-search`. Inspect and estimate before each paid call.
 3. Take the top eight companies by fit. Run `news-search` for each (about 2 cents), and `company-buying-signals` and `company-funding` (about 10 cents each) for the top five. Use `ad-library-search` (about 1 cent) to see whether they currently run ads. Check technographics only for a tool the profile names.
 4. Record each signal with its source and date. A signal older than ninety days is `stale`. Never infer spend, budget or intent beyond what the data shows.
@@ -555,7 +555,7 @@ Your job this run: a short table of who is hiring in the way that matters, and w
 
 ## Steps
 
-1. Read the profile, the latest lead list and the last hiring sweep. Skip anyone on the do-not-contact list.
+1. Read the profile, the latest lead list and the last hiring sweep. Skip anyone on the do-not-contact list. Skip any company checked under fourteen days ago in the last run; if every company is fresh, spend nothing: end `skipped` and say so.
 2. Use `muapi_data_api_search` to find `company-job-postings`, `company-headcount-growth` and `linkedin-company-profile`. Inspect and estimate before each paid call.
 3. Take the top six companies by fit. Read their open roles filtered to the named department (about 10 cents each). For the top four, read headcount growth by department (about 10 cents each).
 4. Record per company: matching roles open (count and titles), headcount change over the window reported, and the dates. Roles that stayed open since the last sweep are `still open`.
@@ -580,7 +580,7 @@ Your job this run: show how competitors are getting attention and what changed s
 
 ## Steps
 
-1. Read the profile for the competitors, the owner's own domain and anything never to name. Read the last watch so you can state what moved.
+1. Read the profile for the competitors, the owner's own domain and anything never to name. Read the last watch so you can state what moved. If it is under thirty days old and the competitors are unchanged, spend nothing: end `skipped` and name it.
 2. Use `muapi_data_api_search` to find `seo-domain-overview`, `seo-backlinks`, `seo-relevant-pages`, `seo-ai-mentions-metrics`, `ad-library-search`, `company-products` and `news-search`. Inspect and estimate before each paid call.
 3. For each competitor and the owner's own domain run `seo-domain-overview` (about 5 cents) and `seo-relevant-pages` (about 1 cent). Run `seo-backlinks` (about 5 cents) for each competitor.
 4. Run `seo-ai-mentions-metrics` once (about 2 cents) with the owner and competitors together to compare share of voice in AI answers.
@@ -655,7 +655,7 @@ Your job this run: show how AI assistants describe the category and whether the 
 
 ## Steps
 
-1. Read the profile for the brand, competitors, claims never to make, and the last visibility note.
+1. Read the profile for the brand, competitors, claims never to make, and the last visibility note. If it is under thirty days old, spend nothing: end `skipped` and name it.
 2. Draft the buyer questions if none are given, in plain wording a buyer would use, and list them in the notes before any paid call.
 3. Use `muapi_data_api_search` to find `seo-ai-response` and `seo-ai-mentions-metrics`. Inspect and estimate before each paid call. Run each question once (about 2.5 cents) and the aggregate comparison once (about 2 cents). Never repeat a question to fish for a better answer.
 4. For each question record: which brands were named, in what order, the sources cited, and any claim about the owner. Quote briefly with the date and the assistant used.
@@ -721,11 +721,11 @@ One launch note in the worker's notes: the checklist table, the next three steps
         suggested_tools=MUAPI_TOOLS,
         setup_depth="standard",
         setup_text="""\
-1. Who is your ideal customer (industry, company size, region)?
-2. Which job titles should I find at each company?
-3. What exactly are you offering, and what tone should messages use?
-4. How many companies do you want on the list, and how many days before a follow-up?
-5. Which companies or people must I never include, and what must a message never claim?
+1. Who is your ideal customer (industry, company size, region), and which job titles should I find?
+2. What exactly are you offering, and what tone should messages use?
+3. Who must I never include, and what must a message never claim?
+
+I plan for a list of 20 companies and a follow-up after five days unless you say otherwise.
 """,
         uses_run_rules=True,
         skills=(
@@ -742,7 +742,7 @@ Your job this run: a short list of nearby businesses worth a visit, call or mess
 
 ## Steps
 
-1. Read the profile for the business type, area, what is offered, and the do-not-contact list.
+1. Read the profile for the business type, area, what is offered, and the do-not-contact list. In a scheduled run, if the latest list still has more than ten rows with no draft, spend nothing: end `skipped` and say so.
 2. Use `muapi_data_api_search` to find `seo-local-serp`, `seo-business-listings`, `seo-business-profile` and `seo-business-reviews`. Inspect and estimate before each call. These are cheap (under a cent each), so use them freely, but stop at the run limit.
 3. Find businesses with the map lookup and the directory lookup for the type and area. Merge duplicates by name and address. Drop anyone on the do-not-contact list.
 4. For the best fifteen, read the business profile: category, hours, website, phone, rating, review count. Leave a field empty if the lookup did not return it.
@@ -767,7 +767,7 @@ Your job this run: a short list the owner can trust, not a long one they must cl
 
 ## Steps
 
-1. Read the profile: ideal customer, job titles, tools or signals that matter, the list size wanted, and the do-not-contact list.
+1. Read the profile: ideal customer, job titles, tools or signals that matter, the list size wanted, and the do-not-contact list. In a scheduled run, if the latest list still has more than ten rows with no draft, spend nothing: end `skipped` and say so.
 2. Use `muapi_data_api_search` to find `company-technographics` (reverse mode, when the profile names a tool they use), `company-enrich`, `linkedin-people-search`, `people-search` and `people-rank-decision-makers`. Inspect and estimate before each paid call; start with the cheapest lookup that narrows the field.
 3. Build the company list first. Confirm size, industry and region with `company-enrich` (about 3 cents each); drop any that fail the profile, even if a contact matched.
 4. Find the likely buyer per company with `linkedin-people-search` (about 10 cents), filtered by company and title. Use `people-rank-decision-makers` (about 50 cents) only when the title search is unclear, and for at most two companies per run. Say which companies are left for next time.
@@ -793,7 +793,7 @@ Your job this run: only contacts worth writing to reach the drafting step.
 
 ## Steps
 
-1. Read the latest lead list and the do-not-contact list. Take rows marked `needs check` that have a named contact and a source.
+1. Read the latest lead list and the do-not-contact list. Take rows marked `needs check` that have a named contact and a source. If there are none, end `skipped` and say so.
 2. Use `muapi_data_api_search` to find `email-verify`, `people-search` and `linkedin-employees`. Inspect and estimate before paying. Address checks cost about a cent each, so check every candidate address in batches that fit the run limit.
 3. Categorize each address from the result alone: `deliverable`, `risky` (catch-all, webmail, or a role address such as sales@), `undeliverable` or `unresolved`. Default to `unresolved`. Never correct a suspected typo; flag it.
 4. For rows where the title or company looks doubtful, confirm with `people-search` (about 25 cents) or the company's employee roster, and record `confirmed`, `changed` or `not found` with the source and date. Do this only for the best rows.
@@ -893,8 +893,8 @@ Your job this run: up to ten drafts the owner can use as they are or trim, never
 
 ## Steps
 
-1. Read the profile and the latest lead list and score notes. Take only rows marked `ready` with no draft yet, best tier first. Skip anyone on the do-not-contact list.
-2. Use `muapi_data_api_search` to find `news-search`, `company-enrich` and `social-read-posts`. Inspect and estimate before each paid call. A recent news item (about 2 cents) is the best reason to write; read public activity (about 2 cents) only for the top five.
+1. Read the profile and the latest lead list and score notes. Take only rows marked `ready` with no draft yet, best tier first. If there are none, end `skipped` and say so. Skip anyone on the do-not-contact list.
+2. Use `muapi_data_api_search` to find `news-search`, `company-enrich` and `social-read-posts`. Inspect and estimate before each paid call. Reuse a news item or activity on file under fourteen days old. A recent news item (about 2 cents) is the best reason to write; read public activity (about 2 cents) only for the top five.
 3. For each person find one fresh, specific reason to write now: a signal in the notes, a news item, a hire or a launch, with its source and date. If you find none, use what the list says and label it `general`.
 4. Draft a short message: one line showing you know who they are, one line on the offer and its benefit to them, one small ask. Follow the profile's tone and its never-say lines.
 5. Under each draft add: why this person (the score, the source line and its date) and a `needs your check` line for any fact you could not confirm.
@@ -912,13 +912,13 @@ A dated queue of drafts in the worker's notes. Nothing leaves this worker; the o
                 body="""\
 # Follow-up sweep
 
-Follow the shared run rules in your instructions. Missing input: how many days before a follow-up.
+Follow the shared run rules in your instructions. Missing input: how many days before a follow-up (default five).
 
 Your job this run: find what came back first, then draft only what is still due.
 
 ## Steps
 
-1. Read the profile, the draft queue and any replies, sent-dates or notes the owner left. If there are none, end `skipped` and ask for the sent-dates in one short question.
+1. Read the profile, the draft queue and any replies, sent-dates or notes the owner left. If a Gmail read tool was granted, also find the owner's sent messages and replies, only in threads with an address on the lead list; the owner's notes win any conflict. If there are none, end `skipped` and ask for the sent-dates in one short question.
 2. Reply first: for each person who answered, record what they said in one line and mark them `replied`. Draft only a suggested answer if the reply asks something, and suggest a call-prep brief when they show interest.
 3. For each person written to who has not answered, work out whether the delay has passed. If not, mark them `not due`.
 4. For each due person, look for one new reason to write. Use `muapi_data_api_search` to find `news-search` and `company-buying-signals`; inspect and estimate first. Run `news-search` (about 2 cents) for every due person; run `company-buying-signals` (about 10 cents) only for the best three. With no budget, use only what the notes hold.
@@ -962,13 +962,13 @@ A one-page brief in the worker's notes with a source list and dates. It is a dra
                 body="""\
 # Pipeline review
 
-Follow the shared run rules in your instructions. Missing input: the results notes or numbers for the week.
+Follow the shared run rules in your instructions. Missing input: the results notes or numbers for the week, or a granted Gmail read tool.
 
 Your job this run: show which of the owner's own qualification rules actually picks people who answer.
 
 ## Steps
 
-1. Read the profile, the lead lists, the score notes, the drafts and any reply notes the owner left.
+1. Read the profile, the lead lists, the score notes, the drafts and any reply notes the owner left. If a Gmail read tool was granted, count replies from threads with an address on the lead list.
 2. Count from the notes: people listed, verified, scored A, drafts written, replies reported, calls booked. Name the note beside each number. Leave a cell empty when there is no source.
 3. Group the replies by the rule that qualified the person, such as tier, size, title, signal or local business.
 4. Say which rule seems to select people who answer and which does not. Label this as a pattern in small numbers, not a proof.
