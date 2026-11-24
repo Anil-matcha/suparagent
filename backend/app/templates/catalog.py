@@ -21,7 +21,7 @@ Raise `CATALOG_VERSION` when a template's content changes.
 
 from dataclasses import dataclass, field
 
-CATALOG_VERSION = 16
+CATALOG_VERSION = 17
 
 CATEGORIES = ("operations", "growth", "sales", "marketing", "support", "web")
 
@@ -1330,9 +1330,9 @@ One customer-language note in the worker's notes. Facts carry sources and dates;
         setup_text="""\
 1. Which accounts and platforms should updates be written for, and how often?
 2. Paste two or three updates you are proud of, so I can match your voice.
-3. Which brand, product and hashtag terms should I listen for, and which competitor accounts should I watch?
-4. What is your niche, and what is your brand's look in a few words?
-5. What topics, words or competitors are off limits?
+3. What is your niche, which brand, product and hashtag terms should I listen for, and which competitor accounts (up to two) should I watch?
+
+Your brand's look and anything off limits: tell me now if you can. Otherwise I ask before drafting pictures or naming anyone.
 """,
         uses_run_rules=True,
         skills=(
@@ -1350,7 +1350,7 @@ Your job this run: a short digest of what people say about the business and its 
 ## Steps
 
 1. Read the profile for the tracked terms, competitor terms and accounts, the platforms, and anything never to name.
-2. Read last week's digest so you can say what is new.
+2. Read last week's digest so you can say what is new. Also read the trend note and hook library, and reuse any term searched under seven days ago, saying so.
 3. Use `muapi_data_api_search` to find `social-search-posts` (keyword or hashtag search; it lists TikTok, Instagram, YouTube, X, Reddit and LinkedIn) and `social-read-posts` (a known account). Inspect and estimate before each paid call.
 4. Run one bounded search per term and platform, same window and count for the brand and each competitor. Keep the query, count and date of each.
 5. Group the text into recurring themes. A theme needs several independent items. Label sentiment as your own reading, with the sample size.
@@ -1444,13 +1444,13 @@ A visuals list in the worker's notes: prompt, alt text and any request id per up
                 body="""\
 # Weekly review
 
-Follow the shared run rules in your instructions. Missing input: this week's numbers (views, replies, clicks) pasted by the owner. Without them, end `skipped` and ask for the numbers in one short question.
+Follow the shared run rules in your instructions. Missing input: this week's numbers (views, replies, clicks) pasted by the owner, or the owner's account name. Without either, end `skipped` and ask in one short question.
 
 Your job this run: a short review the owner acts on. This skill makes no paid lookup.
 
 ## Steps
 
-1. Read the profile, the week's drafts and the numbers the owner pasted. Use only those; never invent or estimate a figure. An absent number stays empty, not zero.
+1. Read the profile, the week's drafts and the numbers the owner pasted. If nothing was pasted, use `muapi_data_api_search` to find `social-read-posts`, inspect, estimate, and read the owner's own recent updates with one capped call per account. Those are public counts, not impressions or clicks, so say so; pasted numbers win. Never invent or estimate a figure. An absent number stays empty, not zero.
 2. For each update, put its numbers beside its draft, with the date and where the number came from.
 3. Compare updates only when the data allows it. Say "too few to tell" when it does not, and give the sample size.
 4. Say which hook, format or topic seems to go with the better numbers. Label that as a pattern in a small sample, not a cause.
@@ -1475,7 +1475,7 @@ Your job this run: what a competitor's best updates have in common, as a sample.
 
 ## Steps
 
-1. Read the profile for the competitors, the niche, the voice and anything never to name or copy. Read the last teardown.
+1. Read the profile for the competitors, the niche, the voice and anything never to name or copy. Read the last teardown. If it is under thirty days old and the competitors are unchanged, spend nothing: end `skipped` and name it.
 2. Use `muapi_data_api_search` to find the lookup for the platform: `tiktok-fetch-videos`, `instagram-fetch-reels`, `youtube-fetch-shorts`, `twitter-fetch-posts` or `facebook-fetch-reels` (each returns recent items with metrics). For LinkedIn or Reddit use `social-read-posts`. Inspect and estimate first; one capped call per account.
 3. Rank the items by engagement relative to that account's own median, not by raw counts. Public counts differ by platform; say which were returned.
 4. For the top three and bottom three, note: the opening line, the format and length, the topic, the call to action, the day, and any visible hook.
@@ -1500,7 +1500,7 @@ Your job this run: a short library of patterns the drafts can borrow, grown a li
 
 ## Steps
 
-1. Read the profile for the niche, the platforms and the voice. Read the existing library in your notes so nothing repeats.
+1. Read the profile for the niche, the platforms and the voice. Read the existing library in your notes so nothing repeats. Start from the last four trend notes and search only for terms or platforms they lack.
 2. Use `muapi_data_api_search` to find `social-search-posts` and `seo-youtube-organic`. Inspect and estimate first. Search three niche terms on the platforms that matter, one capped call each, with a count of about twenty.
 3. Keep only items with strong engagement for their account and age. Note the platform, link, date and the numbers returned.
 4. For each kept item, name the pattern in plain words (a question, a number, a claim that goes against common advice, a before-and-after, a story start), the format and length, and a blank template.
@@ -1543,14 +1543,14 @@ A list in the worker's notes: the original text, its type, two drafted options. 
                 body="""\
 # Repurpose content
 
-Follow the shared run rules in your instructions. Missing input: the blog text, or a YouTube link, or a transcript pasted by the owner, and the platforms to write for.
+Follow the shared run rules in your instructions. Missing input: the blog text, a link to the owner's own article, a YouTube link or transcript, or a finished article draft in the SEO worker's notes, and the platforms to write for.
 
 Your job this run: a set of platform drafts from one source, true to the source.
 
 ## Steps
 
 1. Read the profile for the platforms, the voice and anything never to claim. Read the voice samples.
-2. If the owner gave a YouTube link and no transcript, use `muapi_data_api_search` to find `seo-youtube-video-subtitles`, inspect, estimate, and make one capped call. For a blog page the owner pasted, use that text; do not fetch pages.
+2. If the owner gave a YouTube link and no transcript, use `muapi_data_api_search` to find `seo-youtube-video-subtitles`, inspect, estimate, and make one capped call. For the owner's own article link, read it with a free read-only fetch; for a draft in the SEO worker's notes, use that. Fetch no other page.
 3. List the source's five to seven strongest points, each with the exact line it came from. Drop anything unclear.
 4. Write for each platform: a short text update for the main point, a thread or carousel outline of the rest, and for video platforms a script of about thirty seconds. Respect each platform's character limit and count it.
 5. Use a different opening for each platform. Where `social-hook-library` has a fitting pattern, adapt it.
@@ -1574,7 +1574,7 @@ Your job this run: the real questions people ask, ranked, as raw material for co
 
 ## Steps
 
-1. Read the profile for the niche, the topics, the voice and anything never to claim. Read the last question list.
+1. Read the profile for the niche, the topics, the voice and anything never to claim. Read the last question list. Reuse niche searches under seven days old from the trend note.
 2. Use `muapi_data_api_search` to find `seo-youtube-organic`, `seo-youtube-video-comments`, `social-search-posts` and `research-web-answer`. Inspect and estimate before each paid call.
 3. Find the three most-watched niche videos with `seo-youtube-organic`, then read one page of comments on each (billed per twenty). Run one Reddit and one X search on the topics with `social-search-posts`.
 4. Pull out only genuine questions and complaints. Group them by topic. Count how many independent items sit in each group and keep two short quotes with links and dates.
@@ -1600,7 +1600,7 @@ Your job this run: a short, evidenced list of creators worth the owner's attenti
 
 ## Steps
 
-1. Read the profile for the niche, the audience, the platforms, any follower range and engagement bar, and anything never to claim or name. Read the last creator list so no one repeats.
+1. Read the profile for the niche, the audience, the platforms, any follower range and engagement bar, and anything never to claim or name. Read the last creator list so no one repeats. If it is under thirty days old and the niche and platforms are unchanged, spend nothing: end `skipped` and name it.
 2. Use `muapi_data_api_search` to find the lookups `creators-search`, `creators-lookalike`, `creators-profile` and `creators-analytics`. They cover Instagram, TikTok and YouTube only. Inspect and estimate each before use.
 3. Search by niche with filters from the profile (platform, country, follower range, engagement rate). Quotes for `creators-search` and `creators-lookalike` are usually inside the limits.
 4. The profile and analytics lookups usually quote above the per-call limit, so use them only when a fresh quote fits, and for at most three creators. Otherwise rely on step 5. Use `creators-lookalike` once on the best fit to widen the list.
