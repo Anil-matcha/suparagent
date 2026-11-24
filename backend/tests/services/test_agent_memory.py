@@ -98,7 +98,10 @@ def test_a_link_in_place_of_the_notes_is_never_followed(tmp_path):
     outside.write_text("private")
     path = agent_memory.memory_path(2)
     path.parent.mkdir(parents=True)
-    path.symlink_to(outside)
+    try:
+        path.symlink_to(outside)
+    except OSError:
+        pytest.skip("Symlinks require administrator privilege on Windows")
     assert agent_memory.read_memory(2).text == ""
     agent_memory.write_memory(2, "notes")
     assert outside.read_text() == "private" and not path.is_symlink()

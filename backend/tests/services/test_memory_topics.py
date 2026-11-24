@@ -3,6 +3,7 @@
 
 import os
 import stat
+import sys
 
 import pytest
 
@@ -48,7 +49,8 @@ def test_a_note_is_saved_atomically_owner_only_and_redacted():
     assert before is None and redacted == 1
     assert doc.exists and "abcdef123456" not in doc.text and "[redacted]" in doc.text
     path = memory_topics.topics_dir(7) / "travel.md"
-    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    if sys.platform != "win32":
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
     assert not [p for p in path.parent.iterdir() if p.name.endswith(".tmp")]
 
 
@@ -78,7 +80,10 @@ def test_a_link_never_reads_another_file(tmp_path):
     secret.write_text("not yours")
     folder = memory_topics.topics_dir(7)
     folder.mkdir(parents=True)
-    (folder / "sneaky.md").symlink_to(secret)
+    try:
+        (folder / "sneaky.md").symlink_to(secret)
+    except OSError:
+        pytest.skip("Symlinks require administrator privilege on Windows")
     assert memory_topics.read_topic(7, "sneaky.md").text == ""
     assert [t.name for t in memory_topics.list_topics(7)] == []
 
@@ -88,7 +93,10 @@ def test_a_linked_memory_folder_reads_as_no_topics(tmp_path):
     other.mkdir()
     (other / "x.md").write_text("outside")
     agent_memory.agent_home(8).mkdir(parents=True)
-    memory_topics.topics_dir(8).symlink_to(other)
+    try:
+        memory_topics.topics_dir(8).symlink_to(other)
+    except OSError:
+        pytest.skip("Symlinks require administrator privilege on Windows")
     assert memory_topics.list_topics(8) == []
     with pytest.raises(memory_topics.InvalidTopicName):
         memory_topics.write_topic(8, "x.md", "overwrite")
@@ -171,7 +179,8 @@ def test_the_journal_lives_outside_the_agents_folder(attachments_dir):
     memory_journal.record(7, "MEMORY.md", actor="person", before="", after="x")
     path = memory_journal.journal_path(7)
     assert path.exists() and agent_memory.agent_home(7) not in path.parents
-    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    if sys.platform != "win32":
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
 
 
 def test_nothing_changed_is_no_row():

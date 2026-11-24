@@ -4,6 +4,7 @@ in-process engine (docs/MEMORY.md)."""
 import asyncio
 import json
 import os
+import sys
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -110,7 +111,8 @@ async def test_every_finished_turn_leaves_a_redacted_line_with_its_source_and_to
     assert "[tools: Read]" in first and "hunter2" not in text
     assert "(turn failed: runner_error) no reply" in second
     path = memory_log.logs_dir(agent.id) / f"{day['day']}.md"
-    assert oct(os.stat(path).st_mode)[-3:] == "600"
+    if sys.platform != "win32":
+        assert oct(os.stat(path).st_mode)[-3:] == "600"
 
 
 async def test_memory_off_or_no_agent_means_no_log(harness, sessions, owner):
@@ -129,7 +131,10 @@ def test_the_log_refuses_links_and_stops_at_its_cap(tmp_path, monkeypatch):
     elsewhere.mkdir()
     home = agent_memory.agent_home(1)
     (home / "memory").mkdir(parents=True)
-    (home / "memory" / "log").symlink_to(elsewhere)
+    try:
+        (home / "memory" / "log").symlink_to(elsewhere)
+    except OSError:
+        pytest.skip("Symlinks require administrator privilege on Windows")
     assert memory_log.append(1, "x", source='chat "A"') is False and list(elsewhere.iterdir()) == []
     assert memory_log.list_logs(1) == []
     (home / "memory" / "log").unlink()
