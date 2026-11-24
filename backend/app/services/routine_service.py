@@ -367,8 +367,12 @@ async def update_routine(
             setattr(routine, field, _bounded(field, changes[field]))
     if "quiet_reporting" in changes:
         routine.quiet_reporting = _quiet_setting(changes["quiet_reporting"])
-    schedule_fields = {"schedule_kind", "schedule_spec", "timezone"} & changes.keys()
-    if schedule_fields:
+    schedule_changed = (
+        ("schedule_kind" in changes and changes["schedule_kind"] != routine.schedule_kind)
+        or ("schedule_spec" in changes and (changes["schedule_spec"] or {}) != routine.schedule_spec)
+        or ("timezone" in changes and (changes["timezone"] or "UTC").strip() != routine.timezone)
+    )
+    if schedule_changed:
         if "schedule_kind" in changes:
             routine.schedule_kind = changes["schedule_kind"]
         if "schedule_spec" in changes:
