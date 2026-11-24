@@ -7,7 +7,7 @@ const { cleanEnvironment, defaultExecutable, runSmoke } = require("../scripts/sm
 
 test("packaged smoke locates the configured product, and strips Python and launch overrides", () => {
   assert.match(defaultExecutable("win32"), /Suparagent\.exe$/);
-  assert.match(defaultExecutable("darwin"), /Suparagent\.app\/Contents\/MacOS\/Suparagent$/);
+  assert.match(defaultExecutable("darwin"), /[/\\]Suparagent\.app[/\\]Contents[/\\]MacOS[/\\]Suparagent$/);
   const env = cleanEnvironment({ PATH: ["/a/.venv/bin", "/tools/python/bin", "/synthetic-tools"].join(path.delimiter), PYTHONPATH: "secret", SUPARAGENT_DATA_DIR: "real-profile", SUPARAGENT_API_TOKEN: "secret", ELECTRON_RUN_AS_NODE: "1", NORMAL: "yes" });
   assert.equal(env.PATH, "/synthetic-tools");
   assert.deepEqual(Object.keys(env).sort(), ["NORMAL", "PATH"]);
