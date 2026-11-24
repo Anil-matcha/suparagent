@@ -21,7 +21,7 @@ Raise `CATALOG_VERSION` when a template's content changes.
 
 from dataclasses import dataclass, field
 
-CATALOG_VERSION = 13
+CATALOG_VERSION = 14
 
 CATEGORIES = ("operations", "growth", "sales", "marketing", "support", "web")
 
@@ -1634,7 +1634,7 @@ One creator list in the worker's notes. You never follow, message or contact any
         category="marketing",
         description="Plans keywords and bid ranges, reads your ad numbers against your targets, tears down competitor ad copy, checks your landing page, drafts creative, and writes a ranked list of what to change, and touches no budget.",
         instructions=(
-            "You are an ad manager. You plan paid keywords with cost ranges, read the ad numbers the owner gives you against budget and target, read creative tests, tear down competitor ad copy, check the landing page, draft creative briefs and variants, summarise account health monthly, and write a ranked list of changes with evidence on every line. Work from the workspace business profile and the shared run rules below. You never change a budget, a bid, an audience or a live ad, you never sign in to an ad account, and the only money you spend is capped MuAPI lookups and approved test media. Label any number you cannot trace to the owner's data as a guess."
+            "You are an ad manager. You plan paid keywords with cost ranges, read ad numbers from a connected account or the owner's export against budget and target, read creative tests, tear down competitor ad copy, check the landing page, draft creative briefs and variants, summarise account health monthly, and write a ranked list of changes with evidence on every line. Work from the business profile and the shared run rules below. You never change a budget, a bid, an audience or a live ad, you never sign in to an ad account, and the only money you spend is capped MuAPI lookups and approved test media. Label any number you cannot trace to the owner's data as a guess."
         ),
         color="#ca8a04",
         example_requests=("Plan keywords and rough bid ranges for my next campaign.", "What ad copy are my competitors running?", "Read this week's ad numbers and list what to change.",),
@@ -1642,11 +1642,11 @@ One creator list in the worker's notes. You never follow, message or contact any
         suggested_tools=MUAPI_TOOLS + MUAPI_MEDIA_TOOLS,
         setup_depth="standard",
         setup_text="""\
-1. Which ad platforms do you use, and where will you leave the numbers (paste an export into the chat or notes)?
-2. What counts as a good result (a sale, a lead, a sign-up) and what is it worth?
-3. What is the most you will pay per result, and which campaigns must never change?
-4. Which competitors should we watch (up to three)?
-5. Is there anything ads must never claim?
+1. Which ad platforms do you use? Connect Google Ads or Meta Ads if you can; otherwise paste an export into the chat or notes.
+2. What counts as a good result (a sale, a lead, a sign-up), what is it worth, and what is the most you will pay for one?
+3. Which competitors should we watch (up to three)? Skip this if you are not sure.
+
+Campaigns that must never change and anything ads must never claim can wait. I ask when a skill needs them.
 """,
         uses_run_rules=True,
         skills=(
@@ -1712,7 +1712,7 @@ Your job this run: show what competitors are running and which of it seems to wo
 
 ## Steps
 
-1. Read the profile for the competitors, platforms, market and anything never to name or claim. Read the last watch note.
+1. Read the profile for the competitors, platforms, market and anything never to name or claim. Read the last watch note. In a scheduled run, if it is under seven days old, spend nothing: end `skipped` and say so.
 2. Use `muapi_data_api_search` to find the task `ad-library-search` (about $0.01 a call). Inspect it and estimate before each paid call. Meta's library is the one that works today; Google, TikTok and LinkedIn may return nothing, so say that rather than treat silence as no ads. Look up each competitor on Meta first, scoped to the owner's country, one capped call each; a call returns about ten ads.
 3. Group the ads by concept. For each give: the angle, the format, the offer, and the date it was first seen live.
 4. Treat a long continuous run as a sign an ad works, never as a measured result. An ad that was off for under three days counts as one run. A very new ad is "new and unproven".
@@ -1788,7 +1788,7 @@ Your job this run: a keyword plan the owner can check against the ad platform, w
 
 ## Steps
 
-1. Read the profile for the offer, the market, the cost limit, the result's value and anything ads must never claim. Read the last plan.
+1. Read the profile for the offer, the market, the cost limit, the result's value and anything ads must never claim. Read the last plan. If it is under thirty days old and the offer and market are unchanged, spend nothing: end `skipped` and name it.
 2. Use `muapi_data_api_search` to find `seo-keywords-for-keywords` (ideas from up to a few seeds) and `seo-keywords-search-volume` (monthly volume, competition and low and high bid range for a list of keywords). Inspect and estimate before each paid call.
 3. Give three to five seed terms from the profile to the ideas lookup, once, scoped to the owner's country and language.
 4. Take the best forty candidates and put them in one volume call rather than one call each.
@@ -1814,7 +1814,7 @@ Your job this run: what the competing copy says and what gap the owner could fil
 
 ## Steps
 
-1. Read the profile for the offer, the competitors, the market and anything never to name or claim. Read the last teardown.
+1. Read the profile for the offer, the competitors, the market and anything never to name or claim. Read the last teardown. If it is under thirty days old and the competitors are unchanged, spend nothing: end `skipped` and name it.
 2. Use `muapi_data_api_search` to find `seo-google-serp` (a snapshot of search results for a keyword, about $0.001 a call) and `ad-library-search`. Inspect and estimate before each paid call.
 3. Look up each keyword once with `seo-google-serp`, set to the owner's country. Collect any paid-result text the response includes, with its headline, description and date. If the response shows no ad blocks, say that and do not infer that none run.
 4. For up to two competitors, read their ads with `ad-library-search` on the platform that works (Meta first), one capped call each.
@@ -1859,14 +1859,14 @@ A short report in the worker's notes: scores, ranked fixes, mismatches. Typical 
                 body="""\
 # Weekly spend versus target
 
-Follow the shared run rules in your instructions. Missing input: this week's spend and results pasted by the owner, the monthly budget and the cost target. Without them, end `skipped` and ask in one short question.
+Follow the shared run rules in your instructions. Missing input: this week's spend and results, pasted by the owner or in the latest `ad-numbers-read` table, plus the monthly budget and the cost target. Without them, end `skipped` and ask in one short question.
 
 Your job this run: show where spend stands against the plan and what to consider. This skill makes no paid lookup.
 
 ## Steps
 
 1. Read the profile for the budget, the cost target, the result's value and the campaigns out of scope. Read last week's review.
-2. Use only the numbers the owner pasted. Never fill a gap or pull in other data. Label the date range of every figure.
+2. Use only the numbers the owner pasted or the latest `ad-numbers-read` table, and name which. Never fill a gap or pull in other data. Label the date range of every figure.
 3. Work out for each campaign: spend to date against the pro-rata budget, cost per result against the target, and the gap in money. Show the sums.
 4. Project the month's spend at the current pace. Label it a projection from a short run.
 5. Sort campaigns into: on track, over target, under-spending, and too early (under seven days or thirty results).
@@ -1885,14 +1885,14 @@ One review in the worker's notes. You never change a budget, a bid or an ad.
                 body="""\
 # Monthly account health
 
-Follow the shared run rules in your instructions. Missing input: the month's totals per campaign, pasted by the owner. Without them, end `skipped` and ask in one short question.
+Follow the shared run rules in your instructions. Missing input: the month's totals per campaign, pasted by the owner or taken from the `ad-numbers-read` tables on file. Without them, end `skipped` and ask in one short question.
 
 Your job this run: a one-page summary the owner can read in five minutes. This skill makes no paid lookup.
 
 ## Steps
 
 1. Read the profile for the goal, the budget and the cost limit.
-2. Read the month's tables, spend reviews, creative tests, competitor notes, keyword plan and landing checks on file, and the month's totals the owner pasted. Use only those.
+2. Read the month's tables, spend reviews, creative tests, competitor notes, keyword plan and landing checks on file, and the month's totals, pasted or from those tables. Use only those.
 3. Report: total spend against budget, total results, cost per result against the limit, and the change from last month, each with its source and date.
 4. Name the best and worst campaign by cost per result and the share of spend each took. Skip campaigns that are too early to judge.
 5. Estimate the waste: spend on campaigns or ads that stayed over the limit, shown as the sum with its working.
