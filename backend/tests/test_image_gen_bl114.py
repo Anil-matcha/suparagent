@@ -294,4 +294,58 @@ async def test_muapi_failure_does_not_leak_the_key(client, monkeypatch):
     monkeypatch.setattr(image_gen.httpx, "AsyncClient", lambda **kw: real(
         transport=httpx.MockTransport(lambda request: httpx.Response(401, text=f"bad key {MUAPI_KEY}")), **kw))
     r = await client.post("/images/generate", json={"prompt": "a fox", "provider": "muapi"})
-    assert r.status_code == 502 and MUAPI_KEY not in r.text
+    assert r.status_code == 409 and r.json()["detail"]["error_code"] == "key_rejected" and MUAPI_KEY not in r.text
+
+
+async def test_a_rejected_description_is_explained_and_the_reason_is_logged_without_the_key(client, monkeypatch, caplog):
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "")
+    await _save_muapi_key(client)
+    real = httpx.AsyncClient
+    body = f'{{"detail": "prompt blocked by safety filter, key {MUAPI_KEY}"}}'
+    monkeypatch.setattr(image_gen.httpx, "AsyncClient", lambda **kw: real(
+        transport=httpx.MockTransport(lambda request: httpx.Response(400, text=body)), **kw))
+    with caplog.at_level("WARNING"):
+        r = await client.post("/images/generate", json={"prompt": "a man with sunglasses", "provider": "muapi"})
+    assert r.status_code == 422 and r.json()["detail"]["error_code"] == "rejected"
+    assert "did not accept that description" in r.json()["detail"]["message"] and "safety" not in r.text
+    logged = " ".join(rec.getMessage() for rec in caplog.records)
+    assert "answered 400" in logged and "safety filter" in logged and MUAPI_KEY not in logged and "[key]" in logged
+
+
+async def test_a_refused_key_and_a_server_error_are_told_apart(client, monkeypatch):
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "")
+    await _save_muapi_key(client)
+    real = httpx.AsyncClient
+    for status, code in ((401, "key_rejected"), (500, "provider_failed")):
+        monkeypatch.setattr(image_gen.httpx, "AsyncClient", lambda status=status, **kw: real(
+            transport=httpx.MockTransport(lambda request: httpx.Response(status, text="x")), **kw))
+        r = await client.post("/images/generate", json={"prompt": "a fox", "provider": "muapi"})
+        assert r.json()["detail"]["error_code"] == code
+
+
+async def test_a_task_that_failed_on_muapis_side_is_not_blamed_on_the_description(client, monkeypatch):
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "")
+    await _save_muapi_key(client)
+    body = json.dumps({"detail": json.dumps({"detail": {"id": "x", "status": "failed",
+                                                          "error": "An internal error occurred and your request was not processed."}}),
+                       "error": {"code": "BAD_REQUEST"}})
+    real = httpx.AsyncClient
+    monkeypatch.setattr(image_gen.httpx, "AsyncClient", lambda **kw: real(
+        transport=httpx.MockTransport(lambda request: httpx.Response(400, text=body)), **kw))
+    r = await client.post("/images/generate", json={"prompt": "a friendly robot", "provider": "muapi"})
+    assert r.status_code == 502 and r.json()["detail"]["error_code"] == "provider_failed"
+    assert "problem on its side" in r.json()["detail"]["message"] and "internal error" not in r.text
+
+
+async def test_a_failed_status_alone_also_counts_as_the_providers_fault(client, monkeypatch):
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "")
+    await _save_muapi_key(client)
+    real = httpx.AsyncClient
+    for body, expected in (
+        (json.dumps({"detail": json.dumps({"detail": {"status": "failed", "error": "boom"}})}), "provider_failed"),
+        (json.dumps({"detail": "prompt is required"}), "rejected"),
+    ):
+        monkeypatch.setattr(image_gen.httpx, "AsyncClient", lambda body=body, **kw: real(
+            transport=httpx.MockTransport(lambda request: httpx.Response(400, text=body)), **kw))
+        r = await client.post("/images/generate", json={"prompt": "a fox", "provider": "muapi"})
+        assert r.json()["detail"]["error_code"] == expected, body

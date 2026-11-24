@@ -63,6 +63,17 @@ async def _request_image(base: str, key: str, model: str, prompt: str, size: str
     async with httpx.AsyncClient(timeout=httpx.Timeout(tool_timeout.seconds()), follow_redirects=False) as client:
         response = await client.post(f"{base}/images/generations", json=body, headers=headers)
     if response.status_code != 200:
+        # The reason goes to the server log (with the key taken out), never to the screen.
+        reason = response.text[:300].replace(key.strip(), "[key]") if key.strip() else response.text[:300]
+        log.warning("image provider answered %s: %s", response.status_code, reason)
+        lowered = reason.lower()
+        if "internal error" in lowered or re.search(r'status\\*"\s*:\s*\\*"failed', lowered):
+            # MuAPI answers a task that failed on its side with a 400; that is not the description's fault.
+            raise ImageError(502, "provider_failed", "The image service had a problem on its side. Try again in a few minutes.")
+        if response.status_code in (400, 422):
+            raise ImageError(422, "rejected", "The image service did not accept that description. Try different words or another shape.")
+        if response.status_code in (401, 403):
+            raise ImageError(409, "key_rejected", "The image service did not accept the saved key.")
         raise ImageError(502, "provider_failed", "The image service could not make that image.")
     not_an_image = ImageError(502, "provider_failed", "The image service returned something that is not an image.")
     try:
