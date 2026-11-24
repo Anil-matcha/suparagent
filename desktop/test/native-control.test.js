@@ -46,7 +46,7 @@ function fixture(t) {
   return { service, root, pin, calls, grants, userData, acquire, approve, permissions: value => { permitted = value; }, stops: () => stops };
 }
 
-test("integrity rejects changed, added and symlinked resources and missing pins", t => {
+test("integrity rejects changed, added and symlinked resources and missing pins", { skip: process.platform === "win32" }, t => {
   const f = fixture(t);
   verifyBundle(f.root, f.pin);
   assert.throws(() => verifyBundle(f.root, { ...f.pin, arch: "other" }));

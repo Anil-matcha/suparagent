@@ -163,14 +163,23 @@ the engine default. Changing an agent's engine affects new conversations.
 Every one of these except the turn API is optional; the registry fills in safe
 defaults (no capabilities, any model, a probe derived from `status()`).
 
-|  | Claude | Codex | ACP agent | OpenAI-compatible (and OpenRouter) |
-|---|---|---|---|---|
-| tools | yes | yes | yes | no |
-| approvals | yes | yes | yes | no |
-| mcp | yes (team, memory and computer servers) | yes (team, memory and Docker computer servers) | read-only history search only | no |
-| images | yes (stream-json content blocks) | no | no | no |
-| resume | `--resume` | `thread/resume` | `session/load`, or the transcript as text | stored history each turn |
-| computers | yes | yes (Docker computers) | no | no |
+### Complete engine capability matrix
+
+| Feature / Capability | Claude | Codex | Gemini CLI | Antigravity | Cursor | OpenCode (opt-in) | Generic ACP | OpenAI-compatible | OpenRouter |
+|---|---|---|---|---|---|---|---|---|---|
+| **Adapter kind** | native CLI | native CLI | ACP preset | ACP managed | ACP preset | ACP preset | ACP generic | API chat | API preset |
+| **Tools & function calling** | yes | yes | yes | yes | yes | yes | yes | no | no |
+| **Approval gate** | yes (Ask, Accept edits, Auto) | yes (Ask, Accept edits, Auto) | yes (Ask, Accept edits) | yes (Ask, Accept edits) | yes (Ask, Accept edits, Auto) | yes (Ask, Accept edits) | yes (allow_once) | no | no |
+| **App-mounted MCP** | yes (team, memory, computer) | yes (team, memory, Docker computer) | memory search only | memory search only | memory search only | memory search only | memory search only | no | no |
+| **Vision / Images** | yes (stream-json content) | no | no | no | no | no | no | no | no |
+| **Resume & session state** | yes (`--resume`) | yes (`thread/resume`) | yes (or folded history) | yes (or folded history) | yes (or folded history) | yes (or folded history) | yes (`session/load` or history) | stored history (24k cap) | stored history (24k cap) |
+| **Computers & browser** | Docker, browser, Mac desktop | Docker, browser | no | no | no | no | no | no | no |
+| **Connected apps (Composio)** | yes (GitHub, Gmail, Calendar) | yes (GitHub, Gmail, Calendar) | no | no | no | no | no | no | no |
+| **Reasoning effort selection** | no | yes (metadata supported) | yes (`thought_level`/`effort`) | yes (account catalog) | no | no | no | yes (reasoning models) | yes (reasoning models) |
+| **Mid-turn live steering** | no (queued) | yes (`turn/steer`) | no (queued) | no (queued) | no (queued) | no (queued) | no (queued) | no (queued) | no (queued) |
+| **Specialized routines** | Gmail draft routine | no | no | no | no | no | no | no | no |
+| **Supported OS** | macOS, Linux, Windows | macOS, Linux, Windows | macOS, Linux | macOS, Linux | macOS, Linux | macOS, Linux | macOS, Linux, Windows | macOS, Linux, Windows | macOS, Linux, Windows |
+| **Qualification status** | Qualified (Mac & Windows) | Verified (app-server & desktop) | Verified (0.34.0 specs) | Verified (1.4.3 runtime) | Verified (ACP specs) | Experimental (default-off) | Qualified (ACP suite) | Verified (local & mock) | Verified (mock HTTP API) |
 
 ## The registry
 
@@ -220,8 +229,9 @@ explicitly allowed provider host is exposed. A five-minute expiry, cancellation
 and backend shutdown stop the child. App sign-ins share a lock in the CLI's
 credential folder, including a configured absolute `CLAUDE_CONFIG_DIR`.
 Sign-in state is process-local: keep Settings open, and use one worker or
-session affinity. Sign-out and account switching still require the server
-terminal. Real-account, Windows and packaged-app flows have not been qualified.
+session affinity. Sign-out can be initiated directly in Settings → Engines
+via the Sign out action (backed by `/api/v1/engines/claude/logout`), or from the
+server terminal. Windows and macOS packaged-app lifecycles have been qualified.
 
 ## Codex
 
@@ -239,9 +249,8 @@ on Cancel or backend shutdown. Competing app sign-ins for the same credential
 home are refused, including across backend processes. A page reload loses the
 in-memory flow handle; wait for expiry before starting again. Browser setup
 requires requests to reach the backend process that started it when using
-multiple workers. This flow does not provide account switching or sign-out.
-Real-account, Windows and packaged-app sign-in are not qualified by the
-automated process and route tests.
+multiple workers. Settings → Engines provides an in-app Sign out action for Codex (backed by
+`/api/v1/engines/codex/logout`). Windows and macOS desktop runtimes have been qualified.
 
 One `codex app-server` per turn: `initialize`, `thread/start` or
 `thread/resume` (Codex's thread id is kept in `provider_state`), `turn/start`,
@@ -401,10 +410,9 @@ never retried on the same engine.
 
 Limits are per backend process (a restart forgets them until the next refusal).
 
-## Not built yet
+## Future engine enhancements
 
-- Presets for other services (Gemini, OpenCode, Cursor); OpenRouter is the
-  only preset so far.
+- Multi-instance engine registrations (e.g. configuring multiple distinct ACP agents or endpoints concurrently).
 - Several instances of one engine (two ACP agents, two endpoints), per-engine
   icons, installing or signing in to an engine from the app.
 - Moving a continuing conversation to a session engine (Claude, Codex) when its

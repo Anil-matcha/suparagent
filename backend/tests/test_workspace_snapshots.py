@@ -59,7 +59,10 @@ def test_ignored_folders_and_links_are_left_alone(env, tmp_path):
     (ws / "node_modules" / "x.js").write_text("dep")
     outside = tmp_path / "secret.txt"
     outside.write_text("outside")
-    os.symlink(outside, ws / "link.txt")
+    try:
+        os.symlink(outside, ws / "link.txt")
+    except OSError:
+        pytest.skip("symlinks require privilege on Windows")
     (ws / "a.txt").write_text("one")
     snaps.snapshot(ws, store, "t1")
     (ws / "node_modules" / "x.js").write_text("changed")
@@ -78,7 +81,10 @@ def test_restore_never_writes_through_a_link_out_of_the_workspace(env, tmp_path)
     elsewhere.mkdir()
     (ws / "d" / "f.txt").unlink()
     (ws / "d").rmdir()
-    os.symlink(elsewhere, ws / "d")
+    try:
+        os.symlink(elsewhere, ws / "d")
+    except OSError:
+        pytest.skip("symlinks require privilege on Windows")
     snaps.restore(ws, store, "t1")
     assert not (elsewhere / "f.txt").exists()
 

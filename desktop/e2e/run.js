@@ -66,9 +66,15 @@ async function start(options) {
   return app;
 }
 
+function rmSafe(dir) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch {}
+}
+
 function fresh(name) {
   const dir = path.join(BASE, name);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmSafe(dir);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -129,8 +135,12 @@ async function lifecycle() {
     app = await start({ dataDir: data, env: HOSTILE_ENV });
     page = await app.page();
     assert.match(page.url, /^http:\/\/127\.0\.0\.1:\d+\/chat\//);
-    // Either Claude is ready (its version is shown) or the reason is: both are an answer.
-    await page.waitFor(`document.body.innerText.includes('Claude Code') || document.body.innerText.includes('not available')`, "Claude's status", 60_000);
+    // Either Claude is ready (its version is shown) or the onboarding sign-in screen is: both are an answer.
+    await page.waitFor(
+      `document.body.innerText.includes('Sign in to Suparagent') || document.body.innerText.includes('Claude Code') || document.body.innerText.includes('not available')`,
+      "Claude's status or first-run sign-in",
+      60_000,
+    );
     fs.writeFileSync(path.join(data, "first-launch.png"), await page.screenshot());
   });
 
@@ -164,9 +174,11 @@ async function lifecycle() {
   });
 
   await check("inside the window the page is authenticated, sees no Node, and cannot leave", async () => {
-    assert.equal(await page.evaluate(`fetch('/api/v1/threads').then(r => r.status)`), 200);
+    assert.equal(await page.evaluate(`fetch('/api/v1/desktop-account/status').then(r => r.status)`), 200);
     // The page cannot override the token (the session sets it on the way out), nor read it.
-    assert.equal(await page.evaluate(`fetch('/api/v1/threads', { headers: { 'X-Suparagent-Token': 'forged' } }).then(r => r.status)`), 200);
+    assert.equal(await page.evaluate(`fetch('/api/v1/desktop-account/status', { headers: { 'X-Suparagent-Token': 'forged' } }).then(r => r.status)`), 200);
+    // The general workspace API is correctly gated behind desktop account authentication:
+    assert.equal(await page.evaluate(`fetch('/api/v1/threads').then(r => r.status)`), 401);
     assert.equal(await page.evaluate(`typeof require + ' ' + typeof process + ' ' + typeof module`), "undefined undefined undefined");
     assert.equal(await page.evaluate(`document.cookie`), "");
     // New windows are refused and navigation stays on the app's own address.
@@ -180,7 +192,7 @@ async function lifecycle() {
     const second = await start({ dataDir: data });
     const code = await Promise.race([second.exited, sleep(30_000).then(() => "timeout")]);
     assert.equal(code, 0, `second launch exit ${code}\n${second.output.join("")}`);
-    assert.equal(await page.evaluate(`fetch('/api/v1/threads').then(r => r.status)`), 200, "the first window is still working");
+    assert.equal(await page.evaluate(`fetch('/api/v1/desktop-account/status').then(r => r.status)`), 200, "the first window is still working");
   });
 
   const pid = () => app.backendPid();
@@ -191,7 +203,7 @@ async function lifecycle() {
     assert.ok(servedBy && alive(servedBy), "the backend is running before the quit");
     assert.equal(await app.quit(page), 0);
     await waitUntil(() => !alive(servedBy), "the backend to stop", 40_000);
-    await assert.rejects(fetch(origin() + "/api/v1/threads"), /fetch failed/);
+    await assert.rejects(fetch(origin() + "/api/v1/desktop-account/status"), /fetch failed/);
   });
 
   await check("the next launch keeps the key and the data, and is a new address", async () => {
@@ -201,7 +213,7 @@ async function lifecycle() {
     assert.notEqual(page.origin, oldOrigin);
     assert.deepEqual(fs.readFileSync(path.join(data, "secrets", "encryption-key.v1")), keyBefore);
     assert.ok(!fs.existsSync(path.join(data, "data", "backups")));
-    assert.equal(await page.evaluate(`fetch('/api/v1/threads').then(r => r.status)`), 200);
+    assert.equal(await page.evaluate(`fetch('/api/v1/desktop-account/status').then(r => r.status)`), 200);
   });
 
   await check("when the app is killed the backend stops by itself", async () => {
@@ -216,7 +228,7 @@ async function lifecycle() {
     await sleep(3000); // a person cannot start it again in the instant after it was killed
     app = await start({ dataDir: data });
     page = await app.page();
-    assert.equal(await page.evaluate(`fetch('/api/v1/threads').then(r => r.status)`), 200);
+    assert.equal(await page.evaluate(`fetch('/api/v1/desktop-account/status').then(r => r.status)`), 200);
     await sleep(2000); // the window is open and used before it is closed
     assert.equal(await app.quit(page), 0);
     await waitUntil(() => !alive(pid()), "the backend to stop", 40_000);
@@ -238,8 +250,8 @@ async function scripts() {
         env: { ELECTRON_RUN_AS_NODE: "1" },
       });
       const page = await app.page();
-      assert.equal((await fetch(`${page.origin}/api/v1/threads`)).status, 401, `${mode}: from outside`);
-      assert.equal(await page.evaluate(`fetch('/api/v1/threads').then(r => r.status)`), 200, `${mode}: from the window`);
+      assert.equal((await fetch(`${page.origin}/api/v1/desktop-account/status`)).status, 401, `${mode}: from outside`);
+      assert.equal(await page.evaluate(`fetch('/api/v1/desktop-account/status').then(r => r.status)`), 200, `${mode}: from the window`);
       await sleep(1500);
       assert.equal(await app.quit(page), 0, `${mode}: quit`);
     }
@@ -806,7 +818,7 @@ async function upgrade() {
     if (!keep) {
       for (const name of ["life", "noclaude", "relative", "junkkey", "wrongkey", "chat", "script-start", "script-dev", "empty-checkout", "signedout", "signedout-claude-config", "headless", "headless-desktop", "settings", "upgrade"]) {
         // The chat folder is also where Claude's workspace is; only this run's own folders go.
-        fs.rmSync(path.join(BASE, name), { recursive: true, force: true });
+        rmSafe(path.join(BASE, name));
       }
     }
   }
