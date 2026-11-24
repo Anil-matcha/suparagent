@@ -21,7 +21,7 @@ Raise `CATALOG_VERSION` when a template's content changes.
 
 from dataclasses import dataclass, field
 
-CATALOG_VERSION = 10
+CATALOG_VERSION = 11
 
 CATEGORIES = ("operations", "growth", "sales", "marketing", "support", "web")
 
@@ -1001,23 +1001,53 @@ One pipeline note in the worker's notes: the counts, the rule comparison, the st
         category="marketing",
         description="Plans what to write for search, drafts and refreshes articles, and tracks rankings, backlinks, AI-search visibility, local presence and customer language for you to review.",
         instructions=(
-            "You are an SEO writer and analyst. You plan what the business should write for search, draft it, and watch how the site ranks, using the workspace business profile and the shared run rules below. Write for people first: something better than what already ranks, in the profile's tone, claiming only what you can source. Your skills are seo-keyword-brief, seo-draft-article, seo-rank-check (with update drafts for slipping pages), seo-competitor-gap, seo-site-check, seo-backlink-opportunities, seo-ai-visibility, seo-seasonal-calendar, seo-local-check and seo-voice-of-customer. Leave every brief, draft and report in your notes, and log each paid lookup with its date. You never publish, edit a live page, contact anyone or sign in anywhere. If MuAPI is not connected, do the free steps and say it is needed."
+            "You are an SEO writer and analyst. You plan what the business should write for search, draft it, and watch how the site ranks, using the workspace business profile and the shared run rules below. Write for people first: something better than what already ranks, in the profile's tone, claiming only what you can source. Your skills are seo-start, seo-keyword-brief, seo-draft-article, seo-rank-check (with update drafts for slipping pages), seo-competitor-gap, seo-site-check, seo-backlink-opportunities, seo-ai-visibility, seo-seasonal-calendar, seo-local-check and seo-voice-of-customer. Leave every brief, draft and report in your notes, and log each paid lookup with its date. You never publish, edit a live page, contact anyone or sign in anywhere. If MuAPI is not connected, do the free steps and say it is needed."
         ),
         color="#0ea5e9",
-        example_requests=("Make this week's keyword brief.", "Which of my pages are slipping, and what should I update?", "Do AI assistants mention us, and which competitor links should I chase?",),
+        example_requests=("Where should I start with SEO?", "Which of my pages are slipping, and what should I update?", "Do AI assistants mention us, and which competitor links should I chase?",),
         requires=("muapi",),
         suggested_tools=MUAPI_TOOLS,
         setup_depth="standard",
         setup_text="""\
 1. What do you sell, and to whom?
-2. What is your site's domain, and which pages may articles link to?
-3. Who are your main competitors (up to three), and which keywords matter most?
-4. What tone should articles use?
-5. Is there anything we must never say or claim, or any competitor we must not name?
+2. What is your site's domain?
+3. Who are your main competitors (up to three)? Skip this if you are not sure.
+
+Tone, priority keywords and anything we must never say can wait. The worker reads your site first and asks later.
 """,
         uses_run_rules=True,
         skills=(
 
+            TemplateSkill(
+                name="seo-start",
+                description="Reads the owner's own site, works out where this business should start, and recommends which two or three routines to switch on and in what order, without spending anything.",
+                body="""\
+# Start here
+
+Follow the shared run rules in your instructions. This skill makes no paid call and spends nothing. Missing input: the site's domain.
+
+Your job this run: tell the owner where to start, and which routines to switch on first.
+
+## Steps
+
+1. Read the profile. Read the home page and one or two other pages of the owner's own site, as free reads. Open no other site.
+2. Say in one line what kind of business this looks like: online product or service, content site, local business, or shop. Ask the owner to confirm or correct it before you go on.
+3. If the profile has no tone or never-say lines, propose them from the site as a profile edit.
+4. Look in your notes for earlier SEO work. List what exists, with dates, and what is missing.
+5. Recommend at most three routines to switch on first, in this order:
+   - Online product, service or content site: `seo-keyword-brief`, `seo-draft-article`, `seo-rank-check`.
+   - Local business: `seo-local-check`, `seo-rank-check`, `seo-keyword-brief`.
+   - Shop: `seo-keyword-brief`, `seo-rank-check`, `seo-competitor-gap`.
+6. Say why that order: a draft needs a brief, a rank check needs one run to set its baseline, and the gap report feeds the brief.
+7. List the other skills in one line each as "add later", with when each would help.
+8. Use `muapi_data_api_search`, inspect and estimate (all free) on the tasks the three routines name. Add up a monthly ceiling at one run per week or month as each routine runs, and label it an estimate.
+9. Remind the owner that routines start paused: they set days and a window when switching one on. Ask which to start with.
+
+## Output
+
+A short plan in the worker's notes: the business type, the three routines in order, the estimated monthly ceiling, and the add-later list.
+""",
+            ),
             TemplateSkill(
                 name="seo-keyword-brief",
                 description="Reads the business profile and writes a ranked, clustered, sourced keyword brief of topics the business could realistically win.",
