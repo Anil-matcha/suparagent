@@ -1,7 +1,10 @@
 import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview, SkillLearnSource } from "./skills";
-import type { TemplateCatalog, TemplateSkill } from "./templates";
+import type { SpendLimits, SpendLimitsChange, SpendOverview, WorkerSpend } from "./spend";
+import type { HireReceipt, LatestSuggestion, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
+import type { CustomMcpConnection, CustomMcpDraft, CustomMcpTool } from "./custom-mcp";
+import type { ServiceAudit, ServiceCandidate, ServiceKind, ServicePreset, ServiceProvider, ServiceResource } from "./agent-services";
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
@@ -384,7 +387,7 @@ export type PermissionAsk = {
   answered_at: string | null;
 };
 
-export type ApprovalMode = "ask" | "accept_edits" | "approve_for_me" | "plan";
+export type ApprovalMode = "ask" | "accept_edits" | "approve_for_me" | "plan" | "full_access";
 
 // An agent's own isolated machine (a Docker container) where its turns run
 // their commands and file edits. Older backends never send these fields.
@@ -734,6 +737,29 @@ export type MemorySettings = {
   helper_active?: { engine: string; model: string | null; source: "environment" | "settings" } | null;
 };
 export type LearnedFact = { id: string; text: string; line: string; agent_id: number | null; agent_name: string; at: number };
+// The workspace's business profile: one short note per field that every agent reads and only the person writes.
+export type BusinessProfile = {
+  fields: Record<string, string>;
+  hash: string;
+  limits: Record<string, number>;
+  labels: Record<string, string>;
+  updated_at: number;
+  empty: boolean;
+};
+// A change a worker suggested to one profile field. It waits for the person; nothing is applied until they accept.
+export type ProfileProposal = {
+  id: string;
+  field: string;
+  label: string;
+  text: string;
+  reason: string;
+  agent_id: number | null;
+  agent_name: string;
+  // What the field said when the suggestion was made.
+  base_text: string;
+  created_at: number;
+};
+export type ProfileProposals = { items: ProfileProposal[]; max_pending: number };
 export type AboutMe = { text: string; hash: string; learned: LearnedFact[]; max_chars: number; redacted?: number };
 export type MemoryProposal = {
   id: string;
@@ -902,7 +928,7 @@ export type RoutineRun = {
   scheduled_for: string | null;
   thread_id: number | null;
   turn_id: number | null;
-  outcome?: "no_change" | "report" | "unknown" | "source_failed" | "failed" | "interrupted" | null;
+  outcome?: "no_change" | "report" | "unknown" | "source_failed" | "failed" | "interrupted" | "partial" | null;
   outcome_details?: Record<string, unknown> | null;
   result: string | null;
   error: string | null;
@@ -1198,6 +1224,78 @@ export const api = {
     request<{ tool_names: string[] }>(`/integrations/marketplace/connections/${encodeURIComponent(connectionId)}/agents/${agentId}/grants`, {
       method: "PUT", body: JSON.stringify({ tools }),
     }),
+  // First-party MuAPI data API. The key stays in the backend's encrypted credential store.
+  getMuapiIntegration: () => request<{ configured: boolean }>("/integrations/muapi"),
+  saveMuapiIntegration: (apiKey: string) =>
+    request<{ configured: boolean }>("/integrations/muapi", { method: "PUT", body: JSON.stringify({ api_key: apiKey }) }),
+  deleteMuapiIntegration: () => request<void>("/integrations/muapi", { method: "DELETE" }),
+  getMuapiAgentGrants: (agentId: number) =>
+    request<{ tool_names: string[] }>(`/integrations/muapi/agents/${agentId}/grants`),
+  setMuapiAgentGrants: (agentId: number, tools: string[]) =>
+    request<{ tool_names: string[] }>(`/integrations/muapi/agents/${agentId}/grants`, {
+      method: "PUT", body: JSON.stringify({ tools }),
+    }),
+  // Owner-added custom MCP servers. Secrets are write-only: no route ever returns one.
+  listCustomMcp: () => request<CustomMcpConnection[]>("/integrations/custom-mcp/connections"),
+  createCustomMcp: (draft: CustomMcpDraft) =>
+    request<CustomMcpConnection>("/integrations/custom-mcp/connections", { method: "POST", body: JSON.stringify(draft) }),
+  updateCustomMcp: (id: string, body: Record<string, unknown>) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
+  testCustomMcp: (id: string, revision: number) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/test`, { method: "POST", body: JSON.stringify({ revision }) }),
+  setCustomMcpEnabled: (id: string, revision: number, enabled: boolean) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/${enabled ? "enable" : "disable"}`, {
+      method: "POST", body: JSON.stringify({ revision }),
+    }),
+  getCustomMcpRedirect: () =>
+    request<{ redirect_uri: string | null; fixed: boolean; pattern: string | null }>("/integrations/custom-mcp/oauth/redirect-uri"),
+  startCustomMcpSignIn: (id: string, revision: number) =>
+    request<{ authorization_url: string }>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/oauth/start`, {
+      method: "POST", body: JSON.stringify({ revision }),
+    }),
+  signOutCustomMcp: (id: string, revision: number) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/oauth/sign-out`, {
+      method: "POST", body: JSON.stringify({ revision }),
+    }),
+  setCustomMcpSharing: (id: string, revision: number, shared: boolean) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/sharing`, {
+      method: "POST", body: JSON.stringify({ revision, shared }),
+    }),
+  removeCustomMcpCredential: (id: string, revision: number) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/credential?revision=${revision}`, { method: "DELETE" }),
+  deleteCustomMcp: (id: string) =>
+    request<void>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  getCustomMcpTools: (id: string) =>
+    request<CustomMcpTool[]>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/tools`),
+  getCustomMcpGrants: (id: string, agentId: number) =>
+    request<{ tool_names: string[] }>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/agents/${agentId}/grants`),
+  saveCustomMcpGrants: (id: string, agentId: number, revision: number, tools: { name: string; schema_digest: string }[]) =>
+    request<{ tool_names: string[] }>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/agents/${agentId}/grants`, {
+      method: "PUT", body: JSON.stringify({ revision, tools }),
+    }),
+  listServicePresets: () => request<ServicePreset[]>("/integrations/agent-services/presets"),
+  listServiceProviders: () => request<ServiceProvider[]>("/integrations/agent-services/providers"),
+  addServiceProvider: (preset: string, resourceLimit: number) =>
+    request<ServiceProvider>("/integrations/agent-services/providers", { method: "POST", body: JSON.stringify({ preset, resource_limit: resourceLimit }) }),
+  setServiceProviderLimit: (connectionId: string, provider: string, resourceLimit: number) =>
+    request<ServiceProvider>(`/integrations/agent-services/providers/${encodeURIComponent(connectionId)}`, {
+      method: "PUT", body: JSON.stringify({ provider, resource_limit: resourceLimit }),
+    }),
+  clearServiceProvider: (connectionId: string) =>
+    request<void>(`/integrations/agent-services/providers/${encodeURIComponent(connectionId)}`, { method: "DELETE" }),
+  listServiceResources: () => request<ServiceResource[]>("/integrations/agent-services/resources"),
+  addServiceResource: (body: { connection_id: string; kind: ServiceKind; address: string; label: string; provider_resource_id?: string }) =>
+    request<ServiceResource>("/integrations/agent-services/resources", { method: "POST", body: JSON.stringify(body) }),
+  deleteServiceResource: (id: string) =>
+    request<void>(`/integrations/agent-services/resources/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  assignServiceResource: (id: string, agentIds: number[]) =>
+    request<ServiceResource>(`/integrations/agent-services/resources/${encodeURIComponent(id)}/agents`, {
+      method: "PUT", body: JSON.stringify({ agent_ids: agentIds }),
+    }),
+  listServiceAudit: (limit = 20, offset = 0, agentId?: number) =>
+    request<ServiceAudit[]>(`/integrations/agent-services/audit?limit=${limit}&offset=${offset}${agentId !== undefined ? `&agent_id=${agentId}` : ""}`),
+  lookUpServiceProvider: (connectionId: string) =>
+    request<ServiceCandidate[]>(`/integrations/agent-services/providers/${encodeURIComponent(connectionId)}/lookup`),
   getDesktopSettings: () => request<DesktopSettings>("/settings"),
   saveDesktopSetting: (key: string, value: unknown, expectedVersion: number) =>
     request<ApplicationSetting>(`/settings/${encodeURIComponent(key)}`, {
@@ -1327,6 +1425,22 @@ export const api = {
 
   // Ready-made agents (/templates): a bundled, read-only catalog.
   listTemplates: () => request<TemplateCatalog>("/templates"),
+  // Spending limits for paid tools. Owner only; changing the limits works in the desktop app (404 elsewhere).
+  getSpend: () => request<SpendOverview>("/spend-limits"),
+  saveSpendLimits: (limits: SpendLimitsChange) => request<SpendLimits>("/spend-limits", { method: "PUT", body: JSON.stringify(limits) }),
+  setWorkerPaidUse: (agentId: number, scheduledPaidUse: boolean) =>
+    request<WorkerSpend>(`/spend-limits/workers/${agentId}`, { method: "PUT", body: JSON.stringify({ scheduled_paid_use: scheduledPaidUse }) }),
+  hireTemplates: (templateIds: string[], provider?: string, model?: string | null) =>
+    request<HireReceipt>("/templates/hire", { method: "POST", body: JSON.stringify({ template_ids: templateIds, ...(provider ? { provider } : {}), ...(model ? { model } : {}) }) }),
+  suggestGoals: () => request<SuggestGoal[]>("/templates/suggest/goals"),
+  latestWorkerSuggestion: () => request<LatestSuggestion | null>("/templates/suggest/latest"),
+  suggestTemplates: (goals: string[], about: string, maxSetup: "express" | "guided") =>
+    request<{ suggestions: Suggestion[] }>("/templates/suggest", {
+      method: "POST",
+      body: JSON.stringify({ goals, about, max_setup: maxSetup }),
+    }),
+  undoHire: (agentIds: number[]) =>
+    request<{ removed: number[] }>("/templates/hire/undo", { method: "POST", body: JSON.stringify({ agent_ids: agentIds }) }),
 
   // A template's suggested skill, saved on the new agent after it exists. An older
   // backend with no skills library answers 404.
@@ -1386,6 +1500,27 @@ export const api = {
   saveMemorySettings: (change: Partial<MemorySettings>) =>
     request<MemorySettings>("/memory/settings", { method: "PUT", body: JSON.stringify(change) }),
 
+  businessProfile: () => request<BusinessProfile>("/business-profile"),
+
+  // `expectedHash` is the hash of the profile that was opened; a stale one is a 409 (code profile_changed).
+  saveBusinessProfile: (fields: Record<string, string>, expectedHash: string | null) =>
+    request<BusinessProfile>("/business-profile", {
+      method: "PUT",
+      body: JSON.stringify(expectedHash ? { fields, expected_hash: expectedHash } : { fields }),
+    }),
+
+  profileProposals: () => request<ProfileProposals>("/business-profile/proposals"),
+
+  // A stale one (the field changed since it was suggested) is a 409 with code proposal_stale; pass overwrite to apply it anyway.
+  acceptProfileProposal: (id: string, overwrite = false) =>
+    request<BusinessProfile>(`/business-profile/proposals/${encodeURIComponent(id)}/accept`, {
+      method: "POST",
+      body: JSON.stringify({ overwrite }),
+    }),
+
+  dismissProfileProposal: (id: string) =>
+    request<{ ok: boolean }>(`/business-profile/proposals/${encodeURIComponent(id)}/dismiss`, { method: "POST" }),
+
   aboutMe: () => request<AboutMe>("/memory/about-me"),
 
   // `expectedHash` is the hash of the text that was opened; a stale one is a 409 (code memory_changed).
@@ -1443,6 +1578,9 @@ export const api = {
   boatCredentialStatus: () => request<{ configured: boolean }>("/computers/boat-credentials"),
   saveBoatCredential: (apiKey: string) => request<{ configured: boolean }>("/computers/boat-credentials", { method: "PUT", body: JSON.stringify({ api_key: apiKey }) }),
   deleteBoatCredential: () => request<void>("/computers/boat-credentials", { method: "DELETE" }),
+  boxdCredentialStatus: () => request<{ configured: boolean }>("/computers/boxd-credentials"),
+  saveBoxdCredential: (apiKey: string) => request<{ configured: boolean }>("/computers/boxd-credentials", { method: "PUT", body: JSON.stringify({ api_key: apiKey }) }),
+  deleteBoxdCredential: () => request<void>("/computers/boxd-credentials", { method: "DELETE" }),
   boatDesktopUrl: (id: number, leaseId: string) => request<{ url: string }>(`/computers/${id}/boat-desktop-url`, { method: "POST", body: JSON.stringify({ lease_id: leaseId }) }),
 
   getAgentComputer: (agentId: number) => request<Computer>(`/agents/${agentId}/computer`),
@@ -1458,7 +1596,7 @@ export const api = {
   releaseBrowserControl: (agentId: number, leaseId: string) => request<ControlSnapshot>(`/agents/${agentId}/browser/control`, { method: "POST", keepalive: true, body: JSON.stringify({ action: "release", lease_id: leaseId }) }),
   browserControlHeartbeat: (agentId: number, leaseId: string) => request<void>(`/agents/${agentId}/browser/control/heartbeat`, { method: "POST", body: JSON.stringify({ lease_id: leaseId }) }),
   computerScreenshot: (id: number) => requestBlobUrl(`/computers/${id}/screenshot`),
-  createAgentComputer: (agentId: number, settings: ComputerSettings & { provider?: "docker" | "muapi" | "boat"; kind?: ComputerKind; start?: boolean } = {}) =>
+  createAgentComputer: (agentId: number, settings: ComputerSettings & { provider?: "docker" | "muapi" | "boat" | "boxd"; kind?: ComputerKind; start?: boolean } = {}) =>
     request<Computer>(`/agents/${agentId}/computer`, { method: "POST", body: JSON.stringify(settings) }),
 
   getComputer: (computerId: number) => request<Computer>(`/computers/${computerId}`),

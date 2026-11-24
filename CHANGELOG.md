@@ -4,11 +4,56 @@
 
 ### Added
 
+- Spending limits for paid marketplace tools (a tool is paid when its input takes `max_cost_usd`): $0.50 per call, $2.00 per run and $20 per worker per month by default, changed only by the owner (`/spend-limits`, desktop settings `SPEND_*_CENTS`). Every paid call is recorded in a spend ledger and settles at the cost the service reports, or at its cap. A call over a limit is refused and the run ends `partial` with a spend line; a monthly refusal pauses the routine with reason `spend_limit`. Scheduled runs wait for approval on paid tools unless the owner turns on scheduled paid use for that worker.
+- Workers can suggest changes to the business profile: the new `suggest_profile_change` tool (on the memory tool server) leaves a draft for one field, with a short reason, and can never edit the profile. The Business profile tab lists waiting suggestions with Accept and Dismiss and a count on the tab. Accept saves through the profile's own checks and asks before replacing a field that changed since; at most 10 wait at once, a worker has one per field, text that looks like a key is refused, and dismissed text is not suggested again.
+- Add a business profile: one short note per workspace (what the business sells, who it is for, tone, links, hours and things never to say) that every agent reads as read-only background and only the person writes. Text that looks like a key, token or password is refused. Edit it from Memory → Business profile, or right after adding workers in Choose your team (skippable). `GET` and `PUT /business-profile`.
+- Add several ready-made workers at once: `POST /templates/hire` adds the chosen templates together or not at all (each asks first, holds no connected-app access, routines paused), and `POST /templates/hire/undo` removes them again while they are unchanged and unused. A "Choose your team" step in desktop setup and a "Hire several" view in Agents → Templates let people tick any number.
+- Chat with your team lead instead: the Choose your team screen can open your team lead with a short interview typed in. When the lead uses its `suggest_workers` tool, the answer (template ids and one-line reasons only) is remembered (`GET /templates/suggest/latest`, read-only, only bundled ids, up to 8, kept 24 hours) and the screen offers "Use these suggestions", which ticks exactly those workers for you to review. Nothing is created or granted until you add; the three-question version stays as the fallback.
+- Help me choose: on the Choose your team screen, answer a few short questions and the matching workers are ticked for you to review. It uses only the bundled catalog, creates nothing and grants nothing until you add. `POST /templates/suggest` does the ranking, and the team lead has a read-only `suggest_workers` tool that returns the same ranked ids.
+- Add three worker templates (SEO writer, Lead researcher, Daily briefer) with a Marketing category, paused starter routines shown on the card, a setup depth and shared run rules. Choosing one only fills the new-agent form; it creates no routine and grants no tool.
+
+### Changed
+
+- Templates know which connections this workspace has: `GET /templates` now lists each role's `missing` connections, and a role that needs only Muapi can be added before Muapi is connected (it shows "Needs Muapi · Connect"). No bundled role needs Muapi yet. Tested with backend and frontend unit tests; no real Muapi connector, browser or packaged app was run.
+- Give team setup a versioned review card: the person can revise, approve or decline the specialist plan, and nothing changes before approval. Approval rechecks current team state and records its result and Undo data with the transcript event. The applied card opens each new specialist with an editable, unsent first-task draft. No automated, live-provider or packaged-release verification is claimed for this source change.
+- Expand the Muapi Community MCP listing to selected data research APIs. Search and estimate are read-only; paid lookups require a per-call USD cap and approval and can consume Muapi credits.
+
+## 0.8.7 - 2026-11-17
+
+Desktop 0.8.7: the installed app now updates itself from Settings → App updates (Download, then Restart to update) instead of showing a command. This release still has to be installed by hand; later ones update in place.
+
+### Added
+
+- Add your own remote MCP server from Apps → MCP Marketplace → Custom MCP servers. A new server starts off with no agent access: you test it, turn it on, then grant exact tools to each agent. Sign in with none, a bearer token, a custom header, or browser sign-in (OAuth with PKCE). Secrets are write-only and stored encrypted. Claude and Codex can call granted tools in person chats; every call asks for your approval. Routines, rooms, computer sessions and other engines do not receive them. Only public https:// servers on port 443 are supported; local commands are not.
+- In a workspace with other people, a custom MCP connection is private to whoever added it until they choose Share with workspace. Private connections and their sign-ins cannot be used, tested or granted by anyone else; the workspace owner can still switch off or remove them.
+- `SUPARAGENT_OAUTH_CALLBACK_ORIGIN` sets where a browser returns after signing in to a custom MCP server when the server is only reachable through a gateway (a hosted workspace). The custom server form shows the redirect address to register for a client you create yourself.
+- Grant an agent up to 500 tools from a custom MCP server. Above 25 granted tools the agent searches your granted tools and calls one by reference instead of receiving them all; calls still need approval. The grant list has a filter and "check shown".
+- The desktop app finishes browser sign-in through a short-lived loopback listener on 127.0.0.1 that answers only the sign-in return and closes after one success.
+- Give an agent its own email inbox or phone number from Apps → MCP Marketplace → Agent email and phone. Connect AgentMail or AgentPhone with browser sign-in on your own account, record the inboxes or numbers you already created there, and choose which agents get each one. A new connection, address or agent starts with no access. An agent is only offered the provider's tools while it has an address assigned, and a call that names a different AgentMail inbox is refused before any approval card; `list_inboxes` shows only the assigned ones. Every send still asks for your approval and names the address that would act. Recent activity lists which agent used which address and how it ended, without message text. Agents cannot create inboxes or numbers, and incoming mail or calls do not start an agent.
+- Stopping use of a provider removes its addresses and assignments and clears every agent's tool grants for that connection. When a policy refuses a call (for example an unassigned inbox), Claude is now told why instead of that you denied it.
+- AgentPhone: a text or call must name an assigned sending number (by id or +E.164) and number-scoped reads must name an assigned number id; `list_numbers` shows only the assigned numbers. `buy_number`, `set_webhook`, `delete_webhook` and `delete_agent` are never given to agents. Recording a number needs its AgentPhone id.
+- In Agent email and phone you can now sign in, test and turn on a provider without leaving its card, look up the inboxes or numbers on your account instead of typing an id, use a connection you already added (for example Telnyx or Vapi) as a provider, remove a connection completely, and filter and page through recent activity.
+- Fixed: an MCP server whose tools carry the newer `execution` field, large numeric bounds (JavaScript's largest safe integer) or typed key/value arguments no longer shows as "connected, 0 tools". A server whose tools can all not be read is now an error instead.
+
+## 0.8.6 - 2026-11-11
+
+Phone app 0.4.0: chat is now the default screen, with a sidebar of conversations, date dividers, timestamps, copy buttons, Markdown, code blocks and tables like the desktop app, a desktop-style composer, and an in-chat model and reasoning-effort switcher.
+
+### Added
+
 - Share a server install with other people. An admin invites someone from Settings → Account & privacy → People and sends them a one-time link; they pick a name and password and work in the same workspace as themselves. Each person has a role (owner, admin, member, viewer), and a member's permissions (reply, read files, answer commands, save standing rules, manage agents) are chosen when they are invited and can be changed later. Removing someone signs them out and ends their open event streams at once. Members can change their own password, the owner can hand the workspace to another member, and every membership change is recorded. Turns and approvals show which person sent or answered them, agents are told whose message they are answering when several people share a workspace, and a member's chats are not learned as the owner's. Not available in the desktop app, which stays one person. See [docs/AUTH.md](docs/AUTH.md#members).
+- Add boxd as a Desktop cloud computer choice, **Cloud · boxd**, next to Muapi and Boat. Each agent computer is one boxd machine (a full Ubuntu VM): commands, files and the 1280x800 desktop's screen tools go through the boxd API, stopping hibernates the machine and starting wakes it in about a second, and removal deletes it. The boxd API key is stored like the Boat key, encrypted in the Desktop profile and used only by the local backend. The boxd SDK is an optional backend extra (`uv sync --extra boxd`) that the desktop package includes. See docs/COMPUTERS.md. Checked with unit tests (fake boxd client), a live provider check and a source-run desktop backend whose Claude turn used a real boxd computer; no packaged-app check.
+
+- A hosted deployment can now put its own account service in front of this server and tell it, with a short-lived signed token, who is acting and in what role. Set `HOSTED_WORKSPACE_ID` and `HOSTED_GRANT_PUBLIC_KEYS` and every request must carry a token signed for that workspace; the person is shown by name in conversations and approvals, rights follow the token's role and permissions, and inviting, role changes and removal are done by the account service instead. Unset, nothing changes for self-hosted installs or the desktop app. See [docs/AUTH.md](docs/AUTH.md#hosted-workspace-grants).
+- In a hosted build, a workspace switcher at the top of the sidebar lists the workspaces you belong to (name and role), with search, recent workspaces first and `Alt+W`; choosing one reopens the page you left there, and unsent drafts are kept per workspace. Settings → Account & privacy shows the people the account service reports, and hides device pairing, which a hosted workspace cannot use.
 
 ### Changed
 
 - Changing notification settings now needs an admin when people share a workspace, because it is one setting for everyone. Paired phones keep their access.
+
+### Fixed
+
+- Serve `GET` and `DELETE /computers/boat-credentials` and `/computers/muapi-credentials` again in the full API. The computer routes were registered first, so `/computers/{computer_id}` answered them with a 422.
 
 ## 0.8.5 - 2026-11-09
 
@@ -24,7 +69,6 @@
 - Improve the visual workflow builder with note and shape toolbars and validation for step connections.
 - Muapi is now a cloud computer provider alongside Boat. In the computer panel choose **Cloud · Muapi** (listed first) or **Cloud · Boat**; each has its own encrypted, write-only API key on this device. Muapi computers are shell-only for now and are billed per second from your Muapi credits while running. Covered by new provider unit tests against a mocked Muapi API; not yet tried against the live Muapi service.
 - Open your paid hosted workspace from the desktop app. A new **Workspace** menu (Cmd/Ctrl+1 for this computer, +2 for hosted), a Settings → Account button and a sandboxed hosted view show your cloud workspace in the same window. You sign in to it separately with your hosted email and password, hosted sign-out clears only that view, and local data is never copied or changed. On by default; set `OPEN_DOTS_HOSTED_WORKSPACE=0` to turn it off. Checked with unit tests and a source-run Electron smoke; no packaged-build or staging-account check yet.
-
 ## 0.8.3 - 2026-11-06
 
 ### Added

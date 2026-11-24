@@ -1,6 +1,6 @@
 {
   "name": "suparagent-desktop",
-  "version": "0.8.5",
+  "version": "0.8.7",
   "private": true,
   "description": "Suparagent desktop app: an Electron window around the local backend. Runs from a source checkout or installed.",
   "main": "main.js",
@@ -87,10 +87,27 @@
           "arch": [
             "arm64"
           ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
         }
       ],
       "category": "public.app-category.productivity",
       "artifactName": "Suparagent-${version}-arm64.${ext}"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Anil-matcha",
+        "repo": "suparagent",
+        "releaseType": "prerelease"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }

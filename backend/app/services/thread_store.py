@@ -455,10 +455,25 @@ async def append_event(
     turn_id: int | None = None,
 ) -> Event:
     """Store one event with the thread's next seq and commit."""
-    await begin_write(db)
-    event = await _add_event(db, thread_id, type_, data, turn_id)
+    event = await add_event_in_transaction(db, thread_id, type_, data, turn_id=turn_id)
     await db.commit()
     return event
+
+
+async def add_event_in_transaction(
+    db: AsyncSession,
+    thread_id: int,
+    type_: str,
+    data: dict | None = None,
+    *,
+    turn_id: int | None = None,
+) -> Event:
+    """Add an event to the caller's current transaction without committing it.
+
+    This lets a domain change and its user-visible event become durable together.
+    """
+    await begin_write(db)
+    return await _add_event(db, thread_id, type_, data, turn_id)
 
 
 async def append_turn_event(

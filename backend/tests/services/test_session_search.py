@@ -144,7 +144,7 @@ async def test_the_mcp_tool_end_to_end_and_disclosure_in_a_room(harness, session
     room = await rt.rooms.create({"name": "Standup", "member_ids": [agent.id], "default_responder_kind": "everyone"})
     await rt.rooms.post(room["id"], "What is up with contracts?")
     await rt.rooms.work(room["id"])
-    assert seen["tools"] == {"session_search", "session_read"}
+    assert seen["tools"] == {"session_search", "session_read", "suggest_profile_change"}
     text = seen["found"]["content"][0]["text"]
     assert "vendor contract renews on 3 March" in text and "private to this person" in text and not seen["found"]["isError"]
     assert "renews on 3 March" in seen["read"]["content"][0]["text"]

@@ -1,9 +1,9 @@
-"""Lead-driven team setup: validated plans, receipts, scoped undo, deletion and housekeeping.
+"""Lead-driven team setup: validated proposals, receipts, scoped undo and housekeeping.
 
-A plan is applied at once, in one transaction, after the same validation that ran
-when it was proposed. The request row is the receipt: a repeated request id
-replays the recorded result. Undo refuses when anything it touched has changed.
-Plans can never carry approval, delegation, memory, apps or archive settings.
+Chat plans stay pending until the person approves their current version; approval
+revalidates and applies the whole plan in one transaction. The request row is the
+receipt: retries replay the stored state. Undo refuses when anything it touched
+has changed. Plans cannot carry approval, delegation, memory, apps or archive settings.
 """
 import hashlib
 import json
@@ -18,7 +18,7 @@ from app.team.service import TeamError, audit, clean_line, member, now, team_for
 MAX_OPERATIONS = 8
 TEXT_FIELDS = {'name': 80, 'title': 120, 'description': 200}
 EDITABLE = ('name', 'title', 'description', 'instructions', 'provider', 'model')
-CREATE_KEYS = set(EDITABLE) | {'op', 'share_workspace'}
+CREATE_KEYS = set(EDITABLE) | {'op', 'share_workspace', 'first_task'}
 UPDATE_KEYS = {'op', 'agent_id', 'fields', 'expected_revision'}
 HASHED = EDITABLE + ('team_id', 'archived_at', 'approval_mode', 'workspace_path', 'delegation_enabled',
                     'memory_enabled', 'recall_enabled', 'memory_upkeep', 'compaction_summary', 'use_helper',
@@ -101,6 +101,9 @@ async def validate(db, owner, team, caller, plan, *, turn_id, check_engine):
     if not isinstance(plan, dict):
         raise TeamError('invalid_input', 'A plan must be an object.')
     operations = plan.get('operations')
+    summary = plan.get('summary')
+    if summary is not None and (not isinstance(summary, str) or len(summary) > 300):
+        raise TeamError('invalid_input', 'A plan summary must be at most 300 characters.')
     if set(plan or ()) - {'operations', 'summary'} or not isinstance(operations, list) or not 1 <= len(operations) <= MAX_OPERATIONS:
         raise TeamError('invalid_input', f'A plan needs one to {MAX_OPERATIONS} operations.')
     live = list((await db.execute(select(Agent).where(Agent.owner_id == owner, Agent.archived_at.is_(None)).order_by(Agent.id).with_for_update().execution_options(populate_existing=True))).scalars())
@@ -121,6 +124,12 @@ async def validate(db, owner, team, caller, plan, *, turn_id, check_engine):
             check_engine(fields['provider'], fields['model'])
             if 'share_workspace' in raw and type(raw['share_workspace']) is not bool:
                 raise TeamError('invalid_input', 'share_workspace must be a boolean.')
+            first_task = raw.get('first_task')
+            if first_task is not None:
+                if (not isinstance(first_task, str) or not first_task.strip() or len(first_task) > 1000
+                        or any(ord(char) < 32 and char not in '\n\t' for char in first_task)):
+                    raise TeamError('invalid_input', 'A first task must be plain text of at most 1,000 characters.')
+                first_task = agent_memory.redact_secrets(first_task.strip())[0]
             if raw.get('share_workspace') is True:
                 if not caller.workspace_path:
                     raise TeamError('project_required', 'Give the lead a project folder first.')
@@ -129,7 +138,7 @@ async def validate(db, owner, team, caller, plan, *, turn_id, check_engine):
                 raise TeamError('name_taken', 'A live agent already uses that name.')
             names[-len(out) - 1] = fields['name']
             creating += 1
-            out.append({'op': 'create', 'fields': fields})
+            out.append({'op': 'create', 'fields': fields, 'first_task': first_task})
         elif raw.get('op') == 'update':
             if set(raw) - UPDATE_KEYS or type(raw.get('agent_id')) is not int or not isinstance(raw.get('fields'), dict) or not raw['fields']:
                 raise TeamError('invalid_input', 'An update needs agent_id and fields.')
@@ -155,7 +164,7 @@ async def validate(db, owner, team, caller, plan, *, turn_id, check_engine):
             names[target.id] = fields.get('name', target.name)
             if target.id != caller.id and await busy(db, target.id):
                 raise TeamError('agent_busy', 'That agent is working right now. Try again when it is idle.')
-            out.append({'op': 'update', 'agent_id': target.id, 'fields': fields})
+            out.append({'op': 'update', 'agent_id': target.id, 'name': target.name, 'current': snapshot(target), 'fields': fields})
         else:
             raise TeamError('invalid_input', 'Operations are create or update.')
     already = await db.scalar(select(func.count()).select_from(TeamEvent).where(
@@ -216,6 +225,213 @@ def replay(row):
 
 async def existing(db, owner, request_id):
     return await db.scalar(select(TeamSetupRequest).where(TeamSetupRequest.owner_id == owner, TeamSetupRequest.request_id == request_id).execution_options(populate_existing=True))
+
+
+def public_plan(plan):
+    """Return only the user-editable plan, without server-side replay metadata."""
+    return {key: value for key, value in (plan or {}).items() if not key.startswith('_')}
+
+
+def executable_plan(plan):
+    """Strip display-only target snapshots from the plan before validation or application."""
+    value = redacted(plan)
+    for operation in value.get('operations', []) if isinstance(value, dict) else []:
+        if isinstance(operation, dict) and operation.get('op') == 'update':
+            operation.pop('name', None)
+            operation.pop('current', None)
+    return value
+
+
+def request_version(row):
+    return int((row.result or {}).get('version', (row.plan or {}).get('_version', 1)))
+
+
+def review_plan(plan, operations):
+    """Show resolved defaults while preserving the revisions the person is approving."""
+    reviewed = []
+    raw_operations = plan.get('operations', []) if isinstance(plan, dict) else []
+    for raw, operation in zip(raw_operations, operations, strict=True):
+        if operation['op'] == 'create':
+            fields = operation['fields']
+            reviewed.append({'op': 'create', **{field: fields[field] for field in EDITABLE if field in fields},
+                             'share_workspace': raw.get('share_workspace') is True,
+                             'first_task': operation.get('first_task') or ''})
+        else:
+            reviewed.append({'op': 'update', 'agent_id': operation['agent_id'], 'fields': operation['fields'],
+                             'name': operation.get('name', f"Agent {operation['agent_id']}"),
+                             'current': redacted(operation.get('current', {})), 'expected_revision': raw['expected_revision']})
+    return {**({'summary': plan['summary']} if isinstance(plan, dict) and 'summary' in plan else {}), 'operations': reviewed}
+
+
+def _guided_plan(plan):
+    for operation in plan.get('operations', []) if isinstance(plan, dict) else []:
+        if not isinstance(operation, dict):
+            continue
+        if operation.get('op') == 'create':
+            if not isinstance(operation.get('instructions'), str) or not operation['instructions'].strip():
+                raise TeamError('instructions_required', "Describe this specialist's purpose and expected output in its instructions.")
+            if not isinstance(operation.get('first_task'), str) or not operation['first_task'].strip():
+                raise TeamError('first_task_required', 'Add a useful, editable first task for each new specialist.')
+        if operation.get('op') == 'update' and not operation.get('expected_revision'):
+            raise TeamError('revision_required', 'Read list_team_setup and include expected_revision before editing an agent.')
+
+
+async def _apply_operations(db, owner, caller, team, turn_id, thread_id, operations, check_engine):
+    """Apply already-validated operations and return the receipt and safe Undo data."""
+    results, undo = [], {'created': [], 'updated': []}
+    for op in operations:
+        if op['op'] == 'create':
+            fields = dict(op['fields'])
+            agent = Agent(owner_id=owner, team_id=team.id, created_by_agent_id=caller.id, approval_mode='ask', **fields)
+            db.add(agent)
+            await db.flush()
+            audit(db, team, 'agent_created', agent_id=agent.id, thread_id=thread_id, data={'turn_id': turn_id, 'instructions_length': len(agent.instructions or '')})
+            result = {'action': 'created', 'agent_id': agent.id, 'name': agent.name,
+                      'changes': changes({}, {**snapshot(agent), 'workspace_path': agent.workspace_path, 'approval_mode': 'ask'})}
+            if op.get('first_task'):
+                result['first_task'] = op['first_task']
+            results.append(result)
+            undo['created'].append({'agent_id': agent.id, 'hash': None})
+        else:
+            agent = await db.get(Agent, op['agent_id'], with_for_update=True)
+            before = snapshot(agent)
+            for key, value in op['fields'].items():
+                setattr(agent, key, value)
+            audit(db, team, 'agent_updated', agent_id=agent.id, thread_id=thread_id, data={'turn_id': turn_id, 'fields': sorted(op['fields'])})
+            results.append({'action': 'updated', 'agent_id': agent.id, 'name': agent.name,
+                            'changes': changes(before, {key: getattr(agent, key) for key in op['fields']})})
+            undo['updated'].append({'agent_id': agent.id, 'before': before, 'hash': None})
+    await db.flush()
+    for entry in undo['created']:
+        entry['hash'] = full_hash(await db.get(Agent, entry['agent_id']))
+    for entry in undo['updated']:
+        entry['hash'] = full_hash(await db.get(Agent, entry['agent_id']))
+    for result_row in results:
+        saved = await db.get(Agent, result_row['agent_id'])
+        check_engine(saved.provider, saved.model)
+    return results, undo
+
+
+async def prepare_pending(db, owner, caller_id, turn_id, thread_id, plan, *, check_engine, request_id=None, authorize=None):
+    """Validate a proposed setup and persist it for the person to review."""
+    await begin_write(db)
+    team = await team_for(db, owner, lock=True)
+    caller = await db.get(Agent, caller_id, with_for_update=True, populate_existing=True)
+    if caller is None or caller.owner_id != owner or caller.archived_at is not None or team is None or caller.team_id != team.id or team.lead_agent_id != caller_id:
+        raise TeamError('lead_only', 'Only the current team lead can change the team.')
+    if not thread_id:
+        raise TeamError('invalid_input', 'A reviewable plan needs its originating conversation.')
+    if authorize:
+        await authorize(db)
+    safe_plan = redacted(plan)
+    source_digest = digest(safe_plan)
+    request_id = request_id or digest([turn_id, safe_plan])[:32]
+    if not isinstance(request_id, str) or not 0 < len(request_id) <= 64:
+        raise TeamError('invalid_input', 'request_id must be at most 64 characters.')
+    row = await existing(db, owner, request_id)
+    if row is not None:
+        saved_digest = (row.plan or {}).get('_request_digest', digest(public_plan(row.plan)))
+        if row.kind != 'setup' or row.lead_agent_id != caller_id or row.thread_id != thread_id or saved_digest != source_digest:
+            raise TeamError('request_conflict', 'This request_id belongs to a different plan or conversation. Use a new request_id for a changed plan.')
+        replayed = {**(row.result or {}), 'request_id': row.request_id, 'state': row.state, 'version': request_version(row), 'plan': public_plan(row.plan), 'replayed': True}
+        if row.state == 'pending':
+            from app.services import thread_store
+            event = await thread_store.add_event_in_transaction(db, thread_id, 'team.setup.proposed',
+                                                                {'request_id': row.request_id, 'version': request_version(row), 'plan': public_plan(row.plan)},
+                                                                turn_id=turn_id)
+            await db.commit()
+            replayed['notify_thread_id'] = thread_id
+            replayed['event_seq'] = event.seq
+        else:
+            await db.rollback()
+        return replayed
+    _guided_plan(plan)
+    operations = await validate(db, owner, team, caller, plan, turn_id=turn_id, check_engine=check_engine)
+    card_plan = review_plan(safe_plan, operations)
+    if authorize:
+        await authorize(db)
+    row = TeamSetupRequest(owner_id=owner, team_id=team.id, lead_agent_id=caller.id, thread_id=thread_id, turn_id=turn_id,
+                           request_id=request_id, kind='setup', plan={**card_plan, '_request_digest': source_digest, '_version': 1},
+                           state='pending', result={'version': 1}, undo={})
+    db.add(row)
+    await db.flush()
+    from app.services import thread_store
+    event = await thread_store.add_event_in_transaction(db, thread_id, 'team.setup.proposed',
+                                                        {'request_id': request_id, 'version': 1, 'plan': card_plan}, turn_id=turn_id)
+    await db.commit()
+    return {'request_id': request_id, 'state': 'pending', 'version': 1, 'plan': card_plan, 'replayed': False,
+            'notify_thread_id': thread_id, 'event_seq': event.seq}
+
+
+async def revise_pending(db, owner, request_id, version, plan, *, check_engine):
+    """Replace a pending plan only when the caller edits the version they saw."""
+    await begin_write(db)
+    team = await team_for(db, owner, lock=True)
+    row = await db.scalar(select(TeamSetupRequest).where(TeamSetupRequest.owner_id == owner, TeamSetupRequest.request_id == request_id)
+                          .with_for_update().execution_options(populate_existing=True))
+    if row is None or row.kind != 'setup' or row.state != 'pending' or team is None or team.id != row.team_id:
+        raise TeamError('request_not_found', 'This team setup plan is no longer waiting for review.')
+    caller = await db.get(Agent, row.lead_agent_id, with_for_update=True, populate_existing=True)
+    if caller is None or caller.owner_id != owner or caller.archived_at is not None or caller.team_id != team.id or team.lead_agent_id != caller.id:
+        raise TeamError('lead_only', 'The team lead changed. Refresh the team before reviewing this plan.')
+    thread = await db.get(Thread, row.thread_id, with_for_update=True, populate_existing=True)
+    if thread is None or thread.owner_id != owner or thread.agent_id != caller.id:
+        raise TeamError('request_not_found', 'The conversation for this setup plan no longer exists.')
+    current_version = request_version(row)
+    if version != current_version:
+        await db.rollback()
+        raise TeamError('changed_since', 'This plan changed in another view. Refresh it before saving.')
+    safe_plan = redacted(plan)
+    executable = executable_plan(safe_plan)
+    _guided_plan(executable)
+    operations = await validate(db, owner, team, caller, executable, turn_id=row.turn_id, check_engine=check_engine)
+    card_plan = review_plan(safe_plan, operations)
+    next_version = current_version + 1
+    row.plan = {**card_plan, '_request_digest': (row.plan or {}).get('_request_digest', digest(public_plan(row.plan))), '_version': next_version}
+    row.result = {'version': next_version}
+    from app.services import thread_store
+    await thread_store.add_event_in_transaction(db, row.thread_id, 'team.setup.proposed',
+                                                {'request_id': row.request_id, 'version': next_version, 'plan': card_plan})
+    await db.commit()
+    return {'request_id': row.request_id, 'state': 'pending', 'version': next_version, 'plan': card_plan, 'thread_id': row.thread_id}
+
+
+async def decide_pending(db, owner, request_id, version, *, approve, check_engine):
+    """Approve the exact pending version, rechecking current team state under lock, or decline it."""
+    await begin_write(db)
+    team = await team_for(db, owner, lock=True)
+    row = await db.scalar(select(TeamSetupRequest).where(TeamSetupRequest.owner_id == owner, TeamSetupRequest.request_id == request_id)
+                          .with_for_update().execution_options(populate_existing=True))
+    if row is None or row.kind != 'setup' or row.state != 'pending' or team is None or team.id != row.team_id:
+        raise TeamError('request_not_found', 'This team setup plan is no longer waiting for review.')
+    caller = await db.get(Agent, row.lead_agent_id, with_for_update=True, populate_existing=True)
+    if caller is None or caller.owner_id != owner or caller.archived_at is not None or caller.team_id != team.id or team.lead_agent_id != caller.id:
+        raise TeamError('lead_only', 'The team lead changed. This plan was left unapplied.')
+    current_version = request_version(row)
+    if version != current_version:
+        await db.rollback()
+        raise TeamError('changed_since', 'This plan changed in another view. Refresh it before deciding.')
+    thread = await db.get(Thread, row.thread_id, with_for_update=True, populate_existing=True)
+    if thread is None or thread.owner_id != owner or thread.agent_id != caller.id:
+        raise TeamError('request_not_found', 'The conversation for this setup plan no longer exists.')
+    if approve:
+        plan = executable_plan(public_plan(row.plan))
+        _guided_plan(plan)
+        operations = await validate(db, owner, team, caller, plan, turn_id=row.turn_id, check_engine=check_engine)
+        results, undo_data = await _apply_operations(db, owner, caller, team, row.turn_id, row.thread_id, operations, check_engine)
+        result = {'results': results, 'model_note': 'New conversations use the saved model defaults. Existing conversations retain their model.',
+                  'capability_note': 'App connections, skills, computers and routines require their own setup.'}
+        row.state, row.result, row.undo, row.decided_at = 'applied', result, undo_data, now()
+        event_data = {'request_id': row.request_id, 'results': results, 'undo_available': True}
+        event_type = 'team.setup.applied'
+    else:
+        row.state, row.result, row.decided_at = 'rejected', {'version': current_version}, now()
+        event_data = {'request_id': row.request_id, 'version': current_version, 'state': 'rejected'}
+        event_type = 'team.setup.dismissed'
+    from app.services import thread_store
+    await thread_store.add_event_in_transaction(db, row.thread_id, event_type, event_data)
+    await db.commit()
+    return {'request_id': row.request_id, 'state': row.state, 'thread_id': row.thread_id}
 
 
 async def propose(db, owner, caller_id, turn_id, thread_id, plan, *, check_engine, request_id=None, authorize=None, guided=False):
@@ -441,7 +657,7 @@ async def close_thread(db, owner, caller_id, thread_id, *, current_thread_id):
 
 # --- tool dispatch (called by the team bridge) ----------------------------------------
 
-TOOLS = ('create_agent', 'list_team_setup', 'propose_team_setup', 'propose_bot_deletion', 'list_threads', 'close_thread')
+TOOLS = ('create_agent', 'list_team_setup', 'suggest_workers', 'propose_team_setup', 'propose_bot_deletion', 'list_threads', 'close_thread')
 WRITES = ('create_agent', 'propose_team_setup', 'propose_bot_deletion')
 
 
@@ -452,6 +668,12 @@ async def call(rt, run, name, args):
     from app.team import policy
     if name in WRITES and (run.ctx.approval_mode == 'plan' or run.ctx.team.origin in policy.UNATTENDED):
         raise TeamError('forbidden', 'Changing the team is unavailable for this turn.')
+    if name == 'suggest_workers':
+        from app.services import worker_suggestions
+        result = suggest_workers(args)
+        # Remember the answer so the Choose your team screen can offer "Use these suggestions". Ids only: nothing is created.
+        worker_suggestions.record(result['suggestions'], thread_id=run.thread_id)
+        return result
     owner, caller = rt.owner_id, run.agent_id
     async with rt.session() as db:
         if name == 'list_team_setup':
@@ -462,17 +684,23 @@ async def call(rt, run, name, args):
             return await close_thread(db, owner, caller, args.get('thread_id'), current_thread_id=run.thread_id)
         if name in ('create_agent', 'propose_team_setup'):
             if name == 'create_agent':
-                if set(args) - {'name', 'title', 'instructions', 'share_workspace'}:
+                if set(args) - {'name', 'title', 'instructions', 'share_workspace', 'first_task', 'request_id'}:
                     raise TeamError('invalid_input', 'Unrecognised specialist settings.')
-                plan = {'operations': [{'op': 'create', **args}]}
+                plan = {'operations': [{'op': 'create', **{key: value for key, value in args.items() if key != 'request_id'}}]}
             else:
                 plan = {k: v for k, v in args.items() if k != 'request_id'}
-            result = await propose(db, owner, caller, run.turn_id, run.thread_id, plan, check_engine=_checker(rt),
-                                   request_id=args.get('request_id'), authorize=_authorizer(rt, run), guided=True)
-            if result['state'] == 'applied':
-                await run.recorder.emit('team.setup.applied', {'request_id': result['request_id'], 'results': result['results'], 'undo_available': True})
+            result = await prepare_pending(db, owner, caller, run.turn_id, run.thread_id, plan, check_engine=_checker(rt),
+                                           request_id=args.get('request_id'), authorize=_authorizer(rt, run))
+            if result['state'] == 'pending' and result.get('notify_thread_id'):
+                event_seq = result.get('event_seq')
+                if isinstance(event_seq, int):
+                    run.recorder.note_stored_event(event_seq)
+                else:
+                    rt.hub.notify(result['notify_thread_id'])
+            result.pop('notify_thread_id', None)
+            result.pop('event_seq', None)
             if name == 'create_agent':
-                result = {**result, **result['results'][0], 'approval_mode': 'ask'}
+                result = {**result, 'approval_mode': 'ask'}
             return result
         record = await prepare_deletion(db, owner, caller, run.turn_id, run.thread_id, {k: v for k, v in args.items() if k != 'request_id'}, request_id=args.get('request_id'))
         previous = await existing(db, owner, record['request_id'])
@@ -499,7 +727,7 @@ def _authorizer(rt, run):
                 or turn.owner_token != run.owner_token or turn.origin in policy.UNATTENDED
                 or thread is None or thread.owner_id != rt.owner_id or thread.agent_id != run.agent_id
                 or run.ctx.approval_mode == 'plan' or run.ctx.team.origin in policy.UNATTENDED
-                or not run.ctx.team.configuration_allowed):
+                or (not run.ctx.team.configuration_allowed and not run.ctx.team.setup_allowed)):
             raise TeamError('forbidden', 'This turn no longer has permission to change the team.')
     return authorize
 
@@ -515,3 +743,21 @@ def _checker(rt):
         except EngineModelInvalid as exc:
             raise TeamError('unknown_model', str(exc)) from None
     return check
+
+
+def suggest_workers(args):
+    """Rank bundled workers for stated goals. Read-only: catalog data only, no database, model or network use."""
+    from app.templates import suggest
+    if set(args) - {'goals', 'about', 'max_setup', 'request_id'}:
+        raise TeamError('invalid_input', 'Unrecognised suggestion settings.')
+    goals = args.get('goals') or []
+    if not isinstance(goals, list) or len(goals) > 8 or not all(isinstance(g, str) and len(g) <= 120 for g in goals):
+        raise TeamError('invalid_input', 'Give up to eight goals of 120 characters or fewer.')
+    about = args.get('about') or ''
+    if not isinstance(about, str) or len(about) > 500:
+        raise TeamError('invalid_input', 'Describe the business in 500 characters or fewer.')
+    max_setup = args.get('max_setup') or 'guided'
+    if max_setup not in suggest.SETUP_RANK:
+        raise TeamError('invalid_input', 'Use express, standard or guided.')
+    found = suggest.suggest(goals, about, max_setup=max_setup)
+    return {'suggestions': [{'template_id': f.template_id, 'reason': f.reason} for f in found]}

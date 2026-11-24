@@ -180,3 +180,65 @@ test("update IPC accepts only the app's own main frame", async () => {
   await assert.rejects(handler({ sender: {}, senderFrame: {} }, "state"), /only available/);
   assert.deepEqual(calls, [["check", { manual: true }], ["open", "https://github.com/r"]]);
 });
+
+const { EventEmitter } = require("node:events");
+const { createAutoUpdater } = require("../src/auto-updater");
+
+function nativeHarness({ check, download, installed = [] } = {}) {
+  const emitter = new EventEmitter();
+  const calls = [];
+  const native = Object.assign(emitter, {
+    checkForUpdates: async () => { calls.push("check"); await check?.(emitter); },
+    downloadUpdate: async () => { calls.push("download"); await download?.(emitter); },
+    quitAndInstall: (...args) => { calls.push(["install", ...args]); },
+  });
+  const states = [];
+  const updater = createAutoUpdater({ autoUpdater: native, currentVersion: "0.8.6", beforeInstall: async () => { installed.push("stopped"); }, onState: (s) => states.push(s.status) });
+  return { updater, native, calls, states, installed };
+}
+
+test("native updater: check, download and restart-to-install", async () => {
+  const { updater, native, calls, installed } = nativeHarness({
+    check: (e) => e.emit("update-available", { version: "0.9.0" }),
+    download: (e) => { e.emit("download-progress", { percent: 40.7 }); e.emit("update-downloaded", {}); },
+  });
+  assert.equal(native.autoDownload, false);
+  assert.equal(native.allowPrerelease, true);
+  let state = await updater.check();
+  assert.equal(state.status, "available");
+  assert.equal(state.version, "0.9.0");
+  assert.match(state.notesUrl, /releases\/tag\/v0\.9\.0$/);
+  state = await updater.download();
+  assert.equal(state.status, "downloaded");
+  state = await updater.install();
+  assert.equal(state.status, "installing");
+  assert.deepEqual(installed, ["stopped"]);
+  assert.deepEqual(calls.at(-1), ["install", false, true]);
+});
+
+test("native updater: install needs a finished download", async () => {
+  const { updater, calls } = nativeHarness();
+  await updater.install();
+  assert.deepEqual(calls, []);
+});
+
+test("native updater: a background failure is quiet, a manual one explains, download can retry", async () => {
+  const quiet = nativeHarness({ check: () => { throw new Error("ENOTFOUND"); } });
+  assert.equal((await quiet.updater.check()).status, "idle");
+  const loud = nativeHarness({ check: () => { throw new Error("ENOTFOUND"); } });
+  const state = await loud.updater.check({ manual: true });
+  assert.equal(state.status, "error");
+  assert.match(state.message, /GitHub/);
+  const retry = nativeHarness({ check: (e) => e.emit("update-available", { version: "0.9.0" }), download: () => { throw new Error("ECONNRESET"); } });
+  await retry.updater.check();
+  const failed = await retry.updater.download();
+  assert.equal(failed.status, "error");
+  assert.equal(failed.canDownload, true);
+});
+
+test("native updater: no newer version reports up to date on a manual check", async () => {
+  const { updater } = nativeHarness({ check: (e) => e.emit("update-not-available", {}) });
+  const state = await updater.check({ manual: true });
+  assert.equal(state.status, "idle");
+  assert.equal(state.message, "You have the latest version.");
+});

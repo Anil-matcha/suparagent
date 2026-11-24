@@ -69,6 +69,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: astral-sh/setup-uv@v5.4.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
       - run: docker build -t suparagent-browser:qa desktop-image
       - run: uv sync --frozen
         working-directory: backend
@@ -77,6 +80,7 @@ jobs:
 
   backend-sqlite:
     name: Backend tests (SQLite)
+    timeout-minutes: 30
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     # Pinned: on ubuntu-latest (Ubuntu 26 from 2026-10-19) test_a_hanging_and_a_crashing_engine_block_nothing
@@ -93,10 +97,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: astral-sh/setup-uv@v5.4.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
       - name: Install audio validation runtime
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes ffmpeg
+          # Skip apt when the runner already has it; otherwise fail fast on a mirror/DNS outage instead of hanging.
+          if ! command -v ffprobe >/dev/null; then
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 install --yes ffmpeg
+          fi
           ffprobe -version
       - run: uv sync --frozen
       - run: uv run pytest -q
@@ -118,10 +128,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: astral-sh/setup-uv@v5.4.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
       - name: Install namespace runtime
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes bubblewrap
+          # Skip apt when the runner already has it; otherwise fail fast on a mirror/DNS outage instead of hanging.
+          if ! command -v bwrap >/dev/null; then
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 install --yes bubblewrap
+          fi
           bwrap --version
           uname -srmo
       - run: uv sync --frozen
@@ -172,6 +188,7 @@ jobs:
 
   backend-postgres:
     name: Backend tests (PostgreSQL)
+    timeout-minutes: 30
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     # Pinned: on ubuntu-latest (Ubuntu 26 from 2026-10-19) test_a_hanging_and_a_crashing_engine_block_nothing
@@ -202,10 +219,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: astral-sh/setup-uv@v5.4.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
       - name: Install audio validation runtime
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes ffmpeg
+          # Skip apt when the runner already has it; otherwise fail fast on a mirror/DNS outage instead of hanging.
+          if ! command -v ffprobe >/dev/null; then
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 install --yes ffmpeg
+          fi
           ffprobe -version
       - run: uv sync --frozen
       - run: uv run alembic upgrade head
@@ -226,6 +249,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: astral-sh/setup-uv@v5.4.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
       - run: uv sync --frozen
       - run: uv run python ../scripts/smoke-backend.py
 
@@ -247,6 +273,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - uses: astral-sh/setup-uv@v5.4.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
       - run: npm ci
         working-directory: frontend
       - run: node --test scripts/build-ui.test.js

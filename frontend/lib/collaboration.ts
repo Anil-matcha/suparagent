@@ -1,4 +1,5 @@
 import { request, type Agent } from "@/lib/api";
+import type { TeamSetupPlan } from "@/lib/transcript";
 
 export type TeamAgent = Agent & { is_lead: boolean; state: string; delegation_enabled: boolean; created_by_agent_id?: number | null; instructions_reviewed?: boolean };
 export type TeamState = { enabled?: boolean; team: { id: number; name: string; lead_agent_id: number | null } | null; agents: TeamAgent[]; limits: Record<string, number>; lead_ready: { ok: boolean; reason?: string | null } };
@@ -17,6 +18,9 @@ export const collaboration = {
   lead: (agent_id: number) => request<TeamState>("/team/lead", post({ agent_id })),
   clearLead: (id: number) => request<TeamState>(`/team/lead?agent_id=${id}`, { method: "DELETE" }),
   setupReceipt: (id: string) => request<{ state: string; undo_available: boolean; undo_reason: string | null }>(`/team/setup/${encodeURIComponent(id)}`),
+  updateSetupProposal: (id: string, version: number, plan: TeamSetupPlan) => request<{ request_id: string; state: "pending"; version: number; plan: TeamSetupPlan }>(`/team/setup/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ version, plan }) }),
+  approveSetupProposal: (id: string, version: number) => request<unknown>(`/team/setup/${encodeURIComponent(id)}/approve`, post({ version })),
+  declineSetupProposal: (id: string, version: number) => request<{ request_id?: string; state?: string; version?: number }>(`/team/setup/${encodeURIComponent(id)}/decline`, post({ version })),
   addMember: (agent_id: number) => request<unknown>("/team/members", post({ agent_id })),
   removeMember: (id: number) => request<void>(`/team/members/${id}`, { method: "DELETE" }),
   delegation: (id: number, delegation_enabled: boolean) => request<unknown>(`/team/members/${id}`, patch({ delegation_enabled })),

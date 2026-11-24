@@ -62,6 +62,13 @@ router = APIRouter(
 )
 
 
+def _setup_allowed(principal) -> bool:
+    """Manage-agent members may use the safe team setup tools, but not broader configuration tools."""
+    if principal is None or principal.is_admin:
+        return True
+    return "manage" in principal.scopes and (principal.permissions is None or "agents" in principal.permissions)
+
+
 def get_runtime() -> ThreadRuntime:
     return default_runtime
 
@@ -224,6 +231,7 @@ async def send_turn(
         return await rt.send_turn(
             thread_id, payload.prompt_text, attachment_ids=payload.attachment_ids, skills=payload.skills,
             configuration_allowed=principal is None or principal.is_admin,
+            setup_allowed=_setup_allowed(principal),
             person_id=principal.person_id if principal else None,
             person_label=principal.label if principal and principal.person_id is not None else None,
             person_is_owner=principal is None or principal.person_id is None or principal.role == "owner",
@@ -276,6 +284,7 @@ async def branch_thread(
         await rt.send_turn(
             branch.id, payload.prompt_text,
             configuration_allowed=principal is None or principal.is_admin,
+            setup_allowed=_setup_allowed(principal),
             person_id=principal.person_id if principal else None,
             person_label=principal.label if principal and principal.person_id is not None else None,
             person_is_owner=principal is None or principal.person_id is None or principal.role == "owner",

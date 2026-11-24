@@ -415,7 +415,7 @@ async def test_team_mcp_create_uses_one_use_gate_with_host_tools_off(crt, sessio
     async with sessions() as db:
         lead = await agent_store.create_agent(db, owner_id=owner, name='Coordinator', provider='codex')
         await service.set_lead(db, owner, lead.id)
-    codex.plan({'type': 'team', 'tool': 'create_agent', 'arguments': {'name': 'File reader', 'instructions': 'Summarize local files in concise bullets.'}})
+    codex.plan({'type': 'team', 'tool': 'create_agent', 'arguments': {'name': 'File reader', 'instructions': 'Summarize local files in concise bullets.', 'first_task': 'Summarize the README.'}})
     thread = await crt.create_thread(provider='codex', agent_id=lead.id)
     await crt.send_turn(thread.id, 'Create a file reader agent')
     await finished(sessions, thread.id)
@@ -424,13 +424,13 @@ async def test_team_mcp_create_uses_one_use_gate_with_host_tools_off(crt, sessio
     assert started['sandbox'] == 'read-only'  # team access never enables host writes
     assert started['approvalPolicy'] == 'untrusted'  # the CLI must be able to ask about MCP calls
     async with sessions() as db:
+        # The tool only prepares a card for review; the specialist exists after the person approves it.
         worker = await db.scalar(select(Agent).where(Agent.owner_id == owner, Agent.name == 'File reader'))
-        assert worker is not None and worker.approval_mode == 'ask'
-        approved = await db.scalar(select(Approval).where(Approval.turn_id == (await crt_turns(sessions, thread.id))[0], Approval.tool == 'mcp__team__create_agent'))
-        assert approved.status == 'allowed' and approved.consumed_at is not None
-        assert await db.scalar(select(TeamSetupRequest).where(TeamSetupRequest.owner_id == owner))
+        assert worker is None
+        request = await db.scalar(select(TeamSetupRequest).where(TeamSetupRequest.owner_id == owner))
+        assert request is not None and request.state == 'pending'
     events = await events_of(sessions, thread.id)
-    assert data_of(events, 'team.setup.applied')[0]['results'][0]['changes']
+    assert data_of(events, 'team.setup.proposed')
 
 
 @pytest.mark.parametrize('mode,origin', [('plan', 'person'), ('ask', 'outside'), ('ask', 'routine')])

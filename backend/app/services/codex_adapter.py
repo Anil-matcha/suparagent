@@ -122,6 +122,11 @@ def codex_policy(mode: str | None, tools: bool, computer: bool = False) -> Codex
         # Nothing of Codex's own may touch this machine; MCP calls are asked about
         # through their own approval mode, not this sandbox.
         return CodexPolicy("untrusted", "read-only", "readOnly", "user")
+    if mode == "full_access":
+        # Codex still asks this app about each command and patch, so the safety floor and approval
+        # log apply (tool_policy.automatic). Its own sandbox is lifted so a command can use the
+        # network and the whole hosted sandbox, which is the boundary there.
+        return CodexPolicy("untrusted", "danger-full-access", "dangerFullAccess", "user")
     if mode == "approve_for_me":
         # OpenMausBot's native reviewer mode: Codex reviews requests while its
         # workspace-write sandbox and on-request approval policy stay enabled.
@@ -875,7 +880,7 @@ class _CodexTurn:
                   and self.ctx.community_launch is not None and isinstance(item.get("tool"), str)):
                 name = community_mcp_bridge.PREFIX + item["tool"]
                 bridge = getattr(self.ctx, "community_bridge", None)
-                summary = bridge.approval_summary(item["tool"]) if bridge is not None else name
+                summary = bridge.approval_summary(item["tool"], tool_input) if bridge is not None else name
             else:
                 name = f"mcp:{item.get('server')}.{item.get('tool')}"
                 summary = name
@@ -1046,7 +1051,7 @@ class _CodexTurn:
                 tool = community_mcp_bridge.PREFIX + name
                 approval_kind = "other"
                 bridge = getattr(self.ctx, "community_bridge", None)
-                summary = bridge.approval_summary(name) if bridge is not None else tool
+                summary = bridge.approval_summary(name, tool_input) if bridge is not None else tool
             elif self.computer is not None:
                 # Only the computer's own tools can be asked about here.
                 found = self._computer_call(server, text, meta) if server == COMPUTER_SERVER else None

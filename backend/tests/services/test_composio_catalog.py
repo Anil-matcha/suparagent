@@ -94,13 +94,13 @@ async def test_search_category_and_paging_work_on_the_starter_list():
     dev = await catalog.page(None, category="Developer Tools")
     assert {"github", "linear"} <= set(slugs(dev)) and "gmail" not in slugs(dev)
     first = await catalog.page(None, limit=5)
-    assert len(first["apps"]) == 5 and first["next_cursor"] == "o5" and first["total"] == 24
+    assert len(first["apps"]) == 5 and first["next_cursor"] == "o5" and first["total"] == 26
     second = await catalog.page(None, limit=5, cursor=first["next_cursor"])
     assert slugs(second) == slugs(await catalog.page(None, limit=10))[5:]
-    last = await catalog.page(None, limit=5, cursor="o20")
-    assert len(last["apps"]) == 4 and last["next_cursor"] is None
+    last = await catalog.page(None, limit=5, cursor="o25")
+    assert len(last["apps"]) == 1 and last["next_cursor"] is None
     assert (await catalog.page(None, cursor="junk"))["apps"][0]["app"] == "github"
-    assert len((await catalog.page(None, limit=10_000))["apps"]) == 24   # one page is bounded
+    assert len((await catalog.page(None, limit=10_000))["apps"]) == 26   # one page is bounded
 
 
 async def test_category_chips_count_what_the_search_matches_not_the_chosen_category():
@@ -124,7 +124,7 @@ async def test_the_catalog_is_composios_own_read_across_pages_with_curated_apps_
     fake = sample()
     page = await catalog.page(fake.client())
     assert page["source"] == "composio" and page["complete"] is True and page["stale"] is False and page["error"] is None
-    assert slugs(page) == ["github", "gmail", "googlecalendar", "slack", "notion", "hubspot", "exa", "composio"]   # curated even though Composio's pages lack them
+    assert slugs(page) == ["github", "gmail", "googleads", "googlecalendar", "metaads", "slack", "notion", "hubspot", "exa", "composio"]   # curated even though Composio's pages lack them
     by = {card["app"]: card for card in page["apps"]}
     assert by["slack"]["name"] == "Slack" and by["slack"]["connection"] == "managed" and by["slack"]["categories"] == ["Communication"]
     assert by["hubspot"]["connection"] == "custom_auth" and by["exa"]["connection"] == "no_auth" and by["exa"]["categories"] == ["Analytics", "AI"]

@@ -1,7 +1,9 @@
-// Assisted app updates. The DMG is not signed, so the app cannot replace itself;
-// it finds a newer GitHub release, downloads the installer for this platform,
-// checks it and opens it when the person asks. Everything that needs no Electron
-// lives here (the network, disk and "open" calls are passed in) so it is testable.
+// In-app updates for the installed app live in ./auto-updater.js (electron-updater;
+// release builds are signed and notarized). This is the assisted fallback for builds
+// that cannot replace themselves, such as a source checkout: it finds a newer GitHub
+// release, downloads the installer for this platform, checks it and opens it when the
+// person asks. Everything that needs no Electron lives here (the network, disk and
+// "open" calls are passed in) so it is testable.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");

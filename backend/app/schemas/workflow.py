@@ -4,7 +4,7 @@ from typing import Annotated, Any, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 StepType = Literal["action", "llm", "agent", "condition", "approval", "end"]
-ApprovalMode = Literal["ask", "accept_edits", "approve_for_me", "plan"]
+ApprovalMode = Literal["ask", "accept_edits", "approve_for_me", "plan", "full_access"]
 ConditionOperator = Literal[
     "contains",
     "not_contains",

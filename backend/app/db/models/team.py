@@ -175,9 +175,12 @@ class RoomDispatch(Base):
 
 
 class TeamSetupRequest(Base):
-    """One applied or decided change to the team's agents (a setup plan or a
-    deletion). The row is the receipt: a repeated request id replays its result,
-    and undo reads what it needs from `undo`."""
+    """One setup plan or deletion request for the team's agents.
+
+    A setup plan can remain pending with its current version in `result`; the
+    same row later becomes the applied/declined receipt. Undo reads its snapshot
+    from `undo`.
+    """
 
     __tablename__ = "team_setup_request"
     __table_args__ = (

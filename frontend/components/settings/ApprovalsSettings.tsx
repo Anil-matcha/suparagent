@@ -2,6 +2,7 @@
 
 import { ApprovalsTabs } from "@/components/approvals/ApprovalsPanel";
 import { SettingsCard } from "./SettingsCard";
+import { SpendLimitsCard } from "./SpendLimitsCard";
 import { Applies } from "./Applies";
 import { useT } from "@/lib/use-i18n";
 
@@ -15,5 +16,6 @@ export function ApprovalsSettings() {
       <Applies when="now" />
       <ApprovalsTabs />
     </SettingsCard>
+    <SpendLimitsCard />
   </div>;
 }

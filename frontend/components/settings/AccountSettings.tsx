@@ -25,7 +25,8 @@ export function AccountSettings() {
       <span id="setting-account-device-list" className="sr-only" />
       <span id="setting-account-device-access" className="sr-only" />
       <span id="setting-account-device-name" className="sr-only" />
-      <DevicesSection />
+      {/* A hosted workspace signs people in with a grant, so a pairing code or a device session could not be used. */}
+      {session?.kind !== "grant" && <DevicesSection />}
     </div>
     <div id="setting-account-people">
       <PeopleSection />

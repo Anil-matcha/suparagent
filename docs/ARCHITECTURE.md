@@ -68,7 +68,12 @@ Optional legacy path: Telegram and Boat sandbox tasks
   and permissions on every request, so a change or a removal applies at once.
   Paired devices receive scoped, revocable tokens. A self-hosted server is one
   workspace with one owner; invited members share its agents, conversations,
-  files and memory (see [authentication](AUTH.md#members)).
+  files and memory (see [authentication](AUTH.md#members)). A hosted deployment
+  can instead run each workspace behind an account service: with
+  `HOSTED_WORKSPACE_ID` and `HOSTED_GRANT_PUBLIC_KEYS` set, every request must
+  carry a short-lived token signed for exactly that workspace, the server holds
+  only public keys, and the person in the token is mirrored into the people
+  table for attribution (see [hosted workspace grants](AUTH.md#hosted-workspace-grants)).
 
 ## Capability boundaries
 

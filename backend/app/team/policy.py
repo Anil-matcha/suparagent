@@ -23,6 +23,7 @@ class TurnTeam:
     depth: int = 0
     delegation_enabled: bool = True
     configuration_allowed: bool = True
+    setup_allowed: bool = False
 
 
 def automatic(tool, mode, team, arguments):
@@ -37,10 +38,11 @@ def automatic(tool, mode, team, arguments):
         if team.origin != 'person':
             return 'denied', 'outside_origin'
         return 'allowed', 'team_read'
-    if not team.configuration_allowed and name in ('create_agent', 'create_room', 'propose_team_setup', 'propose_bot_deletion',
-                                                  'propose_profile', 'propose_model', 'create_routine', 'manage_routine', 'skill_manage', 'close_thread'):
+    if (not team.configuration_allowed and name in ('create_agent', 'create_room', 'propose_team_setup', 'propose_bot_deletion',
+                                                    'propose_profile', 'propose_model', 'create_routine', 'manage_routine', 'skill_manage', 'close_thread')
+            and not (team.setup_allowed and name in ('create_agent', 'propose_team_setup'))):
         return 'denied', 'admin_scope_required'
-    if name in ('list_agents', 'list_rooms', 'list_team_setup', 'list_threads', 'job_status', 'list_management_capabilities', 'list_routines', 'preview_schedule', 'skills_list', 'routine_report_outcome'):
+    if name in ('list_agents', 'list_rooms', 'list_team_setup', 'suggest_workers', 'list_threads', 'job_status', 'list_management_capabilities', 'list_routines', 'preview_schedule', 'skills_list', 'routine_report_outcome'):
         return 'allowed', 'team_read'
     if name in ('ask_agent', 'delegate'):
         if not team.delegation_enabled:
@@ -62,6 +64,10 @@ def automatic(tool, mode, team, arguments):
             return 'denied', 'outside_origin'
         if not team.is_lead and name != 'close_thread':
             return 'denied', 'lead_only'
+        if name in ('create_agent', 'propose_team_setup'):
+            # These calls only prepare a pending plan; the person applies it from
+            # the versioned review card after the server rechecks current state.
+            return 'allowed', 'team_setup_proposal'
         if name == 'propose_bot_deletion':
             return None  # Removing an agent is always the person's card, never automatic.
         if name == 'close_thread':

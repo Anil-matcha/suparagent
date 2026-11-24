@@ -18,6 +18,7 @@ const pageMarkupFiles = [
   "../components/settings/ApprovalsSettings.tsx",
   "../components/settings/NotificationsSettings.tsx",
   "../components/settings/AccountSettings.tsx",
+  "../components/settings/IntegrationsSettings.tsx",
 ];
 
 const renderedPageMarkup = pageMarkupFiles.map((file) => readFileSync(new URL(file, import.meta.url), "utf8"));

@@ -322,3 +322,29 @@ async def test_every_record_names_the_approval_mode(rt, sessions, cli, tools_on,
     assert await rt.answer_approval(approval.id, "deny")
     await finished(sessions, thread.id)
     assert [e["mode"] for e in logged()] == ["ask", "ask"]  # no agent: the default
+
+
+async def test_a_policy_denial_tells_the_engine_why_not_that_the_user_denied(rt, sessions, cli, tools_on, owner, monkeypatch):
+    """A mailbox or number the agent was not given is refused by policy; the engine must not say the user did it."""
+    from app.services import tool_policy
+    from app.services.provider_adapter import DENY_BY_SOURCE
+    monkeypatch.setattr(tool_policy, "automatic", lambda *a, **k: ("denied", "resource_not_assigned"))
+    thread = await new_thread(sessions, owner)
+    cli.script(BASH)
+    await rt.send_turn(thread.id, "status")
+    await finished(sessions, thread.id)  # nobody was asked
+    [reply] = cli.log("reply")
+    answer = reply["reply"]["response"]["response"]
+    assert answer["behavior"] == "deny" and answer["message"] == DENY_BY_SOURCE["resource_not_assigned"]
+    assert "user denied" not in answer["message"].lower()
+
+
+async def test_a_person_who_denies_still_gets_the_plain_denial(rt, sessions, cli, tools_on, owner):
+    thread = await new_thread(sessions, owner)
+    cli.script(BASH)
+    await rt.send_turn(thread.id, "status")
+    approval = await pending_approval(sessions, thread.id)
+    assert await rt.answer_approval(approval.id, "deny")
+    await finished(sessions, thread.id)
+    [reply] = cli.log("reply")
+    assert reply["reply"]["response"]["response"]["message"] == "The user denied this action."

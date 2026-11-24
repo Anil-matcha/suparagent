@@ -19,10 +19,18 @@ def test_modes_map_onto_the_cli_permission_modes():
     assert cli_permission_mode("plan") == "plan"
 
 
-def test_not_chosen_is_ask_and_there_is_no_full_access():
+def test_not_chosen_is_ask_and_full_access_is_never_the_default():
     assert validate_mode(None) == DEFAULT_MODE == "ask"
     assert cli_permission_mode(None) == "default"
-    assert "full" not in MODES and "bypass" not in " ".join(MODES)
+    assert "full_access" in MODES and DEFAULT_MODE != "full_access"
+    # The app decides each call (safety floor, approval log); the CLI is never told to skip prompts.
+    assert cli_permission_mode("full_access") == "default"
+
+
+def test_full_access_is_offered_to_claude_and_codex_only():
+    assert "full_access" in modes_for_engine("claude")
+    assert "full_access" in modes_for_engine("codex")
+    assert "full_access" not in modes_for_engine("gemini")
 
 
 def test_native_reviewer_is_available_for_supported_engines_only():

@@ -29,9 +29,13 @@ MAX_CATALOG_BYTES = 128_000
 MAX_MANIFEST_BYTES = 32_000
 MAX_SCHEMA_BYTES = 64_000
 MAX_RESULT_BYTES = 1_000_000
+_MAX_BOUND = 9_007_199_254_740_991  # 2**53 - 1
 MAX_REQUEST_BYTES = 64_000
 MAX_TOOLS = 100
 MAX_TOOLSET_BYTES = 512_000
+# Owner-added servers may be larger; agents reach them through bounded search (stage 8), not by mounting every tool.
+CUSTOM_MAX_TOOLS = 500
+CUSTOM_MAX_TOOLSET_BYTES = 2_000_000
 MAX_PAGES = 20
 MAX_DEPTH = 8
 CATALOG_TTL_SECONDS = 300
@@ -61,10 +65,13 @@ def agent_grant_lock(agent_id: int) -> asyncio.Lock:
 
 
 class McpError(Exception):
-    def __init__(self, code: str, message: str, status: int = 400):
+    def __init__(self, code: str, message: str, status: int = 400, *, not_run: bool = False):
         super().__init__(message)
         self.code = code
         self.status = status
+        # True when the failure is known to have happened before the remote tool ran (a refusal, a rejected request,
+        # a connection that was never made), so a paid call can be counted as costing nothing.
+        self.not_run = not_run
 
 
 def canonical(value: object) -> str:
@@ -304,6 +311,11 @@ def safe_schema(value: object, depth: int = 0) -> dict:
     if depth > MAX_DEPTH or not isinstance(value, dict) or len(canonical(value).encode("utf-8")) > MAX_SCHEMA_BYTES:
         raise McpError("unsupported_schema", "This tool's input schema is too large or complex.", 422)
     allowed = {"$schema", "type", "title", "description", "properties", "required", "additionalProperties", "items", "enum", "minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems", "format", "default"}
+    # `propertyNames: {"type": "string"}` is what schema generators emit for a key/value map. JSON object keys are
+    # always text, so it constrains nothing: accepted and dropped. Any other propertyNames rule is still refused.
+    names = value.get("propertyNames")
+    if "propertyNames" in value and names == {"type": "string"}:
+        value = {key: item for key, item in value.items() if key != "propertyNames"}
     if set(value) - allowed:
         raise McpError("unsupported_schema", "This tool uses a schema feature Suparagent cannot validate safely.", 422)
     kind = value.get("type", "object")
@@ -327,7 +339,8 @@ def safe_schema(value: object, depth: int = 0) -> dict:
     for key in ("minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems"):
         if key in value:
             item = value[key]
-            if not isinstance(item, (int, float)) or isinstance(item, bool) or abs(item) > 1_000_000:
+            # Up to JavaScript's largest safe integer: servers written in JS put it on every `offset` and `limit`.
+            if not isinstance(item, (int, float)) or isinstance(item, bool) or abs(item) > _MAX_BOUND:
                 raise McpError("unsupported_schema", "This tool has invalid input bounds.", 422)
             result[key] = item
     if "properties" in value:
@@ -343,7 +356,15 @@ def safe_schema(value: object, depth: int = 0) -> dict:
             raise McpError("unsupported_schema", "This tool has a required field without a schema.", 422)
         result["required"] = required
     additional = value.get("additionalProperties", True)
-    if not isinstance(additional, bool):
+    if additional == {}:
+        additional = True  # "any value", which is what `true` already means
+    elif isinstance(additional, dict):
+        # A key/value map ("variables": text to text). The value schema is read with the same rules as any other
+        # field, so it is bounded and has no regex, and every unlisted key's value is checked against it.
+        if kind != "object":
+            raise McpError("unsupported_schema", "This tool has schema fields that do not match its input type.", 422)
+        additional = safe_schema(additional, depth + 1)
+    elif not isinstance(additional, bool):
         raise McpError("unsupported_schema", "This tool uses unsupported dynamic input properties.", 422)
     result["additionalProperties"] = additional
     if kind == "array":
@@ -394,6 +415,11 @@ def validate_arguments(schema: dict, value: object, depth: int = 0) -> None:
         for name, child in props.items():
             if name in value:
                 validate_arguments(child, value[name], depth + 1)
+        extra = schema.get("additionalProperties")
+        if isinstance(extra, dict):
+            for name, item in value.items():
+                if name not in props:
+                    validate_arguments(extra, item, depth + 1)
     elif kind == "array":
         if len(value) > schema.get("maxItems", 1000) or len(value) < schema.get("minItems", 0):
             raise McpError("bad_arguments", "Tool arguments have an invalid array length.")
@@ -512,8 +538,10 @@ class PinnedHTTPSTransport(httpx.AsyncBaseTransport):
 
 
 class RemoteMcpSession:
-    def __init__(self, endpoint: str, token: str | None = None):
+    def __init__(self, endpoint: str, token: str | None = None, *, header: str | None = None):
+        """`header` names a header that carries the secret instead of `Authorization: Bearer`."""
         self.endpoint = endpoint
+        self.header = header
         self.host, _path, self.port = _validate_public_url(endpoint, "endpoint", require_standard_port=True)
         self.token = token
         self.client = httpx.AsyncClient(
@@ -523,7 +551,10 @@ class RemoteMcpSession:
             trust_env=False,
             limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
         )
+        self.max_tools = MAX_TOOLS
+        self.max_toolset_bytes = MAX_TOOLSET_BYTES
         self.protocol: str | None = None
+        self.server_info: dict | None = None
         self.session_id: str | None = None
         self.request_id = 0
         self.started = False
@@ -534,7 +565,9 @@ class RemoteMcpSession:
             headers["MCP-Protocol-Version"] = self.protocol
         if self.session_id:
             headers["Mcp-Session-Id"] = self.session_id
-        if self.token:
+        if self.token and self.header:
+            headers[self.header] = self.token
+        elif self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
@@ -568,7 +601,7 @@ class RemoteMcpSession:
                 continue  # a notification (progress, logging) never carries the result
             if value.get("id") == expected_id:
                 if "error" in value:
-                    raise McpError("remote_error", "The remote MCP server rejected the request.", 502)
+                    raise McpError("remote_error", "The remote MCP server rejected the request.", 502, not_run=True)
                 result = value.get("result")
                 if isinstance(result, dict):
                     return result
@@ -607,20 +640,22 @@ class RemoteMcpSession:
     async def _post(self, message: dict, *, expect_result: bool):
         body = canonical(message).encode("utf-8")
         if len(body) > MAX_REQUEST_BYTES:
-            raise McpError("request_too_large", "The remote MCP request is too large.")
+            raise McpError("request_too_large", "The remote MCP request is too large.", not_run=True)
         try:
             async with asyncio.timeout(20):
                 async with self.client.stream("POST", self.endpoint, headers=self._headers(), content=body) as response:
                     if 300 <= response.status_code < 400:
-                        raise McpError("redirect_denied", "The remote MCP endpoint redirected; redirects are blocked.", 502)
+                        raise McpError("redirect_denied", "The remote MCP endpoint redirected; redirects are blocked.", 502, not_run=True)
                     if response.status_code in (401, 403):
-                        raise McpError("authentication_failed", "The remote MCP server rejected its saved credential.", 502)
+                        raise McpError("authentication_failed", "The remote MCP server rejected its saved credential.", 502, not_run=True)
                     if not expect_result:
                         if response.status_code not in (200, 202, 204):
                             raise McpError("remote_error", "The remote MCP server rejected initialization.", 502)
                         return None
                     if response.status_code != 200:
-                        raise McpError("remote_error", "The remote MCP server did not return a successful result.", 502)
+                        # A 4xx is the server refusing the request; a 5xx may have happened after the work began.
+                        raise McpError("remote_error", "The remote MCP server did not return a successful result.", 502,
+                                       not_run=400 <= response.status_code < 500)
                     raw_session = response.headers.get("mcp-session-id")
                     if raw_session:
                         if len(raw_session) > 256 or any(ord(char) < 33 or ord(char) > 126 for char in raw_session):
@@ -654,6 +689,11 @@ class RemoteMcpSession:
         if protocol not in SUPPORTED_PROTOCOLS:
             raise McpError("unsupported_protocol", "The remote MCP server negotiated an unsupported protocol version.", 502)
         self.protocol = protocol
+        info = response.get("serverInfo")
+        if isinstance(info, dict):
+            # Display-only: bounded plain text from the remote server, never trusted for decisions.
+            pick = lambda key: info[key].strip()[:100] if isinstance(info.get(key), str) and info[key].strip() else None  # noqa: E731
+            self.server_info = {"name": pick("name"), "version": pick("version")}
         self.request_id += 1
         await self._post({"jsonrpc": "2.0", "method": "notifications/initialized"}, expect_result=False)
         self.started = True
@@ -671,7 +711,7 @@ class RemoteMcpSession:
             return await self._list_tools()
 
     async def _list_tools(self) -> list[dict]:
-        tools, cursor, seen, total_bytes = [], None, set(), 0
+        tools, cursor, seen, total_bytes, unreadable = [], None, set(), 0, 0
         for _ in range(MAX_PAGES):
             params = {"cursor": cursor} if cursor else {}
             result = await self._rpc("tools/list", params)
@@ -682,18 +722,22 @@ class RemoteMcpSession:
                 try:
                     tool = _normalize_tool(raw)
                 except McpError:
+                    unreadable += 1
                     continue  # one tool Suparagent cannot validate must not hide the rest
                 total_bytes += len(canonical(tool).encode("utf-8"))
-                if total_bytes > MAX_TOOLSET_BYTES:
+                if total_bytes > self.max_toolset_bytes:
                     raise McpError("toolset_too_large", "This remote server exposes too much tool metadata.", 502)
                 if tool["name"] in seen:
                     raise McpError("invalid_response", "The remote MCP server returned duplicate tool names.", 502)
                 seen.add(tool["name"])
                 tools.append(tool)
-                if len(tools) > MAX_TOOLS:
+                if len(tools) > self.max_tools:
                     raise McpError("too_many_tools", "This remote server exposes too many tools.", 502)
             cursor = result.get("nextCursor")
             if cursor is None:
+                if not tools and unreadable:
+                    # Never report a server with tools we could not read as "connected, 0 tools".
+                    raise McpError("unsupported_tools", f"The server lists {unreadable} tools, but none could be read by this app.", 502)
                 return tools
             if not isinstance(cursor, str) or len(cursor) > 1000 or cursor in seen:
                 raise McpError("invalid_response", "The remote MCP server returned an invalid pagination cursor.", 502)
@@ -733,7 +777,8 @@ class RemoteMcpSession:
 
 
 def _normalize_tool(raw: object) -> dict:
-    if not isinstance(raw, dict) or set(raw) - {"name", "title", "description", "inputSchema", "outputSchema", "annotations", "_meta"}:
+    # The MCP tool fields (`icons` and `execution` are newer ones, ignored here). Anything else is refused.
+    if not isinstance(raw, dict) or set(raw) - {"name", "title", "description", "inputSchema", "outputSchema", "annotations", "_meta", "icons", "execution"}:
         raise McpError("invalid_response", "The remote MCP server returned an unsupported tool definition.", 502)
     name = raw.get("name")
     if not isinstance(name, str) or not name or len(name) > 200:

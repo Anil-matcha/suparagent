@@ -52,7 +52,7 @@ def test_bad_arguments_are_refused_not_dropped(name, args):
 
 def test_every_tool_is_one_fixed_tool_and_writes_are_a_short_list():
     assert tools.TOOLS and all(t.kind in tools.LEVELS for t in tools.TOOLS)
-    prefixes = {"github": "GITHUB_", "gmail": "GMAIL_", "googlecalendar": "GOOGLECALENDAR_"}
+    prefixes = {"github": "GITHUB_", "gmail": "GMAIL_", "googlecalendar": "GOOGLECALENDAR_", "googleads": "GOOGLEADS_", "metaads": "METAADS_"}
     assert all(t.slug.startswith(prefixes[t.app]) and t.slug.isupper() for t in tools.TOOLS)
     assert len({t.name for t in tools.TOOLS}) == len(tools.TOOLS)
     aliases = {slug: {t.name for t in tools.TOOLS if t.slug == slug} for slug in {t.slug for t in tools.TOOLS}}
@@ -551,3 +551,84 @@ def test_review_reads_are_read_only_and_bound_to_one_pull_request():
             tools.clean_arguments(t, {**ok, "body": "x"})
         with pytest.raises(Exception):
             tools.clean_arguments(t, {"owner": O, "repo": R})
+
+
+# -- ad accounts: read-only Google Ads and Meta Ads ---------------------------
+
+AD_TOOLS = ("googleads_search", "metaads_get_ad_accounts", "metaads_list_campaigns", "metaads_get_insights")
+
+
+def test_ad_apps_have_only_read_tools():
+    assert {t.name for t in tools.TOOLS if t.app in ("googleads", "metaads")} == set(AD_TOOLS)
+    assert all(tool(name).kind == "read" for name in AD_TOOLS)
+    assert not tools.has_write_tools("googleads") and not tools.has_write_tools("metaads")
+    shown = {t["name"] for t in tools.mcp_tools({"googleads": "read", "metaads": "read"})}
+    assert {"googleads_search", "metaads_get_insights"} <= shown
+
+
+def test_gaql_search_is_one_read_query_with_a_small_limit():
+    q = "SELECT campaign.name, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS LIMIT 50"
+    sent, _ = tools.clean_arguments(tool("googleads_search"), {"query": q, "customer_id": "123-456-7890"})
+    assert sent == {"query": q, "customer_id": "123-456-7890", "validate_only": False}
+
+
+@pytest.mark.parametrize("args", [
+    {},                                                                                   # no query
+    {"query": "campaign.name FROM campaign LIMIT 5"},                                      # not a SELECT
+    {"query": "SELECT campaign.name FROM campaign"},                                       # no limit
+    {"query": "SELECT campaign.name FROM campaign LIMIT 101"},                             # limit too big
+    {"query": "SELECT campaign.name FROM campaign LIMIT 5; SELECT 1 FROM customer LIMIT 1"},  # two statements
+    {"query": "SELECT campaign.name FROM campaign LIMIT 5", "customer_id": "12345"},       # not a customer ID
+    {"query": "SELECT campaign.name FROM campaign LIMIT 5", "validate_only": True},        # not an argument
+    {"query": "SELECT campaign.name FROM campaign LIMIT 5", "login_customer_id": "1234567890"},
+])
+def test_gaql_search_refuses_what_does_not_fit(args):
+    with pytest.raises(tools.BadArguments):
+        tools.clean_arguments(tool("googleads_search"), args)
+
+
+def test_meta_insights_use_fixed_fields_and_preset_dates():
+    sent, _ = tools.clean_arguments(tool("metaads_get_insights"), {"object_id": "act_123456789", "level": "campaign", "date_preset": "last_30d"})
+    assert sent["object_id"] == "act_123456789" and sent["level"] == "campaign" and sent["date_preset"] == "last_30d"
+    assert sent["limit"] == 25 and "actions" not in sent["fields"] and "time_range" not in sent
+
+
+@pytest.mark.parametrize("name,args", [
+    ("metaads_get_insights", {}),
+    ("metaads_get_insights", {"object_id": "act_1"}),                                       # too short
+    ("metaads_get_insights", {"object_id": "123456789/../me"}),
+    ("metaads_get_insights", {"object_id": "act_123456789", "date_preset": "last_year"}),
+    ("metaads_get_insights", {"object_id": "act_123456789", "level": "business"}),
+    ("metaads_get_insights", {"object_id": "act_123456789", "fields": "spend,actions"}),     # fields are fixed
+    ("metaads_get_insights", {"object_id": "act_123456789", "time_range": {"since": "2026-01-01", "until": "2026-01-31"}}),
+    ("metaads_list_campaigns", {}),
+    ("metaads_list_campaigns", {"ad_account_id": "me"}),
+    ("metaads_list_campaigns", {"ad_account_id": "act_123456789", "limit": 31}),
+    ("metaads_get_ad_accounts", {"fields": "id,name,access_token"}),
+])
+def test_meta_ads_refuse_what_does_not_fit(name, args):
+    with pytest.raises(tools.BadArguments):
+        tools.clean_arguments(tool(name), args)
+
+
+def test_ad_results_are_cut_to_whitelisted_numbers():
+    found = tools.project(tool("metaads_get_insights"), {"data": [
+        {"campaign_name": "Spring", "campaign_id": "1", "impressions": "1000", "clicks": "20", "spend": "12.50",
+         "actions": [{"action_type": "purchase", "value": "3"}], "access_token": "SECRET"}], "paging": {"cursors": {"after": "abc"}}})
+    assert found["count"] == 1 and found["result"][0]["spend"] == "12.50"
+    assert "SECRET" not in json.dumps(found) and "purchase" not in json.dumps(found)
+    assert found["next_page_token"] == "abc" and "third-party" in found["notice"] or "other people" in found["notice"]
+    rows = tools.project(tool("googleads_search"), {"results": [
+        {"campaign": {"name": "Brand", "id": "9", "resourceName": "customers/1/campaigns/9"},
+         "metrics": {"clicks": "7", "costMicros": "2500000"}, "secretField": "x"}], "next_page_token": "p2"})
+    assert rows["result"][0]["campaign_name"] == "Brand" and rows["result"][0]["metrics_costMicros"] == "2500000"
+    assert "resourceName" not in json.dumps(rows) and "secretField" not in json.dumps(rows) and rows["next_page_token"] == "p2"
+
+
+@pytest.mark.parametrize("name,levels,expected", [
+    ("googleads_search", {"googleads": "read"}, ("allowed", "composio_read")),
+    ("metaads_get_insights", {"metaads": "read"}, ("allowed", "composio_read")),
+    ("metaads_get_insights", {"googleads": "read"}, ("denied", "app_not_allowed")),
+])
+def test_ad_policy(name, levels, expected):
+    assert composio_policy.automatic(composio_policy.PREFIX + name, "ask", levels) == expected

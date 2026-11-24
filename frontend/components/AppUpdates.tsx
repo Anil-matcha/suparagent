@@ -24,8 +24,8 @@ function summary(state: UpdateState) {
     case "checking": return "Checking for updates…";
     case "available": return `Version ${state.version} is available.`;
     case "downloading": return `Downloading version ${state.version}… ${state.percent ?? 0}%`;
-    case "downloaded": return `Version ${state.version} was saved to your Downloads folder${state.verified ? " and verified" : ""}.`;
-    case "installing": return state.message ?? "The installer opened.";
+    case "downloaded": return `Version ${state.version} is ready${state.verified ? " and verified" : ""}. Restart to finish updating.`;
+    case "installing": return state.message ?? "Restarting to finish the update…";
     case "error": return state.message ?? "The update failed.";
     default: return state.message ?? "Suparagent checks for new versions in the background.";
   }
@@ -33,14 +33,11 @@ function summary(state: UpdateState) {
 
 function DesktopAppUpdates({ bridge }: { bridge: UpdatesBridge }) {
   const [state, setState] = useState<UpdateState | null>(null);
-  const [info, setInfo] = useState<VersionInfo | null>(null);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let alive = true;
     void bridge.run("state").then((value) => { if (alive) setState(value); }).catch(() => {});
     const stop = bridge.onState((value) => { if (alive) setState(value); });
-    api.getVersionInfo().then((data) => { if (alive) setInfo(data); }).catch(() => {});
     return () => { alive = false; stop(); };
   }, [bridge]);
 
@@ -48,38 +45,16 @@ function DesktopAppUpdates({ bridge }: { bridge: UpdatesBridge }) {
   const act = (action: Parameters<UpdatesBridge["run"]>[0]) => void bridge.run(action).then(setState).catch((error) => setState({ ...state, status: "error", message: String(error?.message ?? error) }));
   const working = state.status === "checking" || state.status === "downloading";
 
-  const copyCommand = async () => {
-    if (!info?.update_command) return;
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard) {
-        await navigator.clipboard.writeText(info.update_command);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }
-    } catch {}
-  };
-
   return (
     <section aria-labelledby="app-updates" className="space-y-3 rounded-card border border-line bg-raised p-5">
       <div>
         <h3 id="app-updates" className="font-semibold">App updates</h3>
-        <p className="mt-1 text-xs text-muted">You have version {state.current}. Updates come from the project&apos;s GitHub releases; nothing installs without your click.</p>
+        <p className="mt-1 text-xs text-muted">You have version {state.current}. Updates come from the project&apos;s GitHub releases; nothing downloads or installs without your click.</p>
       </div>
       <p role={state.status === "error" ? "alert" : "status"} className={`text-sm ${state.status === "error" ? "text-danger" : ""}`}>{summary(state)}</p>
-      {state.status === "available" && info?.update_command && (
-        <div className="space-y-1.5 pt-1">
-          <p className="text-xs text-muted">Run this command to update:</p>
-          <div className="flex items-center justify-between gap-3 rounded-field border border-line bg-surface p-2.5 font-mono text-xs">
-            <span className="overflow-x-auto whitespace-pre">{info.update_command}</span>
-            <Button size="sm" variant="secondary" onClick={copyCommand}>
-              {copied ? "Copied!" : "Copy"}
-            </Button>
-          </div>
-        </div>
-      )}
       <div className="flex flex-wrap gap-2">
         {state.status === "available" && state.canDownload && <Button onClick={() => act("download")}>Download version {state.version}</Button>}
-        {state.status === "downloaded" && <Button onClick={() => act("install")}>Open installer</Button>}
+        {state.status === "downloaded" && <Button onClick={() => act("install")}>Restart to update</Button>}
         {(state.status === "available" || state.status === "downloaded") && <Button onClick={() => act("release-page")}>Release notes</Button>}
         {state.status === "error" && state.canDownload && <Button onClick={() => act("download")}>Try the download again</Button>}
         <Button disabled={working} onClick={() => act("check")}>{state.status === "checking" ? "Checking…" : "Check for updates"}</Button>

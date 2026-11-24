@@ -1,6 +1,6 @@
 /**
  * Documentation data bundle
- * Built strictly from open-duet/docs/*.md repository files.
+ * Built strictly from docs/*.md repository files.
  */
 
 export interface DocItemSummary {

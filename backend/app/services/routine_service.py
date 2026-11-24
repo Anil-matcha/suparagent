@@ -31,7 +31,7 @@ from app.db.models.turn import Turn
 from app.db.models.thread import Thread
 from app.db.models.work_item import WorkItemRun
 from app.db.transactions import begin_write
-from app.services import approval_modes, notification_feed
+from app.services import approval_modes, notification_feed, spend
 from app.services import routine_schedule as schedules
 from app.services import thread_runtime as runtime_module
 from app.services import work_events, work_reminders
@@ -54,7 +54,7 @@ DUE_BATCH = 20
 START_BATCH = 10
 # Stricter first: a routine run uses whichever of its own and its agent's
 # modes comes first here.
-_STRICTNESS = ("plan", "ask", "accept_edits", "approve_for_me")
+_STRICTNESS = ("plan", "ask", "accept_edits", "approve_for_me", "full_access")
 
 LIMITS = {
     "run_limit_minutes": (1, 240),
@@ -1288,11 +1288,19 @@ class RoutineScheduler:
         run.finished_at = now
         status = turn.status if turn is not None else "interrupted"
         run.result = _clip(turn.result if turn is not None else None, RESULT_CHARS)
+        # A run that paid for anything, or was stopped by a spending limit, carries one spend line.
+        spent = await spend.run_summary(db, f"routine:{run.id}")
+        if spent is not None:
+            run.outcome_details = {**(run.outcome_details or {}), "spend": spent}
+            if "monthly" in spent["refused"]:
+                await spend.pause_for_month_limit(db, routine)
+        limited = bool(spent and spent["refused"])
         if status == "succeeded":
             run.state, run.error = "completed", None
             details = run.outcome_details or {}
             actions = list((await db.scalars(select(RoutineAppAction).where(RoutineAppAction.run_id == run.id))).all())
             quiet, checked = await _verified_no_change(db, run, actions)
+            quiet = quiet and not limited
             run.outcome_details = {**details, "checked_sources": checked, "checked_at": now.isoformat()}
             failed_checks = any(a.status != "completed" or (a.result or {}).get("coverage_complete") is False for a in actions)
             if details.get("requested") == "source_failed" or failed_checks:
@@ -1300,7 +1308,7 @@ class RoutineScheduler:
                 run.error = details.get("reason") or "A required connected-app check failed or returned incomplete coverage. See the action history for missing coverage."
                 return [self._notify(db, routine, run, "routine_failed", f"Routine “{routine.name}” has incomplete coverage",
                                      run.error + ("\n\nPartial report: " + run.result if run.result else ""))]
-            run.outcome = "no_change" if quiet else ("report" if run.result else "unknown")
+            run.outcome = "partial" if limited else ("no_change" if quiet else ("report" if run.result else "unknown"))
             if not quiet and not run.result:
                 run.result = "No verified outcome was reported. Open the conversation and action history to review source coverage."
             if quiet:

@@ -43,7 +43,8 @@ WORK_DIR = "suparagent-work"
 CREDENTIAL_PROVIDER = "claude"
 SIGN_IN_REASON = "Connect your Claude account in Settings → Engines to use your private sandbox."
 # `ask` cannot be answered from inside a detached command, so tools that need permission are refused.
-_PERMISSION_MODES = {"ask": "dontAsk", "accept_edits": "acceptEdits", "approve_for_me": "auto", "plan": "plan"}
+_PERMISSION_MODES = {"ask": "dontAsk", "accept_edits": "acceptEdits", "approve_for_me": "auto", "plan": "plan",
+                     "full_access": "bypassPermissions"}
 TOOL_NAMES = "Read,Write,Edit,Glob,Grep,Bash"
 
 

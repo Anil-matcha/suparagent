@@ -32,8 +32,14 @@ NOTICE_TABLES = {"team_notice"}
 PLANNER_TABLES = {"work_board", "work_column", "work_item"}
 WORK_EXECUTION_TABLES = {"work_item_run", "work_item_event"}
 COMMUNITY_MCP_TABLES = {"community_mcp_connection", "community_mcp_tool_grant"}
+CUSTOM_MCP_TABLES = {"custom_mcp_connection", "custom_mcp_tool_grant", "custom_mcp_oauth_flow"}
+AGENT_SERVICE_TABLES = {
+    "agent_service_provider", "agent_service_resource", "agent_service_assignment", "agent_service_audit",
+}
+SPEND_TABLES = {"spend_ledger"}
 WORKFLOW_TABLES = {"workflow", "workflow_run"}
 PEOPLE_TABLES = {"person", "person_invite", "people_audit"}
+MUAPI_TABLES = {"muapi_tool_grant"}
 
 
 def postgres_ddl(table_names: set[str]) -> str:
@@ -86,8 +92,12 @@ def test_every_table_is_covered_by_one_of_the_snapshots():
         | PLANNER_TABLES
         | WORK_EXECUTION_TABLES
         | COMMUNITY_MCP_TABLES
+        | CUSTOM_MCP_TABLES
+        | AGENT_SERVICE_TABLES
+        | SPEND_TABLES
         | WORKFLOW_TABLES
         | PEOPLE_TABLES
+        | MUAPI_TABLES
     )
     assert covered_tables == set(Base.metadata.tables)
     assert not original_tables() & F04_TABLES
@@ -103,6 +113,18 @@ def test_agent_table_compiles_to_its_reviewed_postgres_schema():
 
 def test_community_mcp_tables_compile_to_their_reviewed_postgres_schema():
     assert postgres_ddl(COMMUNITY_MCP_TABLES) == snapshot_text(HERE / "postgres_schema_community_mcp.sql")
+
+
+def test_custom_mcp_tables_compile_to_their_reviewed_postgres_schema():
+    assert postgres_ddl(CUSTOM_MCP_TABLES) == snapshot_text(HERE / "postgres_schema_custom_mcp.sql")
+
+
+def test_agent_service_tables_compile_to_their_reviewed_postgres_schema():
+    assert postgres_ddl(AGENT_SERVICE_TABLES) == snapshot_text(HERE / "postgres_schema_agent_service.sql")
+
+
+def test_spend_ledger_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(SPEND_TABLES) == snapshot_text(HERE / "postgres_schema_spend.sql")
 
 
 def test_computer_table_compiles_to_its_reviewed_postgres_schema():
@@ -153,3 +175,11 @@ def test_agent_revision_table_compiles_to_its_reviewed_postgres_schema():
 
 def test_people_tables_compile_to_their_reviewed_postgres_schema():
     assert postgres_ddl(PEOPLE_TABLES) == snapshot_text(HERE / "postgres_schema_people.sql")
+
+
+def test_spend_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(SPEND_TABLES) == snapshot_text(HERE / "postgres_schema_spend.sql")
+
+
+def test_muapi_tool_grant_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(MUAPI_TABLES) == snapshot_text(HERE / "postgres_schema_muapi.sql")

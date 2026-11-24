@@ -61,6 +61,7 @@ from app.services.provider_adapter import (
     ALLOW,
     CANCELLED,
     DENY,
+    DENY_BY_SOURCE,
     EXPIRED,
     LOST,
     ApprovalHandle,
@@ -265,6 +266,15 @@ class TurnRecorder:
         self._runtime.hub.notify(run.thread_id)
         return True
 
+    def note_stored_event(self, seq: int) -> None:
+        """Advance this turn's typing cursor after a domain transaction stores its event."""
+        if self._lost:
+            return
+        self._last_seq = max(self._last_seq or 0, seq)
+        self._run.touch()
+        self._run.accepted = True
+        self._runtime.hub.notify(self._run.thread_id)
+
     def delta(self, text: str) -> None:
         if not self._lost:
             self._run.touch()
@@ -287,6 +297,8 @@ class ThreadApprovalGate:
         # What each open approval was about, for the decision log.
         self._info: dict[str, tuple[str, str | None, str | None]] = {}
         self._uninterrupted_requests: set[str] = set()
+        # Approvals a policy (not a person) denied, by reason code, so the engine is told why.
+        self._policy_denials: dict[str, str] = {}
 
     @property
     def waiting(self) -> bool:
@@ -377,6 +389,8 @@ class ThreadApprovalGate:
             async with runtime.session() as db:
                 won = await store.decide_approval(db, approval.id, status, by={"by": source})
             if won:
+                if status == "denied":
+                    self._policy_denials[approval.id] = source
                 future.set_result(status)
                 self._log("auto_allowed" if status == "allowed" else "denied", approval.id, source=source)
             runtime.hub.notify(run.thread_id)
@@ -476,7 +490,8 @@ class ThreadApprovalGate:
                 run.screen_granted = True
             return Decision(ALLOW)
         if status == "denied":
-            return Decision(DENY)
+            return Decision(DENY, DENY_BY_SOURCE.get(self._policy_denials.pop(handle.approval_id, "")))
+        self._policy_denials.pop(handle.approval_id, None)
         if status == "expired":
             return Decision(EXPIRED)
         return Decision(CANCELLED)
@@ -713,6 +728,7 @@ class ThreadRuntime:
         team_origin: str = "person",
         routine_run_id: int | None = None,
         configuration_allowed: bool = True,
+        setup_allowed: bool = False,
         internal: bool = False,
         person_id: int | None = None,
         person_label: str | None = None,
@@ -730,7 +746,7 @@ class ThreadRuntime:
         `approval_mode` replaces the agent's mode for this turn (a routine
         passes the stricter of its own and the agent's); `approval_timeout`
         replaces the approval timeout setting for this turn's approvals."""
-        if not configuration_allowed:
+        if not configuration_allowed and not setup_allowed:
             from app.team.policy import strictest
             team_origin = strictest([team_origin, 'restricted'])
         if self._closing:
@@ -936,7 +952,8 @@ class ThreadRuntime:
             if team is not None and team.owner_id == self.owner_id:
                 ctx.team = TurnTeam(team.id, agent.id, team.lead_agent_id == agent.id,
                                     app_settings.get("TEAM_LEAD_AUTO"), origin=team_origin,
-                                    delegation_enabled=agent.delegation_enabled, configuration_allowed=configuration_allowed)
+                                    delegation_enabled=agent.delegation_enabled, configuration_allowed=configuration_allowed,
+                                    setup_allowed=setup_allowed)
                 from app.team import prompt as team_prompt
                 async with self.session() as db:
                     intro = await team_prompt.build(db, team=team, agent=agent, owner_id=self.owner_id)

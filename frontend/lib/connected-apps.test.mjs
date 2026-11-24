@@ -141,7 +141,7 @@ test("an app name Composio writes becomes a readable label", () => {
 test("an agent can be given the curated apps, then every other app with an account or already allowed", () => {
   const accounts = [account("a", "ACTIVE", "slack"), account("b", "INITIATED", "notion"), account("c", "ACTIVE", "slack"), account("d", "ACTIVE", "github")];
   const options = agentAppOptions(accounts, { zoho: "read", github: "read" }, { slack: "Slack" });
-  assert.deepEqual(options.map((o) => o.slug), ["github", "gmail", "googlecalendar", "notion", "slack", "zoho"]);
+  assert.deepEqual(options.map((o) => o.slug), ["github", "gmail", "googlecalendar", "googleads", "metaads", "notion", "slack", "zoho"]);
   const bySlug = Object.fromEntries(options.map((o) => [o.slug, o]));
   assert.equal(bySlug.github.generic, false);
   assert.equal(bySlug.slack.generic, true);
@@ -150,6 +150,6 @@ test("an agent can be given the curated apps, then every other app with an accou
   assert.equal(bySlug.slack.read, GENERIC_READ);
   assert.equal(bySlug.slack.write, GENERIC_WRITE);
   assert.match(GENERIC_WRITE, /approve every call/);
-  assert.deepEqual(agentAppOptions(null, null).map((o) => o.slug), ["github", "gmail", "googlecalendar"]);
-  assert.deepEqual(agentAppOptions([account("a", "ACTIVE", "Bad Name")], { "../x": "read" }).map((o) => o.slug), ["github", "gmail", "googlecalendar"]);
+  assert.deepEqual(agentAppOptions(null, null).map((o) => o.slug), ["github", "gmail", "googlecalendar", "googleads", "metaads"]);
+  assert.deepEqual(agentAppOptions([account("a", "ACTIVE", "Bad Name")], { "../x": "read" }).map((o) => o.slug), ["github", "gmail", "googlecalendar", "googleads", "metaads"]);
 });

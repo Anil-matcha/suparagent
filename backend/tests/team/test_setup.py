@@ -244,8 +244,8 @@ async def test_tools_apply_through_the_turn_and_record_events(harness, sessions,
     async def handler(ctx, sink, gate):
         run = rt._runs[ctx.turn_id]
         seen['setup'] = await setup.call(rt, run, 'list_team_setup', {})
-        seen['made'] = await setup.call(rt, run, 'propose_team_setup', {'operations': [{'op': 'create', 'name': 'Scribe', 'instructions': 'Summarize files.'}]})
-        seen['again'] = await setup.call(rt, run, 'propose_team_setup', {'operations': [{'op': 'create', 'name': 'Scribe', 'instructions': 'Summarize files.'}]})
+        seen['made'] = await setup.call(rt, run, 'propose_team_setup', {'operations': [{'op': 'create', 'name': 'Scribe', 'instructions': 'Summarize files.', 'first_task': 'Summarize the README.'}]})
+        seen['again'] = await setup.call(rt, run, 'propose_team_setup', {'operations': [{'op': 'create', 'name': 'Scribe', 'instructions': 'Summarize files.', 'first_task': 'Summarize the README.'}]})
         seen['deleted'] = await setup.call(rt, run, 'propose_bot_deletion', {'agent_id': worker.id, 'reason': 'Not needed'})
         try:
             await setup.call(rt, run, 'propose_bot_deletion', {'agent_id': lead.id, 'reason': 'x'})
@@ -257,13 +257,14 @@ async def test_tools_apply_through_the_turn_and_record_events(harness, sessions,
     turn = await rt.send_turn(thread.id, 'go')
     await wait_until(lambda: turn.id not in rt._runs)
     assert seen['setup']['engines'][0]['id'] == 'claude'
-    assert seen['made']['state'] == 'applied' and seen['again']['replayed'] is True
+    # The tools only prepare a card for review; nothing is created until the person approves it.
+    assert seen['made']['state'] == 'pending' and seen['again']['replayed'] is True
     assert seen['deleted']['results'][0]['action'] == 'deleted' and seen['lead'] == 'lead_required'
     async with sessions() as db:
         assert not await db.get(Agent, worker.id)
-        assert await db.scalar(select(Agent.id).where(Agent.name == 'Scribe'))
+        assert not await db.scalar(select(Agent.id).where(Agent.name == 'Scribe'))
         kinds = set((await db.execute(select(TeamEvent.kind))).scalars())
-        assert {'agent_created', 'agent_deleted'} <= kinds
+        assert 'agent_deleted' in kinds
 
 
 async def test_receipt_reuse_binds_plan_caller_and_source(sessions, owner, team):

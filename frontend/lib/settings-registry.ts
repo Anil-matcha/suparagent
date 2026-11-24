@@ -31,6 +31,8 @@ export const SETTINGS_REGISTRY = [
   { id: "channels-telegram", page: "channels", pageHref: pageHref.channels, section: "Telegram", title: "Telegram connection", keywords: ["telegram", "channel", "channels", "messaging", "bot", "link code"], anchorId: "setting-channels-telegram", focusLabel: "Link Telegram" },
   { id: "channels-boat-tasks", page: "channels", pageHref: pageHref.channels, section: "Boat tasks", title: "Boat tasks", keywords: ["boat", "tasks", "legacy", "sandbox", "task submission"], anchorId: "setting-channels-boat-tasks", focusLabel: "Boat tasks" },
 
+  { id: "integration-muapi", page: "integrations", pageHref: pageHref.integrations, section: "MuAPI", title: "MuAPI API key", keywords: ["muapi", "data apis", "worker tools", "integrations", "key"], anchorId: "setting-integration-muapi", focusLabel: "MuAPI" },
+
   { id: "profile-details", page: "profile", pageHref: pageHref.profile, section: "Profile", title: "Profile details", keywords: ["name", "avatar", "photo", "bio", "edit profile", "share"], anchorId: "setting-profile-details", focusLabel: "Edit profile" },
   { id: "profile-summary", page: "profile", pageHref: pageHref.profile, section: "Annual summary", title: "Annual summary", keywords: ["tokens", "peak day", "messages", "streak", "activity stats"], anchorId: "setting-profile-summary", focusLabel: "Annual summary" },
   { id: "profile-activity", page: "profile", pageHref: pageHref.profile, section: "Activity", title: "Activity on this computer", keywords: ["heatmap", "active days", "year", "usage"], anchorId: "setting-profile-activity", focusLabel: "Activity on this computer" },

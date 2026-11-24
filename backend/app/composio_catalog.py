@@ -10,7 +10,7 @@ What the page may promise about each app is kept apart:
   listed       it is in the catalog above (remote text, shown as plain text, never as instructions);
   connectable  `connection`: managed (Composio supplies the sign-in), no_auth, custom_auth (the owner would need
                an auth config of their own in Composio, which this app does not set up), or unknown;
-  curated      `curated_tools`, derived from composio_tools.TOOLS (the one allowlist) for GitHub, Gmail and Calendar;
+  curated      `curated_tools`, derived from composio_tools.TOOLS (the one allowlist) for GitHub, Gmail, Calendar, Google Ads and Meta Ads;
   agent use    `agent_actions`: curated (only those tools), generic (the two generic tools, every call approved) or
                unavailable (a shell, code or Composio itself; composio_generic.py).
 
@@ -37,6 +37,10 @@ APP_INFO: dict[str, dict[str, str]] = {
               "description": "Search and read mail, and draft replies in your threads."},
     "googlecalendar": {"name": "Google Calendar", "category": "Productivity",
                        "description": "See and search your events, and add events to your own calendar."},
+    "googleads": {"name": "Google Ads", "category": "Advertising & Marketing",
+                  "description": "Read campaign and ad performance reports. Nothing is changed or spent."},
+    "metaads": {"name": "Meta Ads", "category": "Advertising & Marketing",
+                "description": "Read Facebook and Instagram ad accounts, campaigns and performance. Nothing is changed or spent."},
 }
 
 # Shown before a key is saved, and when Composio cannot be reached. Not the marketplace.

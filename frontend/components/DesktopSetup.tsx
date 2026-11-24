@@ -11,8 +11,9 @@ import { Button } from "./ui/Button";
 import { Checkbox } from "./ui/Checkbox";
 import { Field, Input, Select } from "./ui/Input";
 import { Stepper } from "./ui/Stepper";
+import { ChooseTeam } from "./chat/ChooseTeam";
 
-const STEPS = ["Engine", "Workspace", "Approvals", "Ready"];
+const STEPS = ["Engine", "Workspace", "Approvals", "Team", "Ready"];
 
 export function DesktopSetup({ settings, onSaved, onFinished }: {
   settings: DesktopSettings;
@@ -32,6 +33,7 @@ export function DesktopSetup({ settings, onSaved, onFinished }: {
   const [leadsTeam, setLeadsTeam] = useState(true);
   const [existing, setExisting] = useState<{ id: number; name: string; provider: string }[]>([]);
   const [leadPick, setLeadPick] = useState("");
+  const [hiredCount, setHiredCount] = useState(0);
   const [createdAgentId, setCreatedAgentId] = useState<number | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -168,6 +170,20 @@ export function DesktopSetup({ settings, onSaved, onFinished }: {
         </div>
       )}
 
+      {step === 3 && (
+        <div className="space-y-3 text-sm">
+          <h3 className="text-title font-semibold">Choose your team</h3>
+          <ChooseTeam
+            provider={provider || undefined}
+            model={model}
+            skipLabel="Skip this step"
+            onSkip={() => go(1)}
+            onHired={(receipt) => setHiredCount(receipt.workers.length)}
+            onUndone={() => setHiredCount(0)}
+          />
+        </div>
+      )}
+
       {step === last && (
         <div className="space-y-3 text-sm">
           <h3 className="text-title font-semibold">Ready to start</h3>
@@ -175,6 +191,7 @@ export function DesktopSetup({ settings, onSaved, onFinished }: {
             <SummaryRow label="Engine" value={`${engine?.label ?? provider} · ${modelLabel(model)}`} />
             <SummaryRow label="Workspace root" value={workspace.trim() || "App default"} />
             <SummaryRow label="Local tools" value={tools ? "on" : "off"} />
+            <SummaryRow label="Ready-made workers" value={hiredCount > 0 ? `${hiredCount} added, routines paused` : "None added"} />
             <SummaryRow label="Agent" value={createAgent ? `Create ${agentName.trim()} with ${approvalModesForProvider(provider).find((item) => item.value === mode)?.label}.` : "Use your existing agents, or start a plain chat."} />
           </dl>
         </div>

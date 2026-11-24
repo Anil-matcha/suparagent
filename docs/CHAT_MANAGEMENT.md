@@ -8,12 +8,14 @@ Claude and Codex can mount the team tools. ACP and OpenAI-compatible adapters do
 
 In a workspace shared with teammates, a member needs the **Manage agents** permission to create or edit agents. Settings that change what an agent may do on the machine (its working folder, the "Accept edits" mode, connected apps and the team lead role) stay with admins, and so does deleting an agent. See [AUTH.md](AUTH.md#members).
 
+Members with **Manage agents** can revise and approve the safe team setup card. Sharing the lead's workspace remains admin-only; a member can remove that option from a pending plan before approving it.
+
 ## Chat controls
 
 | Request | Tool and behavior |
 |---|---|
 | Discover available controls and missing dependencies | `list_management_capabilities` reports supported operations and explicit limitations. |
-| Create specialists; correct an existing agent's brief | `list_team_setup`, `create_agent`, `propose_team_setup`. Quick and combined creation use the same validated, source-bound receipt service. Edits require the current revision. |
+| Review team setup; create specialists or correct a teammate | `list_team_setup`, `create_agent`, `propose_team_setup`. A pending setup card shows the plan, lets someone with Manage agents revise it, and applies only after approval. Edits require the current revision. |
 | Change name, title, description, standing instructions or working folder | `propose_profile`, for self or a teammate reachable by the current lead. Requires approval and revision; folder must already exist. |
 | Change default engine/model | `propose_model`, using discovered IDs/revision, with approval. The lead must retain team tools; agents with computers need a compatible engine. Existing conversations retain their engine/model and pinned workspace. |
 | Assign work, consult, request corrections, inspect prior jobs | `delegate`, `ask_agent`, `job_status`. A delegation receipt means assigned; results arrive through the existing resume flow. |
@@ -29,11 +31,13 @@ In a workspace shared with teammates, a member needs the **Manage agents** permi
 
 The lead should ask only material unanswered questions about purpose, output, constraints and required capabilities. It discovers IDs before writing and reports applied/pending/failed states truthfully. A correction changes the same agent instead of creating a duplicate. The absence of a connector, computer or routine must be stated separately from successful profile creation. Never request credentials in chat.
 
+For team setup, the lead prepares a short, plain-language plan card with each specialist's job, standing instructions, editable first task and requested engine/model. The person can revise, approve or decline the card; no agent changes happen before approval. On approval, the server rechecks current team membership, lead authority, target revisions, busy state, limits and engine availability before applying the plan. New specialists keep Ask-first permissions. The applied card shows the saved changes and Undo, and its first-task action opens an editable unsent draft in the specialist's chat. This conversation is guided by the selected model; the app does not run a scripted interview.
+
 ## Persistence and recovery
 
-Creation/update and management receipts bind request ID, caller, source conversation and the canonical request digest. Identical retries replay the saved result; changing the request or source while reusing the ID conflicts. Plans reject permission fields, lock the current team and targets, revalidate current turn ownership/origin at commit, and roll back database changes together on failure. Secrets are redacted in saved setup plans and field details.
+Creation/update and management receipts bind request ID, caller, source conversation and the canonical request digest. A setup proposal is stored as a pending receipt with a monotonically increasing version; revisions use that version so concurrent edits or approval cannot overwrite a newer plan. The approval transaction revalidates the saved plan, applies its changes, records Undo data and appends the applied event together. Identical retries replay the saved result; changing the request or source while reusing the ID conflicts. Plans reject permission fields and secrets are redacted in saved setup plans and field details.
 
-Applied profile/setup cards show changed fields, Open/Edit actions and server-checked Undo availability. Undo refuses changed, used or busy agents, including a created specialist subsequently promoted to lead. Merely navigating to an unsent new chat creates no conversation; sending its first message creates a conversation and can make creation Undo unavailable. Duplicate receipt events fold into one card.
+Applied profile/setup cards show changed fields, Open/Edit actions and server-checked Undo availability. Setup cards also offer a first-task handoff that opens a new specialist chat with the task as an editable draft; it is never sent automatically. Undo refuses changed, used or busy agents, including a created specialist subsequently promoted to lead. Merely navigating to an unsent new chat creates no conversation; sending its first message creates a conversation and can make creation Undo unavailable. Duplicate receipt events fold into one card.
 
 Routine creation and its receipt commit together. Skill files use the existing atomic filesystem writer; filesystem changes and database receipts are not one atomic transaction. If receipt persistence fails after a skill write, list skills and compare its revision before attempting another change. There is no combined Undo across profiles, skills, routines, connections and computers.
 

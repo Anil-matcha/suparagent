@@ -26,7 +26,7 @@ def world():
         Thread: NS(id=5, owner_id="owner", agent_id=3),
         Turn: NS(id=6, thread_id=5, origin="routine", status="running", owner_token="token"),
         CommunityMcpConnection: NS(owner_id="owner", revision=1, manifest_digest="m1"),
-        CommunityMcpToolGrant: NS(schema_digest="s1"),
+        CommunityMcpToolGrant: NS(schema_digest="s1", input_schema={}),
     }
     class DB:
         async def get(self, model, key, **kwargs):

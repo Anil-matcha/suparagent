@@ -2,7 +2,7 @@ name: Release desktop
 
 # Builds desktop installers when a version tag is pushed and attaches them to a
 # GitHub release. Windows: NSIS installer (x64). macOS: signed and notarized DMG
-# (arm64), without native desktop preview. The macOS job fails closed unless
+# plus the zip and latest-mac.yml the in-app updater reads (arm64), without native desktop preview. The macOS job fails closed unless
 # its Developer ID and App Store Connect secrets are configured.
 
 on:
@@ -21,9 +21,15 @@ jobs:
       matrix:
         include:
           - os: macos-15
-            glob: desktop/release/*.dmg
+            glob: |
+              desktop/release/*.dmg
+              desktop/release/*.zip
+              desktop/release/latest-mac.yml
           - os: windows-latest
-            glob: desktop/release/*.exe
+            glob: |
+              desktop/release/*.exe
+              desktop/release/*.exe.blockmap
+              desktop/release/latest.yml
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4.2.2

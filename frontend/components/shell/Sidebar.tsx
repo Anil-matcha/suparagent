@@ -101,6 +101,7 @@ export function Sidebar({
   showApps = true,
   onNavigate,
   collaboration,
+  workspaces,
 }: {
   agents: Agent[] | null;
   threads: Thread[] | null;
@@ -125,6 +126,8 @@ export function Sidebar({
   showApps?: boolean;
   onNavigate?: () => void;
   collaboration?: React.ReactNode;
+  // The hosted company switcher (components/shell/WorkspaceSwitcher.tsx); absent on the desktop and self-hosted.
+  workspaces?: React.ReactNode;
 }) {
   const t = useT();
   const { updateAvailable, latestVersion } = useVersionUpdate();
@@ -164,6 +167,7 @@ export function Sidebar({
 
   return (
     <nav aria-label={t("shell.conversations")} className="flex h-full min-h-0 flex-col bg-surface text-ink">
+      {workspaces}
       <div className="space-y-2 p-3 pb-1">
         <Button className="w-full" icon={<Plus size={16} aria-hidden="true" />} onClick={() => newChat()}>
           {t("shell.newChat")}

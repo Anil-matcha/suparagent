@@ -37,6 +37,9 @@ REGISTRY = {
     "LOCAL_TASK_TIMEOUT_SECONDS": Definition("integer", False, "next_run", 0, 3600),
     "LOCAL_APPROVAL_TIMEOUT_SECONDS": Definition("integer", True, "next_run", 30, 3600),
     "LOCAL_MAX_OUTPUT_BYTES": Definition("integer", False, "next_run", 1024, 16_000_000),
+    "SPEND_PER_CALL_CENTS": Definition("integer", True, "immediate", 0, 100_000),
+    "SPEND_PER_RUN_CENTS": Definition("integer", True, "immediate", 0, 1_000_000),
+    "SPEND_PER_WORKER_MONTH_CENTS": Definition("integer", True, "immediate", 0, 10_000_000),
 }
 
 

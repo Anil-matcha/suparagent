@@ -68,10 +68,16 @@ end.
 
 <p align="center"><img src="docs/suparagent-workflow.svg" alt="A request goes to a Claude or Codex team lead, who delegates work to specialists. Teammates can share a project folder, and you review actions when approval is required." width="100%"></p>
 
-- **Create agents and teams.** Give agents a name, role, engine, workspace,
-  memory, and approval settings. A lead can delegate work to specialists or
-  coordinate agents in shared rooms. Team leads can use Claude or Codex. See
-  [teams and delegated work](docs/TEAMS.md).
+- **Create agents and teams.** Start with **Create by chatting** to ask your
+  team lead (Chief of Staff) to propose specialists around a goal. Review and
+  edit the plan card, then approve it to apply setup. Each new specialist gets
+  an editable first-task draft that is not sent automatically. New specialists
+  start with Ask-first permissions; app access and credentials stay under your control. Create
+  agents manually with a name, role, engine, workspace, memory, and approval
+  settings. A lead can delegate work to specialists or coordinate agents in
+  shared rooms. Team leads can use Claude or Codex. See
+  [managing agents through chat](docs/CHAT_MANAGEMENT.md)
+  and [teams and delegated work](docs/TEAMS.md).
 - **Keep useful context.** Agents can save notes, recall relevant notes and
   conversations, and search their history. You can review and edit what they
   remember. See [memory](docs/MEMORY.md).
@@ -84,7 +90,10 @@ end.
 - **Connect tools and apps.** Connect services such as GitHub, Gmail, and Google
   Calendar through your own Composio key, then grant access to selected Claude
   or Codex agents. Changes wait for your approval. Add individual tools from
-  the MCP Marketplace. See [connected apps](docs/CONNECTED_APPS.md).
+  the MCP Marketplace. The MuAPI listing includes selected data research tools:
+  search APIs, estimate USD cost, and make a lookup with a per-call cost cap.
+  Paid calls use MuAPI credits and require approval. See
+  [connected apps](docs/CONNECTED_APPS.md).
 - **See what needs your attention.** The Today view gathers approvals,
   questions, routine outcomes, engine failures, and due tasks. It can show
   read-only Gmail and calendar items. See [everyday features](docs/EVERYDAY.md).
@@ -185,8 +194,10 @@ details](backend/README.md#scheduling) and [environment settings](backend/.env.e
 - Suparagent is early and changing. The self-hosted server is experimental. One
   person owns it and can invite teammates to work in the same workspace, with
   roles and per-person permissions; everyone shares the same agents,
-  conversations and memory. It is not a multi-organization service, and there
-  are no separate workspaces to switch between.
+  conversations and memory. A self-hosted server is not a multi-organization
+  service and has no workspaces to switch between; a hosted deployment can run
+  several behind an account service (see
+  [docs/AUTH.md](docs/AUTH.md#hosted-workspace-grants)).
 - Team delegation is new; lead agents need to use Claude or Codex.
 - The phone app has been tried on an Android emulator and an Android phone, not
   on iOS. It has no push notifications or store release.

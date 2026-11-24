@@ -28,6 +28,7 @@ const { registerComposioLink } = require("./src/composio-link");
 const { lastReason, describeFailure, describeUnexpectedExit } = require("./src/messages");
 const { NativeControl, registerNativeControl } = require("./src/native-control");
 const { createUpdater } = require("./src/updater");
+const { createAutoUpdater } = require("./src/auto-updater");
 const { registerUpdates } = require("./src/updates-ipc");
 const { registerApplicationMenu } = require("./src/application-menu");
 const { createHostedWorkspace, createWorkspaceStore, PLAN_URL } = require("./src/hosted-workspace");
@@ -239,17 +240,28 @@ async function main() {
     }
     return false;
   });
-  updater = createUpdater({
-    currentVersion: app.getVersion(),
-    platform: process.platform,
-    arch: process.arch,
-    cacheDir: path.join(userData, "updates"),
-    downloadsDir: app.getPath("downloads"),
-    openFile: (file) => shell.openPath(file),
-    onState: (state) => {
-      if (window && !window.isDestroyed()) window.webContents.send("suparagent:update-state", state);
-    },
-  });
+  const sendUpdateState = (state) => {
+    if (window && !window.isDestroyed()) window.webContents.send("suparagent:update-state", state);
+  };
+  // An installed build replaces itself in place (electron-updater); anything else
+  // (a source checkout) falls back to the assisted download-and-open flow.
+  const selfUpdating = app.isPackaged && (process.platform === "darwin" || process.platform === "win32");
+  updater = selfUpdating
+    ? createAutoUpdater({
+        autoUpdater: require("electron-updater").autoUpdater,
+        currentVersion: app.getVersion(),
+        beforeInstall: stopEverything,
+        onState: sendUpdateState,
+      })
+    : createUpdater({
+        currentVersion: app.getVersion(),
+        platform: process.platform,
+        arch: process.arch,
+        cacheDir: path.join(userData, "updates"),
+        downloadsDir: app.getPath("downloads"),
+        openFile: (file) => shell.openPath(file),
+        onState: sendUpdateState,
+      });
   registerUpdates({
     ipcMain,
     openExternal: (url) => shell.openExternal(url),

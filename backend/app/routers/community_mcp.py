@@ -177,7 +177,12 @@ def _provider_metadata_size(entries: list[tuple[str, str, dict]]) -> int:
 async def catalog(response: Response):
     response.headers["Cache-Control"] = "no-store"
     try:
-        return await marketplace.marketplace_catalog()
+        result = await marketplace.marketplace_catalog()
+        # MuAPI is an app-owned integration now; it does not enter through this
+        # third-party listing catalog.
+        return {key: ([item for item in value if item.get("slug") != "muapi"]
+                      if isinstance(value, list) else value)
+                for key, value in result.items()}
     except marketplace.McpError as exc:
         raise _http(exc) from None
 
@@ -202,6 +207,8 @@ async def install(
 ):
     response.headers["Cache-Control"] = "no-store"
     if section not in ("community", "tested"):
+        raise HTTPException(status_code=404, detail={"error_code": "listing_not_found"})
+    if slug == "muapi":
         raise HTTPException(status_code=404, detail={"error_code": "listing_not_found"})
     manifest = await _fresh_listing(section, slug)
     if manifest is None:

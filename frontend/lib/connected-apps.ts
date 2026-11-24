@@ -105,6 +105,16 @@ export const AGENT_APPS: { slug: string; label: string; read: string; write: str
     read: "List calendars, search events by words, and read event summaries in a date window.",
     write: "Also add an event to a calendar. No guests are invited and nothing is emailed. You approve each event first.",
   },
+  {
+    slug: "googleads", label: "Google Ads",
+    read: "Read campaign, ad group and ad performance reports. It cannot change, pause or spend anything.",
+    write: null,
+  },
+  {
+    slug: "metaads", label: "Meta Ads",
+    read: "Read ad accounts, campaigns and performance for Facebook and Instagram. It cannot change, pause or spend anything.",
+    write: null,
+  },
 ];
 const APPS_ENGINES = new Set(["claude", "codex"]);
 

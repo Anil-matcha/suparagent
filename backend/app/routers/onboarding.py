@@ -24,7 +24,7 @@ router = APIRouter(prefix="/onboarding", tags=["Onboarding"], dependencies=[Depe
 class Draft(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    step: int = Field(ge=0, le=3)
+    step: int = Field(ge=0, le=4)
     provider: str = Field(max_length=64)
     model: str | None = Field(default=None, max_length=200)
     name: str = Field(max_length=80)

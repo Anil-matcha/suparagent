@@ -20,6 +20,11 @@ export const APPROVAL_MODES: { value: ApprovalMode; label: string; description: 
     description: "Claude, Codex, or Cursor reviews eligible requests. External tools and computer controls still ask you. Other engines use Ask first.",
   },
   {
+    value: "full_access",
+    label: "Full access",
+    description: "Claude or Codex runs commands and edits files in its workspace without asking, so routines can finish with nobody there. Dangerous commands, connected apps and sign-ins still need you.",
+  },
+  {
     value: "plan",
     label: "Plan only",
     description: "Your agent looks around and writes a plan, but changes nothing.",
@@ -27,7 +32,8 @@ export const APPROVAL_MODES: { value: ApprovalMode; label: string; description: 
 ];
 
 export function approvalModesForProvider(provider: string | null | undefined) {
-  return APPROVAL_MODES.filter((mode) => mode.value !== "approve_for_me" || provider === "claude" || provider === "codex" || provider === "cursor");
+  return APPROVAL_MODES.filter((mode) => (mode.value !== "approve_for_me" || provider === "claude" || provider === "codex" || provider === "cursor")
+    && (mode.value !== "full_access" || provider === "claude" || provider === "codex"));
 }
 
 export function approvalModeLabel(mode: string): string {

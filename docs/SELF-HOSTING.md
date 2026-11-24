@@ -240,6 +240,8 @@ The owner can invite other people to work in the same workspace: **Settings → 
 
 Roles, permissions and the endpoints are in [AUTH.md](AUTH.md#members).
 
+This section is for one self-hosted workspace. The `HOSTED_WORKSPACE_ID` and `HOSTED_GRANT_PUBLIC_KEYS` settings belong to a hosted deployment with its own account service and switch the people controls off; do not set them on a server you run yourself ([hosted workspace grants](AUTH.md#hosted-workspace-grants)).
+
 ## Pair your phone
 
 In the web app: **Settings → Devices → Create pairing code**, choose *Chat only* for a phone, and scan the QR code or open the link. Or from the server's shell (inside the container for Route 1, prefixed with `docker compose exec suparagent`):

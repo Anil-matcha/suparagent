@@ -41,6 +41,18 @@ def test_undo_can_itself_be_undone(env):
     assert (ws / "a.txt").read_text() == "two"
 
 
+def test_two_restores_in_the_same_millisecond_do_not_overwrite_each_other(env, monkeypatch):
+    ws, store = env
+    (ws / "a.txt").write_text("one")
+    snaps.snapshot(ws, store, "t1")
+    (ws / "a.txt").write_text("two")
+    frozen = snaps.time.time()
+    monkeypatch.setattr(snaps.time, "time", lambda: frozen)
+    undo = snaps.restore(ws, store, "t1")["undo_snapshot"]
+    snaps.restore(ws, store, undo)
+    assert (ws / "a.txt").read_text() == "two"
+
+
 def test_ignored_folders_and_links_are_left_alone(env, tmp_path):
     ws, store = env
     (ws / "node_modules").mkdir()

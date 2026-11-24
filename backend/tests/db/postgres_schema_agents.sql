@@ -26,6 +26,7 @@ CREATE TABLE agent (
 	created_by_agent_id BIGINT, 
 	instructions_reviewed_at TIMESTAMP WITH TIME ZONE, 
 	archived_at TIMESTAMP WITH TIME ZONE, 
+	scheduled_paid_use BOOLEAN DEFAULT false NOT NULL, 
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
 	updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
 	PRIMARY KEY (id)

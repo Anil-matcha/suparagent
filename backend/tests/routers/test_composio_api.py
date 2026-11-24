@@ -352,11 +352,11 @@ async def test_with_a_key_the_catalog_is_composios_and_search_and_paging_pass_th
     await admin.put(f"{PATH}/key", json={"api_key": KEY})
     body = (await admin.get(f"{PATH}/catalog")).json()
     assert body["source"] == "composio" and body["complete"] is True and body["error"] is None
-    assert [a["app"] for a in body["apps"]] == ["github", "gmail", "googlecalendar", "slack", "notion", "composio"]
+    assert [a["app"] for a in body["apps"]] == ["github", "gmail", "googleads", "googlecalendar", "metaads", "slack", "notion", "composio"]
     assert {a["app"]: a["agent_actions"] for a in body["apps"]}["composio"] == "unavailable"
     assert [a["app"] for a in (await admin.get(f"{PATH}/catalog", params={"search": "notion"})).json()["apps"]] == ["notion"]
     paged = (await admin.get(f"{PATH}/catalog", params={"limit": 2})).json()
-    assert len(paged["apps"]) == 2 and paged["next_cursor"] == "o2" and paged["total"] == 6
+    assert len(paged["apps"]) == 2 and paged["next_cursor"] == "o2" and paged["total"] == 8
     assert (await admin.get(f"{PATH}/catalog", params={"limit": 0})).status_code == 422
     # The key never comes back, and the catalog is cached: this second page did not ask Composio again.
     assert KEY not in (await admin.get(f"{PATH}/catalog")).text

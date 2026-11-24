@@ -288,6 +288,26 @@ async def _execute(client, session_id, slug, arguments, account_id):
         raise ComposioError("unavailable", "The app did not answer in time.") from None
 
 
+async def _edited_commit(client, session_id, account_id, arguments: dict) -> dict:
+    """Turn an insert_after edit into a whole-file commit: read the file on the branch, add the line(s),
+    and send the new text with the blob id that was read. Only a read happens here."""
+    import base64
+    from app import composio_tools
+
+    read = composio_tools.BY_NAME["github_get_file"]
+    done = await _execute(client, session_id, read.slug, {"owner": arguments["owner"], "repo": arguments["repo"],
+                                                          "path": arguments["path"], "ref": arguments["branch"]}, account_id)
+    if done.result_type != "completed":
+        raise composio_tools.BadArguments("The file could not be read, so nothing was changed.")
+    text, sha = composio_tools.edit_source(done.data)
+    new = composio_tools.insert_after_line(text, arguments["insert_after"], arguments["insert_text"])
+    if len(new) > 1_000_000:
+        raise composio_tools.BadArguments("The edited file would be too large.")
+    sent = {k: v for k, v in arguments.items() if k not in ("insert_after", "insert_text")}
+    sent["content"], sent["sha"] = base64.b64encode(new.encode("utf-8")).decode("ascii"), sha
+    return sent
+
+
 async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments: dict, alias: str | None, *,
                    account_id: str | None = None, allowed_account_ids: list[str] | None = None,
                    before_execute=None) -> dict:
@@ -328,6 +348,13 @@ async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments
         session_id, record = await _session(db, owner_id, client, record)
     except ComposioError as exc:  # nothing was sent for the tool yet
         return _agent_error(exc)
+    if tool.name == "github_commit_file" and "insert_after" in arguments:
+        try:
+            arguments = await _edited_commit(client, session_id, account.id, arguments)
+        except composio_tools.BadArguments as exc:
+            return {"error": str(exc), "code": "bad_arguments"}
+        except ComposioError as exc:  # nothing was written: only the file was read
+            return _agent_error(exc)
     try:
         done = await _execute(client, session_id, tool.slug, arguments, account.id)
     except ComposioError as exc:

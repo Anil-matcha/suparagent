@@ -1,11 +1,14 @@
 """A small stdio MCP server giving a turn the agent's past-conversation search
-(`session_search`, `session_read`; docs/MEMORY.md).
+(`session_search`, `session_read`; docs/MEMORY.md) and a way to suggest a change to
+the business profile (`suggest_profile_change`).
 
 It never touches the database or the agent's files. Each call is a request file
 in the turn's private mailbox folder; the backend answers it for the agent the
 turn belongs to (nothing in a request can name another agent) and writes the
 reply beside it. The same transport as the team tools (app/team/mcp_server.py),
-but read-only: no approval is needed or consumed.
+but with no way to change anything: the two search tools only read, and
+suggest_profile_change only leaves a draft the person must accept. No approval
+is needed or consumed.
 """
 import argparse
 import json
@@ -49,6 +52,21 @@ TOOLS = [
             "and message id a session_search hit gave you. Long messages are cut at 8,000 characters."
         ),
         "inputSchema": _schema({"thread_id": {"type": "integer"}, "message_id": {"type": "integer"}}, ("thread_id", "message_id")),
+    },
+    {
+        "name": "suggest_profile_change",
+        "description": (
+            "Suggest new text for one field of the owner's business profile, for example when you learned the "
+            "business changed its hours or a link is wrong. This only leaves a draft: the owner reads it and "
+            "accepts or dismisses it, and nothing changes until they accept. Do not include keys or passwords. "
+            "At most one waiting suggestion per field; ask only when you are sure."
+        ),
+        "inputSchema": _schema({
+            "field": {"type": "string", "enum": ["sells", "audience", "tone", "links", "hours", "never_say"],
+                      "description": "Which part of the profile the new text replaces."},
+            "text": {"type": "string", "maxLength": 600, "description": "The complete new text for that field."},
+            "reason": {"type": "string", "maxLength": 200, "description": "One short line on why, shown to the owner."},
+        }, ("field", "text", "reason")),
     },
 ]
 

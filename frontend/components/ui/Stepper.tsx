@@ -29,7 +29,7 @@ export function Stepper({ steps, current, label = "Setup progress", className }:
                 </span>
               ) : null}
             </div>
-            <span className={cn("pr-2 text-xs", active ? "font-semibold text-ink" : "text-muted")}>
+            <span className={cn("pr-2 text-xs break-words", active ? "font-semibold text-ink" : "text-muted max-[460px]:sr-only")}>
               {name}
               <span className="sr-only">{done ? " (done)" : active ? " (current step)" : " (not started)"}</span>
             </span>

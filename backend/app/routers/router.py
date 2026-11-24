@@ -14,6 +14,7 @@ from app.routers.approval_rules import router as approval_rules_router
 from app.routers.sentinel import router as sentinel_router
 from app.routers.computers import router as computers_router
 from app.routers.computer_credentials import router as computer_credentials_router, muapi_router as muapi_credentials_router
+from app.routers.computer_credentials import boxd_router as boxd_credentials_router
 from app.routers.browser_viewer import router as browser_viewer_router
 from app.routers.computer_viewer import router as computer_viewer_router
 from app.routers.claude_accounts import router as claude_accounts_router
@@ -58,9 +59,12 @@ router.include_router(settings_router)
 router.include_router(decisions_router)
 router.include_router(approval_rules_router)
 router.include_router(sentinel_router)
-router.include_router(computers_router)
+# Before computers_router: its /computers/{computer_id} would otherwise
+# answer GET and DELETE /computers/<provider>-credentials with a 422.
 router.include_router(computer_credentials_router)
 router.include_router(muapi_credentials_router)
+router.include_router(boxd_credentials_router)
+router.include_router(computers_router)
 router.include_router(computer_viewer_router)
 router.include_router(browser_viewer_router)
 router.include_router(claude_accounts_router)
@@ -77,11 +81,15 @@ router.include_router(history_export_router)
 router.include_router(profile_router)
 from app.routers.templates import router as templates_router
 router.include_router(templates_router)
+from app.routers.spend import router as spend_router
+router.include_router(spend_router)
 
 from app.routers.team import router as team_router
 from app.routers.rooms import router as rooms_router
 from app.routers.memory import router as memory_router
 router.include_router(memory_router)
+from app.routers.business_profile import router as business_profile_router
+router.include_router(business_profile_router)
 router.include_router(team_router)
 router.include_router(rooms_router)
 
@@ -96,6 +104,12 @@ router.include_router(integrations_router)
 
 from app.routers.community_mcp import router as community_mcp_router
 router.include_router(community_mcp_router)
+from app.routers.muapi import router as muapi_router
+router.include_router(muapi_router)
+from app.routers.custom_mcp import router as custom_mcp_router
+router.include_router(custom_mcp_router)
+from app.routers.agent_service import router as agent_service_router
+router.include_router(agent_service_router)
 
 from app.routers.onboarding import router as onboarding_router
 from app.routers.engine_install import router as engine_install_router

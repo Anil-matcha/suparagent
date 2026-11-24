@@ -14,6 +14,7 @@ import {
 import { inviteLink } from "@/lib/session";
 import { useSession } from "./AuthGate";
 import { HandOver, YourAccount } from "./PeopleAccount";
+import { HostedPeople } from "./HostedPeople";
 import { AccessPicker, DEFAULT_ACCESS, type Access } from "./AccessPicker";
 import { describePermissions } from "@/lib/permissions";
 import { Badge } from "@/components/ui/Badge";
@@ -57,8 +58,14 @@ function NewInvite({ invite, onDone }: { invite: Invite & { token: string }; onD
   );
 }
 
-// Everyone who works in this workspace. All members see names and roles; admins invite and manage.
+// Everyone who works in this workspace. In a hosted workspace the account service owns the list (HostedPeople);
+// everywhere else all members see names and roles and admins invite and manage.
 export function PeopleSection() {
+  const { session } = useSession();
+  return session?.kind === "grant" ? <HostedPeople /> : <LocalPeopleSection />;
+}
+
+function LocalPeopleSection() {
   const { session } = useSession();
   const [roster, setRoster] = useState<Person[] | null>(null);
   const [invites, setInvites] = useState<Invite[]>([]);

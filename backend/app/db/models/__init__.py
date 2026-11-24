@@ -14,6 +14,7 @@ from app.db.models.event import Event
 from app.db.models.approval import Approval
 from app.db.models.app_setting import AppSetting, SettingAudit
 from app.db.models.computer import Computer
+from app.db.models.spend_ledger import SpendLedger
 from app.db.models.routine import Routine, RoutineRun, RoutineAppAction, WebhookReceipt
 from app.db.models.notification import Notification
 from app.db.models.needs_you import NeedsYouState
@@ -21,6 +22,11 @@ from app.db.models.auth import AuthSession, OwnerAccount, PairingCode
 from app.db.models.people import PeopleAudit, Person, PersonInvite
 from app.db.models.work_item import WorkBoard, WorkColumn, WorkItem, WorkItemRun, WorkItemEvent
 from app.db.models.community_mcp import CommunityMcpConnection, CommunityMcpToolGrant
+from app.db.models.muapi import MuapiToolGrant
+from app.db.models.custom_mcp import CustomMcpConnection, CustomMcpOAuthFlow, CustomMcpToolGrant
+from app.db.models.agent_service import (
+    AgentServiceAssignment, AgentServiceAudit, AgentServiceProvider, AgentServiceResource,
+)
 from app.db.models.workflow import Workflow, WorkflowRun
 
 __all__ = [
@@ -29,6 +35,14 @@ __all__ = [
     "UserCredential",
     "CommunityMcpConnection",
     "CommunityMcpToolGrant",
+    "MuapiToolGrant",
+    "CustomMcpConnection",
+    "CustomMcpOAuthFlow",
+    "CustomMcpToolGrant",
+    "AgentServiceAssignment",
+    "AgentServiceAudit",
+    "AgentServiceProvider",
+    "AgentServiceResource",
     "Tasks",
     "LinkCode",
     "Schedule",
@@ -53,6 +67,7 @@ __all__ = [
     "RoutineRun",
     "RoutineAppAction",
     "WebhookReceipt",
+    "SpendLedger",
     "NeedsYouState",
     "TeamNotice",
     "Notification",

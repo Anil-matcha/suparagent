@@ -2,7 +2,7 @@ const { sameOrigin } = require("./origin");
 
 const SETTINGS_NAVIGATION_CHANNEL = "suparagent:navigate-settings";
 const SETTINGS_ROUTE = "/settings/";
-const DOCS_URL = "https://github.com/Anil-matcha/open-duet/tree/main/docs";
+const DOCS_URL = "https://github.com/Anil-matcha/suparagent/tree/main/docs";
 
 // Native, so the hosted page can neither read nor draw it. Radio items show where the window is.
 function workspaceMenu({ platform, workspace }) {

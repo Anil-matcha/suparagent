@@ -124,6 +124,11 @@ class Settings(BaseSettings):
     LOCAL_TOOLS_ENABLED: bool = False
     # An approval nobody answers within this time is denied.
     LOCAL_APPROVAL_TIMEOUT_SECONDS: int = 300
+    # Spending limits for paid marketplace tools, in US cents (docs/TEMPLATES.md). A tool is paid when its input
+    # takes max_cost_usd. 0 refuses every paid call. Only the owner changes these, never an agent.
+    SPEND_PER_CALL_CENTS: int = 50
+    SPEND_PER_RUN_CENTS: int = 200
+    SPEND_PER_WORKER_MONTH_CENTS: int = 2000
 
     # Owner authentication (docs/AUTH.md). Host names this server answers to,
     # comma-separated; a request with any other Host header is refused (DNS
@@ -136,6 +141,11 @@ class Settings(BaseSettings):
     # is answered to as if it were listed in TRUSTED_HOSTS, and pairing links
     # printed on the server use it. Empty for the desktop app and local use.
     SUPARAGENT_PUBLIC_URL: str = ""
+    # Where a browser returns after signing in to a custom MCP server (OAuth) when that is not the
+    # server's own address, for example a hosted workspace whose sandbox is only reachable through the
+    # control plane: "https://suparagent.ai". Scheme and host only. Empty: SUPARAGENT_PUBLIC_URL, then the
+    # address the request came to. Not used by the desktop app, which returns to a loopback listener.
+    SUPARAGENT_OAUTH_CALLBACK_ORIGIN: str = ""
     # Where senders reach this server's routine webhooks when that is not the server's own
     # address, e.g. "https://dots.example.com/hooks/a/<key>" behind a gateway that forwards to
     # "/hooks/<id>". The full address shown for a routine is "<base>/<id>". Empty: "/hooks/<id>".
@@ -150,6 +160,11 @@ class Settings(BaseSettings):
     # A hosted account's own sandbox: the app runs engines here, but the sandbox is small, so agents
     # get no Docker computer inside it (the Computer panel says so).
     HOSTED_SANDBOX: bool = False
+    # Hosted workspace grants (auth/grant.py). When both are set, every request must carry a grant signed by the
+    # hosted control plane for exactly this workspace, and cookie sessions are refused. Unset: nothing changes.
+    # HOSTED_GRANT_PUBLIC_KEYS is JSON {"<key id>": "<base64url Ed25519 public key>"} or "<key id>=<key>,...".
+    HOSTED_WORKSPACE_ID: str = ""
+    HOSTED_GRANT_PUBLIC_KEYS: str = ""
     # A headless Chromium on this machine for agents with no Docker computer (computers/local_browser.py):
     # its tools reach the engine as one extra MCP server, and every page goes through a local egress gate.
     # Off until the resource guard exists; never on where HOST_EXECUTION_DISABLED is set.
@@ -276,7 +291,7 @@ class Settings(BaseSettings):
         """The normalized public address, or "" when none is set."""
         return self.SUPARAGENT_PUBLIC_URL
 
-    @field_validator("SUPARAGENT_PUBLIC_URL")
+    @field_validator("SUPARAGENT_PUBLIC_URL", "SUPARAGENT_OAUTH_CALLBACK_ORIGIN")
     @classmethod
     def _check_public_url(cls, value: str) -> str:
         return public_url.normalize(value)

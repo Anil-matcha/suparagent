@@ -19,17 +19,50 @@ export type TeamJobItem = { kind: "team_job"; key: string; turnId: number | null
 
 export type NeedsYouItem = { kind: "needs_you"; key: string; turnId: number | null; cardId: string; revision: number; title: string; subtitle: string; emptyText: string; more: number; checkedAt?: string; providerCheckedAt?: string; timeZone?: string; sources?: Record<string, string>; rows: NeedsYouRow[] };
 
+export type TeamSetupOperation =
+  | { op: "create"; name: string; title?: string; description?: string; instructions: string; provider?: string; model?: string | null; share_workspace?: boolean; first_task?: string }
+  | { op: "update"; agent_id: number; name?: string; current?: Record<string, string | null>; fields: Record<string, string | null>; expected_revision: string };
+export type TeamSetupPlan = { summary?: string; operations: TeamSetupOperation[] };
+
 // The member who sent a turn, when the server named one (a workspace shared by several people).
 function personOf(data: Record<string, unknown>): { person?: string } {
   const label = text(record(data.person).label).trim();
   return label ? { person: label } : {};
 }
 
+function teamSetupPlan(value: unknown): TeamSetupPlan | null {
+  const plan = record(value);
+  if (!Array.isArray(plan.operations)) return null;
+  const operations: TeamSetupOperation[] = [];
+  for (const value of plan.operations) {
+    const operation = record(value);
+    if (operation.op === "create" && typeof operation.name === "string") {
+      operations.push({
+        op: "create", name: operation.name,
+        ...(typeof operation.title === "string" ? { title: operation.title } : {}),
+        ...(typeof operation.description === "string" ? { description: operation.description } : {}),
+        instructions: text(operation.instructions),
+        ...(typeof operation.provider === "string" ? { provider: operation.provider } : {}),
+        ...(typeof operation.model === "string" || operation.model === null ? { model: operation.model } : {}),
+        ...(typeof operation.share_workspace === "boolean" ? { share_workspace: operation.share_workspace } : {}),
+        ...(typeof operation.first_task === "string" ? { first_task: operation.first_task } : {}),
+      });
+    } else if (operation.op === "update" && typeof operation.agent_id === "number" && typeof operation.expected_revision === "string") {
+      const fields = Object.fromEntries(Object.entries(record(operation.fields)).filter((entry): entry is [string, string | null] => typeof entry[1] === "string" || entry[1] === null));
+      const current = Object.fromEntries(Object.entries(record(operation.current)).filter((entry): entry is [string, string | null] => typeof entry[1] === "string" || entry[1] === null));
+      operations.push({ op: "update", agent_id: operation.agent_id, fields, expected_revision: operation.expected_revision,
+        ...(typeof operation.name === "string" ? { name: operation.name } : {}), ...(Object.keys(current).length ? { current } : {}) });
+    }
+  }
+  if (!operations.length || operations.length !== plan.operations.length) return null;
+  return { ...(typeof plan.summary === "string" ? { summary: plan.summary } : {}), operations };
+}
+
 export type TranscriptItem =
   | TeamJobItem
   | NeedsYouItem
   | { kind: "team_notice"; key: string; turnId: number | null; tone: "incident" | "escalation" | "refused" | "retried"; text: string; threadId: number | null }
-  | { kind: "team_setup"; key: string; turnId: number | null; requestId: string; undoAvailable: boolean; rows: { action: string; agentId: number; name: string; changes?: { field: string; before: unknown; after: unknown }[] }[] }
+  | { kind: "team_setup"; key: string; turnId: number | null; requestId: string; state: "pending" | "rejected" | "applied"; version?: number; plan?: TeamSetupPlan; undoAvailable: boolean; rows: { action: string; agentId: number; name: string; firstTask?: string; changes?: { field: string; before: unknown; after: unknown }[] }[] }
   | { kind: "routine_change"; key: string; turnId: number | null; requestId: string; routineId: number; name: string; action: string; paused: boolean; note: string }
   | { kind: "agent_created"; key: string; turnId: number | null; agentId: number; name: string; title: string }
   | { kind: "user"; key: string; turnId: number | null; text: string; attachments: AttachmentRef[]; skills?: string[]; ts?: string; person?: string }
@@ -174,9 +207,8 @@ function closeTurn(items: TranscriptItem[], forTurn: number | null): TranscriptI
   if (!items.some(open)) return items;
   return items.map((i) => {
     if (!open(i)) return i;
-    return i.kind === "approval"
-      ? { ...i, status: "cancelled" as const }
-      : { ...i, state: "stopped" as const };
+    if (i.kind === "approval") return { ...i, status: "cancelled" as const };
+    return i.kind === "tool" ? { ...i, state: "stopped" as const } : i;
   });
 }
 
@@ -399,18 +431,39 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
         name: text(routine.name), action: data.action, paused: routine.paused === true, note: text(data.undo_note) }] };
     }
 
+    case "team.setup.proposed": {
+      if (typeof data.request_id !== "string" || typeof data.version !== "number") return base;
+      const plan = teamSetupPlan(data.plan);
+      if (!plan) return base;
+      const previous = state.items.find((item): item is Extract<TranscriptItem, { kind: "team_setup" }> => item.kind === "team_setup" && item.requestId === data.request_id);
+      if (previous?.state === "applied" || (previous && (previous.version ?? 0) >= data.version)) return base;
+      const proposal = { kind: "team_setup" as const, key: previous?.key ?? key, turnId: previous?.turnId ?? id,
+        requestId: data.request_id, state: "pending" as const, version: data.version, plan, undoAvailable: false, rows: [] };
+      return { ...base, items: previous ? state.items.map(item => item === previous ? proposal : item) : [...state.items, proposal] };
+    }
+
+    case "team.setup.dismissed": {
+      if (typeof data.request_id !== "string" || typeof data.version !== "number") return base;
+      const previous = state.items.find((item): item is Extract<TranscriptItem, { kind: "team_setup" }> => item.kind === "team_setup" && item.requestId === data.request_id);
+      const version: number = data.version;
+      if (!previous || previous.state === "applied" || (previous.version ?? 0) > version) return base;
+      return { ...base, items: state.items.map(item => item === previous ? { ...previous, state: "rejected" as const, version } : item) };
+    }
+
     case "team.setup.applied": {
       if (typeof data.request_id !== "string" || !Array.isArray(data.results)) return base;
       const rows = data.results.flatMap((row: unknown) => {
-        const r = row as { action?: unknown; agent_id?: unknown; name?: unknown; changes?: unknown };
+        const r = row as { action?: unknown; agent_id?: unknown; name?: unknown; changes?: unknown; first_task?: unknown };
         const changes = Array.isArray(r?.changes) ? r.changes.flatMap((change: unknown) => {
           const c = change as { field?: unknown; before?: unknown; after?: unknown };
           return typeof c?.field === "string" ? [{ field: c.field, before: c.before, after: c.after }] : [];
         }) : undefined;
-        return typeof r?.action === "string" && typeof r.agent_id === "number" ? [{ action: r.action, agentId: r.agent_id, name: text(r.name), ...(changes ? { changes } : {}) }] : [];
+        return typeof r?.action === "string" && typeof r.agent_id === "number" ? [{ action: r.action, agentId: r.agent_id, name: text(r.name), ...(typeof r.first_task === "string" && r.first_task ? { firstTask: r.first_task } : {}), ...(changes ? { changes } : {}) }] : [];
       });
-      if (state.items.some(item => item.kind === "team_setup" && item.requestId === data.request_id)) return base;
-      return { ...base, items: [...state.items, { kind: "team_setup", key, turnId: id, requestId: data.request_id, undoAvailable: data.undo_available === true, rows }] };
+      const previous = state.items.find((item): item is Extract<TranscriptItem, { kind: "team_setup" }> => item.kind === "team_setup" && item.requestId === data.request_id);
+      const applied = { kind: "team_setup" as const, key: previous?.key ?? key, turnId: previous?.turnId ?? id, requestId: data.request_id,
+        state: "applied" as const, undoAvailable: data.undo_available === true, rows };
+      return { ...base, items: previous ? state.items.map(item => item === previous ? applied : item) : [...state.items, applied] };
     }
 
     // A report the lead was given about a teammate's thread, or a retry it made.

@@ -6,7 +6,10 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type Agent, type MemoryJournalRow, type MemoryProposal, type TopicDoc, type TopicList } from "@/lib/api";
 import { useT } from "@/lib/use-i18n";
 import { journalLabel, topicFileName } from "@/lib/memory";
+import { profileTabLabel } from "@/lib/business-profile";
 import { AboutMeTab, UpkeepCard } from "./MemoryUpkeep";
+import { BusinessProfileForm } from "./BusinessProfileForm";
+import { ProfileProposals } from "./ProfileProposals";
 import { EmptyPanel, ErrorState, LoadingState } from "./PanelState";
 
 const FIELD =
@@ -16,7 +19,7 @@ const SMALL =
 const PRIMARY_SMALL =
   "cursor-pointer rounded-md px-3 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 bg-accent text-accent-fg hover:opacity-90";
 
-type Tab = "topics" | "proposed" | "about" | "history";
+type Tab = "topics" | "proposed" | "about" | "business" | "history";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -33,6 +36,9 @@ export function MemoryPanel({
   const [tab, setTab] = useState<Tab>("topics");
   const [proposed, setProposed] = useState<MemoryProposal[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Changes workers suggested to the business profile, shown as a count on its tab.
+  const [profilePending, setProfilePending] = useState(0);
+  const [profileKey, setProfileKey] = useState(0);
 
   const loadProposed = useCallback(async () => {
     try {
@@ -41,6 +47,14 @@ export function MemoryPanel({
       setError(errorText(err));
     }
   }, [agentId]);
+
+  useEffect(() => {
+    // The count on the Business profile tab, before the tab is opened.
+    api
+      .profileProposals()
+      .then((r) => setProfilePending(r.items.length))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     // Reading the queue also reads any conversation that went quiet since.
@@ -52,6 +66,7 @@ export function MemoryPanel({
     ["topics", "Topic notes"],
     ["proposed", `Proposed${proposed && proposed.length ? ` (${proposed.length})` : ""}`],
     ["about", "About me"],
+    ["business", profileTabLabel(profilePending)],
     ["history", "History"],
   ];
   return (
@@ -84,6 +99,12 @@ export function MemoryPanel({
         />
       )}
       {tab === "about" && <AboutMeTab onError={setError} />}
+      {tab === "business" && (
+        <div className="space-y-3">
+          <ProfileProposals onCount={setProfilePending} onApplied={() => setProfileKey((n) => n + 1)} />
+          <BusinessProfileForm key={profileKey} />
+        </div>
+      )}
       {tab === "history" && <History agentId={agentId} onError={setError} onUndone={onNotesChanged} />}
     </section>
   );
