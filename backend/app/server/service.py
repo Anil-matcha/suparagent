@@ -122,14 +122,19 @@ def _preflight(scope: str, *, platform: str, which: Callable[[str], str | None],
 def install(*, name: str, user: str, env_file: str, scope: str = "system", dry_run: bool = False,
             run: Callable[[list[str]], int] = _default_run, platform: str = sys.platform,
             which: Callable[[str], str | None] = shutil.which, euid: int | None = None,
-            target: Path | None = None, out=print) -> int:
+            target: Path | None = None, out=print,
+            python: str | None = None, backend: Path | None = None) -> int:
     """Write the unit and enable it. Never replaces an existing unit."""
     problem = _preflight(scope, platform=platform, which=which, euid=euid)
     if problem:
         out(f"Suparagent server: {problem}", file=sys.stderr)
         return 2
+    if python is None and not sys.platform.startswith("linux") and platform.startswith("linux"):
+        python = "/opt/suparagent/backend/.venv/bin/python"
+    if backend is None and not sys.platform.startswith("linux") and platform.startswith("linux"):
+        backend = Path("/opt/suparagent/backend")
     try:
-        text = render(user=user, env_file=env_file, scope=scope)
+        text = render(user=user, env_file=env_file, scope=scope, python=python, backend=backend)
     except ServiceError as exc:
         out(f"Suparagent server: {exc}", file=sys.stderr)
         return 2
