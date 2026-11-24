@@ -1,6 +1,7 @@
 """Desktop account proxy tests: no live cloud calls are made."""
 
 import json
+import sys
 
 import httpx
 import pytest
@@ -32,7 +33,8 @@ async def test_verified_session_is_encrypted_restored_and_never_returned(manager
     assert "secret-device-token" not in json.dumps(result)
     raw = (instance.data_dir / account.SESSION_FILE).read_bytes()
     assert b"secret-device-token" not in raw
-    assert (instance.data_dir / account.SESSION_FILE).stat().st_mode & 0o777 == 0o600
+    if sys.platform != "win32":
+        assert (instance.data_dir / account.SESSION_FILE).stat().st_mode & 0o777 == 0o600
 
     async def session_handler(request):
         assert request.headers["authorization"] == "Bearer secret-device-token"
