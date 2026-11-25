@@ -49,6 +49,16 @@ export function readGrant(agent: { provider: string; connector_scopes?: Scopes |
   };
 }
 
+// Remembered per card, so a reload or a second tab never asks the agent to continue twice. Storage can be blocked or
+// empty, in which case the card simply offers the Continue button again.
+export const resumedKey = (requestId: string) => `app-connection-resumed:${requestId}`;
+export function wasResumed(requestId: string, storage?: Pick<Storage, "getItem"> | null): boolean {
+  try { return storage?.getItem(resumedKey(requestId)) === "1"; } catch { return false; }
+}
+export function markResumed(requestId: string, storage?: Pick<Storage, "setItem"> | null): void {
+  try { storage?.setItem(resumedKey(requestId), "1"); } catch { /* keep going; the button is the fallback */ }
+}
+
 export function continueText(app: string): string {
   return `I connected ${appLabel(app)} and allowed you to use it. Please continue.`;
 }

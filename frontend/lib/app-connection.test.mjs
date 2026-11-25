@@ -41,3 +41,18 @@ test('the grant is read level, merged, never raising write or touching other app
 });
 
 test('continue text names the app', () => assert.match(continueText('google_sheets'), /Google sheets/));
+
+test("resumed marker is remembered per card and storage failures are harmless", async () => {
+  const { wasResumed, markResumed, resumedKey } = await import("./app-connection.ts");
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => void store.set(k, v) };
+  assert.equal(wasResumed("a", storage), false);
+  markResumed("a", storage);
+  assert.equal(wasResumed("a", storage), true);
+  assert.equal(wasResumed("b", storage), false);
+  assert.equal(resumedKey("a"), "app-connection-resumed:a");
+  const broken = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } };
+  assert.equal(wasResumed("a", broken), false);
+  assert.doesNotThrow(() => markResumed("a", broken));
+  assert.equal(wasResumed("a", null), false);
+});

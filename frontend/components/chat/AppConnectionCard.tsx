@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { continueText, readGrant, stepFor } from "@/lib/app-connection";
+import { continueText, markResumed, readGrant, stepFor, wasResumed } from "@/lib/app-connection";
 import {
   POLL_INTERVAL_MS, accountsOf, appLabel, outcomeFor, pollDeadline, reservePage,
   type ComposioAccount, type TabWindow,
@@ -28,7 +28,12 @@ export function AppConnectionCard({ item, threadId, onContinue, sendDisabled = f
   const [connectedId, setConnectedId] = useState<string | null>(null);
   const [waiting, setWaiting] = useState<{ accountId: string; expiresIn: number } | null>(null);
   const [busy, setBusy] = useState<"connect" | "allow" | "continue" | null>(null);
-  const [sent, setSent] = useState(false);
+  const storage = typeof window === "undefined" ? null : window.localStorage;
+  const [sent, setSent] = useState(() => wasResumed(item.requestId, storage));
+  // Set only by the person's own click on Allow: the last step only they can do. A card that merely loads, such as an old
+  // one in the history, never sends anything by itself.
+  const [auto, setAuto] = useState(false);
+  const sending = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const live = useRef(true);
   useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
@@ -80,19 +85,26 @@ export function AppConnectionCard({ item, threadId, onContinue, sendDisabled = f
       if (!agent) throw new Error("That agent is no longer here.");
       if (accountsOf(found, item.app).every((account) => account.status !== "ACTIVE")) throw new Error(`No ${label} account is connected yet.`);
       await api.updateAgent(agent.id, readGrant(agent, item.app, found, connectedId));
-      if (live.current) { setAccounts(found); setGranted(true); }
+      if (live.current) { setAccounts(found); setGranted(true); setAuto(true); }
     } catch (err) { if (live.current) setError(fail(err, err instanceof Error ? err.message : "Could not save the access.")); }
     finally { if (live.current) setBusy(null); }
   };
 
   const proceed = async () => {
-    if (!onContinue || sent) return;
+    if (!onContinue || sent || sending.current) return;
+    sending.current = true;
     setBusy("continue"); setError(null);
     try {
-      if (await onContinue(continueText(item.app))) { if (live.current) setSent(true); }
-      else if (live.current) setError("Could not send that now. Try again in a moment.");
-    } finally { if (live.current) setBusy(null); }
+      if (await onContinue(continueText(item.app))) { markResumed(item.requestId, storage); if (live.current) setSent(true); }
+      else if (live.current) setError("Could not send that now. Press Continue to try again.");
+    } finally { sending.current = false; if (live.current) { setBusy(null); setAuto(false); } }
   };
+
+  // Resume the agent as soon as the person has allowed it; if another reply is still running, wait for it to finish.
+  useEffect(() => {
+    if (auto && !sent && !sendDisabled && onContinue && threadId != null) void proceed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, sent, sendDisabled]);
 
   return (
     <article className="space-y-2 rounded-field border border-line p-3 text-sm" aria-label={`Connect ${label}`}>
@@ -115,7 +127,7 @@ export function AppConnectionCard({ item, threadId, onContinue, sendDisabled = f
         </button>
       </>}
       {step === "continue" && <>
-        <p>{label} is connected and {who} may read it.{sent ? " Asked to continue." : ""}</p>
+        <p>{label} is connected and {who} may read it.{sent ? ` ${who} was asked to continue.` : auto && busy === "continue" ? ` Asking ${who} to continue…` : ""}</p>
         {onContinue && threadId != null && (
           <button type="button" className={BUTTON} disabled={busy !== null || sent || sendDisabled} onClick={() => void proceed()}>
             {sent ? "Continued" : "Continue"}
