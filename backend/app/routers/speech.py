@@ -2,6 +2,8 @@
 app/auth/policy.py, so a paired device cannot call them. The audio is made with the MuAPI key the owner
 saved under Settings, Integrations; the key never leaves the server."""
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -14,7 +16,7 @@ from app.services.thread_runtime import ThreadRuntime
 
 router = APIRouter(tags=["Speech"], dependencies=[Depends(require_local_access)])
 
-EXPOSED = "X-Speech-Cost-Usd, X-Speech-Truncated, X-Speech-Chars"
+EXPOSED = "X-Speech-Cost-Usd, X-Speech-Truncated, X-Speech-Chars, X-Speech-Cached"
 
 
 class SpeakRequest(BaseModel):
@@ -29,7 +31,8 @@ async def _muapi_key(rt: ThreadRuntime) -> str | None:
 
 @router.get("/speech/voices")
 async def list_voices(rt: ThreadRuntime = Depends(get_runtime)):
-    return speech.voices(bool(await _muapi_key(rt)))
+    available = bool(await _muapi_key(rt))
+    return await asyncio.to_thread(speech.voices, available)
 
 
 @router.post("/speech/speak")
@@ -44,8 +47,16 @@ async def speak(payload: SpeakRequest, rt: ThreadRuntime = Depends(get_runtime))
         "X-Content-Type-Options": "nosniff",
         "X-Speech-Truncated": "1" if spoken.truncated else "0",
         "X-Speech-Chars": str(spoken.chars),
+        "X-Speech-Cached": "1" if spoken.cached else "0",
         "Access-Control-Expose-Headers": EXPOSED,
     }
     if spoken.cost_usd is not None:
         headers["X-Speech-Cost-Usd"] = f"{spoken.cost_usd:.4f}"
     return Response(spoken.audio, media_type=spoken.mime, headers=headers)
+
+
+@router.delete("/speech/cache")
+async def clear_saved_audio():
+    """Delete every saved clip. Reading a reply aloud again will then cost a new request."""
+    removed = await asyncio.to_thread(speech.clear_cache)
+    return {"removed": removed}

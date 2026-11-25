@@ -255,3 +255,131 @@ async def test_too_many_spoken_replies_in_a_window_are_refused(client, monkeypat
     assert (await client.post("/speech/speak", json={"text": "Two."})).status_code == 200
     r = await client.post("/speech/speak", json={"text": "Three."})
     assert r.status_code == 429 and r.json()["detail"]["error_code"] == "rate_limited"
+
+
+# ---- saved audio: reading the same reply again costs nothing ----
+
+def _paid_posts(muapi):
+    return [r for r in muapi.requests if r[0] == "POST" and not r[1].endswith("/estimate-cost")]
+
+
+async def test_the_second_reading_of_a_reply_is_played_from_saved_audio(client, monkeypatch):
+    await save_key(client)
+    muapi = Muapi(monkeypatch)
+    first = await client.post("/speech/speak", json={"text": "Hello **world**. Nice day."})
+    second = await client.post("/speech/speak", json={"text": "Hello **world**. Nice day."})
+    assert first.headers["x-speech-cached"] == "0" and "x-speech-cost-usd" in first.headers
+    assert second.status_code == 200 and second.content == first.content == MP3
+    assert second.headers["x-speech-cached"] == "1" and "x-speech-cost-usd" not in second.headers
+    assert len(_paid_posts(muapi)) == 1
+    assert speech.cache_info()["clips"] == 1
+
+
+async def test_the_same_words_in_the_same_voice_share_a_clip_even_if_the_markdown_differs(client, monkeypatch):
+    await save_key(client)
+    muapi = Muapi(monkeypatch)
+    await client.post("/speech/speak", json={"text": "Sales are **up**."})
+    again = await client.post("/speech/speak", json={"text": "## Sales are _up_."})
+    assert again.headers["x-speech-cached"] == "1" and len(_paid_posts(muapi)) == 1
+
+
+async def test_another_voice_is_a_new_clip(client, monkeypatch):
+    await save_key(client)
+    muapi = Muapi(monkeypatch)
+    await client.post("/speech/speak", json={"text": "Hello there.", "voice": "eleven-daniel"})
+    other = await client.post("/speech/speak", json={"text": "Hello there.", "voice": "eleven-liam"})
+    assert other.headers["x-speech-cached"] == "0" and len(_paid_posts(muapi)) == 2
+    assert speech.cache_info()["clips"] == 2
+
+
+async def test_a_saved_clip_of_a_long_reply_still_says_it_was_cut(client, monkeypatch):
+    await save_key(client)
+    Muapi(monkeypatch)
+    text = "This is a sentence of some length. " * 400
+    await client.post("/speech/speak", json={"text": text})
+    again = await client.post("/speech/speak", json={"text": text})
+    assert again.headers["x-speech-cached"] == "1" and again.headers["x-speech-truncated"] == "1"
+
+
+async def test_saved_replies_do_not_count_against_the_rate_limit(client, monkeypatch):
+    await save_key(client)
+    Muapi(monkeypatch, statuses=("completed",))
+    monkeypatch.setattr(speech, "RATE_MAX", 1)
+    for _ in range(4):
+        assert (await client.post("/speech/speak", json={"text": "Only once."})).status_code == 200
+    assert (await client.post("/speech/speak", json={"text": "Something else."})).status_code == 429
+
+
+async def test_a_double_press_makes_one_request(client, monkeypatch):
+    import asyncio
+    await save_key(client)
+    muapi = Muapi(monkeypatch)
+    results = await asyncio.gather(*[client.post("/speech/speak", json={"text": "Hello there."}) for _ in range(3)])
+    assert [r.status_code for r in results] == [200, 200, 200]
+    assert len(_paid_posts(muapi)) == 1
+    assert sorted(r.headers["x-speech-cached"] for r in results) == ["0", "1", "1"]
+
+
+async def test_only_the_newest_clips_are_kept(client, monkeypatch):
+    await save_key(client)
+    Muapi(monkeypatch, statuses=("completed",))
+    monkeypatch.setattr(speech, "KEEP_CLIPS", 2)
+    for n in range(4):
+        await client.post("/speech/speak", json={"text": f"Reply number {n}."})
+    assert speech.cache_info()["clips"] == 2
+
+
+async def test_a_damaged_saved_clip_is_dropped_and_made_again(client, monkeypatch):
+    await save_key(client)
+    muapi = Muapi(monkeypatch)
+    await client.post("/speech/speak", json={"text": "Hello there."})
+    for clip in speech.cache_dir().iterdir():
+        clip.write_bytes(b"<html>not audio</html>")
+    again = await client.post("/speech/speak", json={"text": "Hello there."})
+    assert again.status_code == 200 and again.headers["x-speech-cached"] == "0" and len(_paid_posts(muapi)) == 2
+
+
+async def test_the_saved_audio_can_be_emptied(client, monkeypatch):
+    await save_key(client)
+    muapi = Muapi(monkeypatch)
+    await client.post("/speech/speak", json={"text": "Hello there."})
+    assert (await client.get("/speech/voices")).json()["saved"]["clips"] == 1
+    r = await client.delete("/speech/cache")
+    assert r.status_code == 200 and r.json() == {"removed": 1}
+    assert (await client.get("/speech/voices")).json()["saved"] == {"clips": 0, "bytes": 0}
+    again = await client.post("/speech/speak", json={"text": "Hello there."})
+    assert again.headers["x-speech-cached"] == "0" and len(_paid_posts(muapi)) == 2
+    assert (await client.delete("/speech/cache")).json() == {"removed": 1}
+    assert (await client.delete("/speech/cache")).json() == {"removed": 0}
+
+
+async def test_a_failed_reading_is_not_saved(client, monkeypatch):
+    await save_key(client)
+    Muapi(monkeypatch, task_error="boom")
+    assert (await client.post("/speech/speak", json={"text": "Hello there."})).status_code == 502
+    assert speech.cache_info()["clips"] == 0
+
+
+# ---- the voice setting ----
+
+async def test_the_saved_voice_is_the_default_and_a_request_can_still_choose_another(client, monkeypatch):
+    from app.core.config import settings
+    await save_key(client)
+    muapi = Muapi(monkeypatch)
+    monkeypatch.setattr(settings, "SPEECH_VOICE", "fish-narrator")
+    assert (await client.get("/speech/voices")).json()["default"] == "fish-narrator"
+    await client.post("/speech/speak", json={"text": "Hello there."})
+    assert json.loads(_paid_posts(muapi)[0][3])["voice_id"] == "voice_fish_narrator"
+    await client.post("/speech/speak", json={"text": "Hello there.", "voice": "eleven-liam"})
+    assert json.loads(_paid_posts(muapi)[1][3])["voice_id"] == "voice_liam"
+
+
+async def test_a_voice_that_no_longer_exists_falls_back_to_the_default(client, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "SPEECH_VOICE", "removed-voice")
+    assert (await client.get("/speech/voices")).json()["default"] == "eleven-daniel"
+
+
+async def test_the_voice_list_carries_a_price_hint_for_each_voice(client):
+    voices = (await client.get("/speech/voices")).json()["voices"]
+    assert all(v["price_hint"].startswith("from about $") for v in voices)

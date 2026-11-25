@@ -5,6 +5,7 @@ import { api, ApiError, type Agent } from "@/lib/api";
 import { capabilityIds, spendingCapabilityIds, type IntegrationManifest } from "@/lib/integrations";
 import { SettingsCard } from "../SettingsCard";
 import { INTEGRATION_APIS } from "./adapters";
+import { INTEGRATION_BLOCKS } from "./blocks";
 
 type GrantMap = Record<number, string[]>;
 
@@ -152,6 +153,11 @@ export function IntegrationPanel({
         {message && <p role="status" className="text-xs text-muted">{message}</p>}
       </SettingsCard>
       </div>
+
+      {configured && manifest.blocks.map((id) => {
+        const Block = INTEGRATION_BLOCKS[id];
+        return <Block key={id} />;
+      })}
 
       <SettingsCard title={manifest.access.title} description={manifest.access.description}>
         {!agents.length ? <p className="text-sm text-muted">{manifest.access.emptyMessage}</p> : (

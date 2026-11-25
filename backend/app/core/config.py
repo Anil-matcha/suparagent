@@ -186,6 +186,8 @@ class Settings(BaseSettings):
     IMAGE_API_BASE_URL: str = "https://api.openai.com/v1"
     IMAGE_API_KEY: str = ""
     IMAGE_MODEL: str = "gpt-image-1"
+    # Spoken replies (BL-53): the voice a reply is read in. An id from app/services/speech_voices.py.
+    SPEECH_VOICE: str = "eleven-daniel"
     AUTH_LIMITS_DIR: str = ""
     # Whether a request from this machine needs no sign-in:
     #   off       every request signs in (default; safest)

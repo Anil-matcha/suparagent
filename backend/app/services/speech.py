@@ -3,24 +3,32 @@
 The owner asks for one reply to be read aloud; nothing is spoken on its own. The text is first made
 fit for the ear (Markdown removed, code left out, anything that looks like a credential replaced), cut
 at a sentence boundary when it is longer than the voice allows, then sent to MuAPI with the key the
-owner saved under Settings, Integrations. The audio comes back as bytes for the browser to play and is
-not stored. Provider error text is never passed on.
+owner saved under Settings, Integrations. Provider error text is never passed on.
+
+The finished audio is kept in a small private folder, keyed by the cleaned text and the voice, so
+reading the same reply again costs nothing. The folder holds the newest clips only and the owner can
+empty it.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import os
 import re
 import time
+import weakref
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from app.core import tool_timeout
-from app.services import media_fetch
+from app.core import app_settings, tool_timeout
+from app.services import attachments, media_fetch
 from app.services.agent_memory import redact_secrets
 from app.services.muapi_data_api import MuapiDataApi, MuapiError, _model_endpoint
+from app.services.speech_voices import DEFAULT_VOICE, VOICES, Voice
 
 log = logging.getLogger(__name__)
 
@@ -31,9 +39,11 @@ TEXT_MAX_CHARS = 20_000  # what the route accepts; the voice's own limit is appl
 POLL_SECONDS = 1.5
 WAIT_SECONDS = 75.0
 # A guard against a loop or a stuck button spending the owner's money: this many spoken replies
-# in the window, per server process.
+# (not counting saved ones) in the window, per server process.
 RATE_MAX = 20
 RATE_WINDOW_SECONDS = 600
+KEEP_CLIPS = 50
+_EXTENSIONS = {"audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/ogg": ".ogg", "audio/flac": ".flac", "audio/mp4": ".m4a"}
 
 
 class SpeechError(Exception):
@@ -43,31 +53,13 @@ class SpeechError(Exception):
 
 
 @dataclass(frozen=True)
-class Voice:
-    id: str
-    label: str
-    model: str
-    voice_id: str
-    max_chars: int
-
-
-# One choice of voice is one MuAPI task plus the voice it takes. Prices are MuAPI's and change; the
-# owner sees the quoted cost after each reply is spoken.
-VOICES: dict[str, Voice] = {voice.id: voice for voice in (
-    Voice("eleven-daniel", "Daniel (ElevenLabs)", "elevenlabs-v4-turbo", "voice_daniel", 5000),
-    Voice("eleven-liam", "Liam (ElevenLabs)", "elevenlabs-v4-turbo", "voice_liam", 5000),
-    Voice("fish-narrator", "Narrator (Fish Audio)", "fish-s2-1-pro", "voice_fish_narrator", 10000),
-)}
-DEFAULT_VOICE = "eleven-daniel"
-
-
-@dataclass(frozen=True)
 class Spoken:
     audio: bytes
     mime: str
     cost_usd: float | None
     truncated: bool
     chars: int
+    cached: bool = False
 
 
 # --- making text fit for the ear ---------------------------------------------------------------
@@ -129,9 +121,85 @@ def cut_at_boundary(text: str, limit: int) -> tuple[str, bool]:
     return (window[:space] if space > limit // 3 else window).strip(), True
 
 
+# --- the saved audio ---------------------------------------------------------------------------
+
+def cache_dir() -> Path:
+    return attachments.root_dir().parent / "speech-audio"
+
+
+def cache_key(voice: Voice, spoken: str) -> str:
+    return hashlib.sha256(f"{voice.model}\0{voice.voice_id}\0{spoken}".encode("utf-8")).hexdigest()[:40]
+
+
+def _clips() -> list[Path]:
+    folder = cache_dir()
+    if not folder.is_dir():
+        return []
+    return [p for p in folder.iterdir() if p.is_file() and p.suffix in _EXTENSIONS.values()]
+
+
+def _cache_find(key: str) -> tuple[bytes, str] | None:
+    for extension in _EXTENSIONS.values():
+        path = cache_dir() / f"{key}{extension}"
+        if not path.is_file():
+            continue
+        try:
+            audio = path.read_bytes()
+        except OSError:
+            continue
+        mime = sniff_audio(audio)
+        if mime is None:
+            path.unlink(missing_ok=True)  # damaged or replaced: not a clip any more
+            continue
+        os.utime(path)  # a replay keeps the clip among the newest
+        return audio, mime
+    return None
+
+
+def _cache_store(key: str, audio: bytes, mime: str) -> None:
+    folder = cache_dir()
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = folder / f"{key}{_EXTENSIONS[mime]}"
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(audio)
+    os.replace(tmp, path)
+    newest_first = sorted(_clips(), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in newest_first[KEEP_CLIPS:]:
+        old.unlink(missing_ok=True)
+
+
+def cache_info() -> dict:
+    clips = _clips()
+    return {"clips": len(clips), "bytes": sum(p.stat().st_size for p in clips)}
+
+
+def clear_cache() -> int:
+    """Delete every saved clip (and any half-written one). Returns how many files were removed."""
+    folder = cache_dir()
+    if not folder.is_dir():
+        return 0
+    removed = 0
+    for path in list(folder.iterdir()):
+        if path.is_file() and (path.suffix in _EXTENSIONS.values() or path.suffix == ".tmp"):
+            path.unlink(missing_ok=True)
+            removed += 1
+    return removed
+
+
 # --- the provider ------------------------------------------------------------------------------
 
 _recent: deque[float] = deque()
+_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
+
+
+def _lock_for(key: str) -> asyncio.Lock:
+    lock = _locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _locks[key] = lock
+    return lock
 
 
 def _check_rate() -> None:
@@ -178,11 +246,22 @@ def find_audio_url(value: Any, depth: int = 0) -> str | None:
     return None
 
 
+def current_voice() -> str:
+    """The voice saved in Settings (or set on the server), falling back to the built-in default."""
+    try:
+        chosen = app_settings.get("SPEECH_VOICE")
+    except app_settings.SettingUnavailable:
+        return DEFAULT_VOICE
+    return chosen if chosen in VOICES else DEFAULT_VOICE
+
+
 def voices(available: bool) -> dict:
     return {
         "available": available,
-        "default": DEFAULT_VOICE,
-        "voices": [{"id": v.id, "label": v.label, "max_chars": v.max_chars} for v in VOICES.values()],
+        "default": current_voice(),
+        "voices": [{"id": v.id, "label": v.label, "max_chars": v.max_chars, "price_hint": v.price_hint}
+                   for v in VOICES.values()],
+        "saved": cache_info(),
     }
 
 
@@ -190,16 +269,31 @@ async def speak(text: str, voice: str | None, api_key: str | None) -> Spoken:
     if not (api_key or "").strip():
         raise SpeechError(409, "provider_not_configured",
                           "Spoken replies need MuAPI. Connect it under Settings, Integrations.")
-    chosen = VOICES.get(voice or DEFAULT_VOICE)
+    chosen = VOICES.get(voice or current_voice())
     if chosen is None:
         raise SpeechError(422, "unknown_voice", "That voice does not exist.")
     plain = normalize_for_speech(text[:TEXT_MAX_CHARS * 2])
     if not plain:
         raise SpeechError(422, "nothing_to_say", "There is nothing in this reply to read aloud.")
     spoken, truncated = cut_at_boundary(plain, chosen.max_chars)
-    _check_rate()
+    key = cache_key(chosen, spoken)
+    # One request at a time per clip, so a double press waits for the first and then plays the saved audio.
+    async with _lock_for(key):
+        saved = await asyncio.to_thread(_cache_find, key)
+        if saved is not None:
+            return Spoken(audio=saved[0], mime=saved[1], cost_usd=None, truncated=truncated, chars=len(spoken), cached=True)
+        _check_rate()
+        audio, mime, cost = await _synthesize(chosen, spoken, api_key.strip())
+        try:
+            await asyncio.to_thread(_cache_store, key, audio, mime)
+        except OSError:
+            log.warning("could not save the spoken clip")  # the reply still plays; it just will not be saved
+    return Spoken(audio=audio, mime=mime, cost_usd=cost, truncated=truncated, chars=len(spoken))
+
+
+async def _synthesize(chosen: Voice, spoken: str, api_key: str) -> tuple[bytes, str, float | None]:
     payload = {"prompt": spoken, "voice_id": chosen.voice_id}
-    client = MuapiDataApi(api_key.strip())
+    client = MuapiDataApi(api_key)
     try:
         async with asyncio.timeout(WAIT_SECONDS + tool_timeout.seconds()):
             info = await client._request("GET", f"models/{chosen.model}")
@@ -230,8 +324,7 @@ async def speak(text: str, voice: str | None, api_key: str | None) -> Spoken:
         raise SpeechError(502, "not_audio", "The voice service returned something that is not audio.")
     cost = submission.get("cost", {}).get("amount_usd") if isinstance(submission, dict) and isinstance(
         submission.get("cost"), dict) else None
-    return Spoken(audio=audio, mime=mime, cost_usd=cost if isinstance(cost, (int, float)) else quote,
-                  truncated=truncated, chars=len(spoken))
+    return audio, mime, cost if isinstance(cost, (int, float)) else quote
 
 
 async def _quote(client: MuapiDataApi, model: str, payload: dict) -> float | None:

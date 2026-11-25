@@ -34,6 +34,14 @@ export type IntegrationManifest = {
     scheduledSpendNote: string;
   };
   capabilities: readonly IntegrationCapability[];
+  /** Extra cards this integration adds once it is connected, drawn by components/settings/integrations/blocks.tsx. */
+  blocks: readonly IntegrationBlockId[];
+};
+
+/** The extra cards the page knows how to draw. A manifest may list only these. */
+export type IntegrationBlockId = "spoken-replies";
+export const INTEGRATION_BLOCK_ANCHORS: Record<IntegrationBlockId, string> = {
+  "spoken-replies": "setting-integration-spoken-replies",
 };
 
 export const INTEGRATIONS: readonly IntegrationManifest[] = [
@@ -62,6 +70,7 @@ export const INTEGRATIONS: readonly IntegrationManifest[] = [
       { id: "muapi_data_api_call", label: "Make a capped paid call", risk: "spends" },
       { id: "muapi_predict_result", label: "Check a prediction result", risk: "read" },
     ],
+    blocks: ["spoken-replies"],
   },
 ];
 

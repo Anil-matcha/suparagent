@@ -1146,6 +1146,8 @@ export type NotificationPreferences = {
 
 export const api = {
   speak: (body: { text: string; voice?: string }, signal?: AbortSignal) => requestSpeech(body, signal),
+  speechVoices: () => request<import("./speech").SpeechVoices>("/speech/voices"),
+  clearSavedSpeech: () => request<{ removed: number }>("/speech/cache", { method: "DELETE" }),
   listImageProviders: () => request<import("./image-gen").ImageProvider[]>("/images/providers"),
   generateImage: (body: { prompt: string; provider?: string; size?: string }) =>
     request<import("./image-gen").GeneratedImage>("/images/generate", { method: "POST", body: JSON.stringify(body) }),
@@ -2014,8 +2016,9 @@ async function requestBlobUrl(path: string): Promise<string> {
   return URL.createObjectURL(await res.blob());
 }
 
-// Read one reply aloud (BL-53). The audio is not stored on the server; the cost and whether the text
-// was cut come back as headers. The caller revokes the object URL.
+// Read one reply aloud (BL-53). The server keeps the audio so the same reply can be played again for
+// free; the cost, whether the text was cut and whether it came from saved audio come back as headers.
+// The caller revokes the object URL.
 async function requestSpeech(body: { text: string; voice?: string }, signal?: AbortSignal): Promise<import("./speech").SpokenReply> {
   const res = await fetch(`${API_BASE}/speech/speak`, {
     method: "POST",
@@ -2031,6 +2034,7 @@ async function requestSpeech(body: { text: string; voice?: string }, signal?: Ab
     url: URL.createObjectURL(await res.blob()),
     costUsd: Number.isFinite(cost) ? cost : null,
     truncated: res.headers.get("X-Speech-Truncated") === "1",
+    cached: res.headers.get("X-Speech-Cached") === "1",
   };
 }
 

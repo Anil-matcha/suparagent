@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { INTEGRATIONS, capabilityIds, spendingCapabilityIds } from "./integrations.ts";
+import { INTEGRATIONS, INTEGRATION_BLOCK_ANCHORS, capabilityIds, spendingCapabilityIds } from "./integrations.ts";
 import { SETTINGS_REGISTRY } from "./settings-registry.ts";
 
 const backendFile = fileURLToPath(new URL("../../backend/app/services/muapi_data_api.py", import.meta.url));
@@ -44,5 +44,15 @@ test("the connection texts name the integration", () => {
   for (const item of INTEGRATIONS) {
     assert.ok(item.secret.helpUrl.startsWith("https://"));
     assert.ok(item.access.emptyMessage.includes(item.name));
+  }
+});
+
+test("every extra card a manifest lists is known, anchored and reachable from Settings search", () => {
+  for (const item of INTEGRATIONS) {
+    for (const block of item.blocks) {
+      const anchor = INTEGRATION_BLOCK_ANCHORS[block];
+      assert.ok(anchor, `${item.id}: unknown block ${block}`);
+      assert.ok(SETTINGS_REGISTRY.some((entry) => entry.anchorId === anchor && entry.page === "integrations"), `${block}: no Settings search entry`);
+    }
   }
 });
