@@ -19,6 +19,21 @@ export function DesktopAccountLogin({ status, onSignedIn }: { status: DesktopAcc
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [googleWaiting, setGoogleWaiting] = useState(false);
+
+  // Opens the system browser and waits for the person to finish there (Google refuses embedded windows).
+  async function signInWithGoogle() {
+    setBusy(true); setGoogleWaiting(true); setError(null); setNotice("Finish signing in with Google in your browser, then return here.");
+    try {
+      await request("/desktop-account/google", { method: "POST", body: JSON.stringify({ adopt_local_data: adopt }) });
+      setNotice(null); onSignedIn();
+    } catch (err) { setNotice(null); setError(err instanceof Error ? err.message : "Google sign-in did not finish. Try again."); }
+    finally { setBusy(false); setGoogleWaiting(false); }
+  }
+
+  async function cancelGoogle() {
+    try { await request("/desktop-account/google/cancel", { method: "POST" }); } catch { /* the wait ends on its own */ }
+  }
 
   async function sendCode() {
     setBusy(true); setError(null); setNotice(null);
@@ -52,6 +67,12 @@ export function DesktopAccountLogin({ status, onSignedIn }: { status: DesktopAcc
       {notice && <Banner>{notice}</Banner>}
       {error && <Banner tone="danger">{error}</Banner>}
       <Button type="submit" disabled={busy || (sent && !status.profile_bound && !adopt)}>{busy ? "Please wait…" : sent ? "Verify and continue" : "Email me a code"}</Button>
+      {!sent && <div className="space-y-3">
+        <p className="text-center text-xs text-muted">or</p>
+        {googleWaiting
+          ? <Button type="button" variant="ghost" onClick={() => void cancelGoogle()}>Cancel Google sign-in</Button>
+          : <Button type="button" variant="secondary" disabled={busy || (!status.profile_bound && !adopt)} onClick={() => void signInWithGoogle()}>Continue with Google</Button>}
+      </div>}
       {sent && <div className="flex flex-wrap gap-4 text-sm"><Button variant="ghost" size="sm" disabled={busy} onClick={() => void sendCode()}>Resend code</Button><Button variant="ghost" size="sm" disabled={busy} onClick={() => { setSent(false); setCode(""); setError(null); setNotice(null); }}>Use another email</Button></div>}
     </form>
     {status.profile_bound && <DesktopAccountDanger kind="reset" onDone={onSignedIn} />}
