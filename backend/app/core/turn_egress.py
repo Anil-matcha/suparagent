@@ -219,7 +219,10 @@ class BridgeHandler(socketserver.BaseRequestHandler):
             return
 
 
-class GateServer(BoundedServer, socketserver.UnixStreamServer):
+_UnixStreamServer = getattr(socketserver, "UnixStreamServer", socketserver.TCPServer)
+
+
+class GateServer(BoundedServer, _UnixStreamServer):
     pass
 
 

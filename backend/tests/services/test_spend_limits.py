@@ -224,6 +224,8 @@ async def test_the_spend_line_is_kept_when_nothing_was_refused(world):
 
 @pytest.fixture
 async def api(world):
+    from app.db.session import get_db
+
     app = FastAPI()
     app.include_router(spend_router, prefix="/api/v1")
     app.dependency_overrides[agents_runtime] = lambda: world.runtime
@@ -237,6 +239,7 @@ async def api(world):
     app.dependency_overrides[get_db] = db_of_this_test
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app, client=("127.0.0.1", 50000)), base_url="http://localhost") as client:
         yield client
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -254,9 +257,12 @@ async def test_the_owner_reads_limits_and_turns_scheduled_paid_use_on_and_off(ap
     on = await api.put(f"/api/v1/spend-limits/workers/{world.agent.id}", json={"scheduled_paid_use": True})
     assert on.status_code == 200 and on.json()["scheduled_paid_use"] is True
     off = await api.put(f"/api/v1/spend-limits/workers/{world.agent.id}", json={"scheduled_paid_use": False})
-    assert off.json()["scheduled_paid_use"] is False
-    assert (await api.put("/api/v1/spend-limits/workers/999999999", json={"scheduled_paid_use": True})).status_code == 404
-    assert (await api.put(f"/api/v1/spend-limits/workers/{world.agent.id}", json={"scheduled_paid_use": "yes"})).status_code == 422
+    assert off.status_code == 200 and off.json()["scheduled_paid_use"] is False
+    bad_worker = await api.put("/api/v1/spend-limits/workers/999999999", json={"scheduled_paid_use": True})
+    assert bad_worker.status_code == 404
+    bad_val = await api.put(f"/api/v1/spend-limits/workers/{world.agent.id}", json={"scheduled_paid_use": "yes"})
+    assert bad_val.status_code == 422
+    await asyncio.sleep(0)
 
 
 @pytest.fixture
@@ -278,7 +284,9 @@ async def test_a_headless_owner_can_change_the_limits_and_sees_where_each_comes_
     assert (response.json()["per_call_cents"], response.json()["per_run_cents"], response.json()["per_worker_month_cents"]) == (10, 20, 30)
     after = (await api.get("/api/v1/spend-limits")).json()["limits"]
     assert after["sources"] == {"per_call": "database", "per_run": "database", "monthly": "database"}
-    assert (await api.put("/api/v1/spend-limits", json={"per_call_cents": -1, "per_run_cents": 20, "per_worker_month_cents": 30})).status_code == 422
+    bad_limit = await api.put("/api/v1/spend-limits", json={"per_call_cents": -1, "per_run_cents": 20, "per_worker_month_cents": 30})
+    assert bad_limit.status_code == 422
+    await asyncio.sleep(0)
 
 
 async def test_a_saved_headless_limit_is_what_a_paid_call_is_held_to(world, clean_limit_rows):
