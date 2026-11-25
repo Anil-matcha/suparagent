@@ -2,6 +2,7 @@ import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview
 import type { SpendLimits, SpendLimitsChange, SpendOverview, WorkerSpend } from "./spend";
 import type { HireReceipt, LatestSuggestion, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
+import type { ShadowReport } from "./shadow-report";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
 import type { CustomMcpConnection, CustomMcpDraft, CustomMcpTool } from "./custom-mcp";
 import type { ServiceAudit, ServiceCandidate, ServiceKind, ServicePreset, ServiceProvider, ServiceResource } from "./agent-services";
@@ -141,6 +142,8 @@ function authHeaders(method: string | undefined): Record<string, string> {
   const safe = !method || ["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   return !safe && csrfToken ? { "X-CSRF-Token": csrfToken } : {};
 }
+
+export type ShadowReportResponse = ShadowReport;
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -1202,6 +1205,9 @@ export const api = {
   saveComposioKey: (apiKey: string) => request<ComposioStatus>("/integrations/composio/key", { method: "PUT", body: JSON.stringify({ api_key: apiKey }) }),
   deleteComposioKey: () => request<void>("/integrations/composio/key", { method: "DELETE" }),
   listComposioAccounts: () => request<ComposioAccount[]>("/integrations/composio/accounts"),
+  // A support worker's shadow-mode comparison (numbers and thread ids only). `refresh` asks the server to recompute; it may answer 429.
+  getShadowReport: (agentId: number, options: { days?: number; refresh?: boolean } = {}) =>
+    request<ShadowReportResponse>(`/agents/${agentId}/shadow-report?days=${options.days ?? 28}&refresh=${options.refresh ? "true" : "false"}`),
   connectComposioApp: (toolkit: string, alias?: string) =>
     request<ComposioLink>("/integrations/composio/connect", { method: "POST", body: JSON.stringify(alias ? { toolkit, alias } : { toolkit }) }),
   disconnectComposioAccount: (id: string) => request<void>(`/integrations/composio/accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),

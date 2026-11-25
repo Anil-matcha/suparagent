@@ -49,6 +49,7 @@ import { AgentImageGenerator } from "./AgentImageGenerator";
 import { useT } from "@/lib/use-i18n";
 import { AgentEditorFooter } from "./agents/AgentEditorFooter";
 import { ConnectedAppsSection } from "./agents/ConnectedAppsSection";
+import { ShadowResultsPanel } from "./agents/ShadowResultsPanel";
 import { filterAgents, shouldShowAgentSearch, unavailableEnginesInUse } from "./agents/agent-list";
 import { draftSignature } from "./agents/draft-state";
 
@@ -963,6 +964,7 @@ export function AgentsPanel({
                         onAccountScopesChange={(connector_account_scopes) => setDraft({ ...draft, connector_account_scopes })}
                         onSharesChange={(connector_shares) => setDraft({ ...draft, connector_shares })}
                       />
+                      <ShadowResultsPanel agentId={draft.id} connectorScopes={draft.connector_scopes} />
                     </TabPanel>
                   )}
 
