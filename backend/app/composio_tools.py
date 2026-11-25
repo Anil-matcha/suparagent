@@ -25,6 +25,9 @@ from app import composio_generic
 
 LIST_ACCOUNTS = "list_accounts"
 CONNECT = "request_app_connection"
+TRIAGE_MARK = "gmail_triage_mark"
+# What a support worker calls a thread it ranked (BL-173). A fixed list, so the comparison with what the owner did is countable.
+TRIAGE_CATEGORIES = ("urgent", "angry", "at_risk", "blocked", "billing", "bug", "question", "other")
 ROUTINE_WRITE_TOOLS = ("gmail_send_email", "github_fork_repository", "github_create_branch", "github_commit_file",
                        "github_create_pull_request", "gmail_prepare_checked_reply")
 LEVELS = ("read", "write")  # in order: write includes read
@@ -257,6 +260,19 @@ TOOLS: tuple[Tool, ...] = (
     _app_read("gmail_get_profile", "gmail", "GMAIL_GET_PROFILE",
               "Read the connected Gmail account's profile address and message counts.", {},
               fields=("emailAddress", "messagesTotal", "threadsTotal", "historyId"), defaults=(("user_id", "me"),)),
+    # Not a Composio tool: it only records the worker's own ranking of a thread in this app's database, never sends
+    # anything to Gmail (services/shadow_marks.py). The slug keeps the table's naming rule and is never sent.
+    _app_read(TRIAGE_MARK, "gmail", "GMAIL_TRIAGE_MARK",
+              "Record how you ranked one Gmail thread, in this app only; it does not touch Gmail. Give the thread's ID from a Gmail "
+              "lookup, rank 1 for the most urgent, and a category. When you keep a draft reply in your notes instead of Gmail, also "
+              "give its notes path and text (repeat the same rank and category). The thread must be inside the share of mail you were given.",
+              {"thread_id": MESSAGE_ID,
+               "rank": _int(1, 1000, "Where this thread comes in your ranking; 1 is the most urgent."),
+               "category": {"type": "string", "enum": list(TRIAGE_CATEGORIES), "description": "What the thread is mainly about."},
+               "owner_only": {"type": "boolean", "description": "True when only the owner should answer (legal, refund over your limit, privacy)."},
+               "draft_ref": _text(200, "The notes path of the draft reply you wrote for this thread.", "line"),
+               "draft_text": _text(4000, "The text of that draft reply (personal details are removed before it is kept).")},
+              ("thread_id", "rank", "category"), special="triage_mark"),
     _app_write("gmail_send_email", "gmail", "GMAIL_SEND_EMAIL",
                "Send a plain-text email to one recipient. This sends email immediately. Interactive calls require approval; routines require an explicit Send email grant.",
                {"recipient_email": EMAIL, "subject": TITLE, "body": BODY},
@@ -419,7 +435,7 @@ def tool_note(levels: dict, connect: bool = False) -> str:
     names = ", ".join(sorted(levels))
     hints = {
         "github": "GitHub profile, repositories, issues, pull requests, commits and files",
-        "gmail": "Gmail search, messages, threads and profile",
+        "gmail": "Gmail search, messages, threads and profile, and recording how you ranked a thread (gmail_triage_mark, kept in this app only)",
         "googlecalendar": "Google Calendar lists, bounded event searches and finding events by words",
         "googleads": "Google Ads reports by read-only GAQL query (each ends in LIMIT 100 or less)",
         "metaads": "Meta Ads accounts, campaigns and performance insights",

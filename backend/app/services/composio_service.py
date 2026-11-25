@@ -356,7 +356,7 @@ async def _shared_result(client, session_id: str, tool, arguments: dict, account
 
 async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments: dict, alias: str | None, *,
                    account_id: str | None = None, allowed_account_ids: list[str] | None = None,
-                   before_execute=None, shares: dict | None = None) -> dict:
+                   before_execute=None, shares: dict | None = None, mark_context: dict | None = None) -> dict:
     """Run one allowed tool as one connected account and return what the agent may see.
     Never raises for a Composio problem: the agent gets a short error instead.
 
@@ -366,7 +366,10 @@ async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments
 
     `shares` is the agent's `connector_shares` (app/gmail_share.py): the share of a Gmail
     mailbox it may see. Every caller that acts for an agent must pass it; None means no rule
-    (tests/services/test_run_tool_callers.py checks that no caller forgets)."""
+    (tests/services/test_run_tool_callers.py checks that no caller forgets).
+
+    `mark_context` ({"agent_id", "turn_id"}) is only for gmail_triage_mark, which records in this
+    app's database and never reaches Composio (services/shadow_marks.py)."""
     from app import composio_tools, gmail_share
 
     write = tool.kind == "write"
@@ -408,6 +411,10 @@ async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments
             refusal = await before_execute(account.id)
             if refusal is not None:
                 return refusal
+        if tool.special == "triage_mark":
+            # After the account rules, the share rule and the routine's receipt: no session and no Composio call.
+            from app.services import shadow_marks
+            return await shadow_marks.record(db, owner_id, arguments, account.id, rule, mark_context)
         session_id, record = await _session(db, owner_id, client, record)
     except ComposioError as exc:  # nothing was sent for the tool yet
         return _agent_error(exc)

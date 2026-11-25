@@ -40,6 +40,7 @@ SPEND_TABLES = {"spend_ledger"}
 WORKFLOW_TABLES = {"workflow", "workflow_run"}
 PEOPLE_TABLES = {"person", "person_invite", "people_audit"}
 MUAPI_TABLES = {"muapi_tool_grant"}
+SHADOW_TABLES = {"shadow_prediction"}
 
 
 def postgres_ddl(table_names: set[str]) -> str:
@@ -98,6 +99,7 @@ def test_every_table_is_covered_by_one_of_the_snapshots():
         | WORKFLOW_TABLES
         | PEOPLE_TABLES
         | MUAPI_TABLES
+        | SHADOW_TABLES
     )
     assert covered_tables == set(Base.metadata.tables)
     assert not original_tables() & F04_TABLES
@@ -183,3 +185,7 @@ def test_spend_table_compiles_to_its_reviewed_postgres_schema():
 
 def test_muapi_tool_grant_table_compiles_to_its_reviewed_postgres_schema():
     assert postgres_ddl(MUAPI_TABLES) == snapshot_text(HERE / "postgres_schema_muapi.sql")
+
+
+def test_shadow_prediction_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(SHADOW_TABLES) == snapshot_text(HERE / "postgres_schema_shadow.sql")

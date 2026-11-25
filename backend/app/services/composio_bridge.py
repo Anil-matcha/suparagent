@@ -161,6 +161,10 @@ class ComposioBridge:
         return {app: ("write" if level == "write" and self.apps.get(app) == "write" else "read")
                 for app, level in current.items() if app in self.apps}
 
+    def _mark_context(self) -> dict:
+        """Where gmail_triage_mark records: always this run's agent and turn, never anything the agent sends."""
+        return {"agent_id": self.run.agent_id, "turn_id": self.run.turn_id}
+
     async def _shares(self, db) -> dict:
         """The agent's share-of-mailbox rules, read again from the database on every call so that lowering a
         share applies to the next call (gmail_share.py). A missing agent has no access anyway; a damaged value is
@@ -338,7 +342,7 @@ class ComposioBridge:
 
         result = await composio_service.run_tool(db, self.runtime.owner_id, self.client_factory, tool, sent, account,
             allowed_account_ids=allowed_account_ids.get(tool.app, []), before_execute=reserve,
-            shares=await self._shares(db))
+            shares=await self._shares(db), mark_context=self._mark_context())
         if receipt_id is not None:
             await self._finish_uninterrupted_action(receipt_id, result, tool.kind)
         return result
@@ -411,7 +415,7 @@ class ComposioBridge:
                 return await self.execute_routine(db, name, tool, sent, account, allowed_account_ids)
             return await composio_service.run_tool(db, rt.owner_id, self.client_factory, tool, sent, account,
                                                    allowed_account_ids=allowed_account_ids.get(tool.app, []),
-                                                   shares=await self._shares(db))
+                                                   shares=await self._shares(db), mark_context=self._mark_context())
 
     async def execute_routine(self, db, name, tool, sent, account, allowed_account_ids: dict[str, list[str]]):
         """A grant is checked again at dispatch; reserve writes before any I/O.
@@ -497,7 +501,7 @@ class ComposioBridge:
         dispatch_tool = replace(tool, special="checked_message") if draft_mode and name == "gmail_fetch_message" else tool
         result = await composio_service.run_tool(db, rt.owner_id, self.client_factory, dispatch_tool, sent, None,
                                                  account_id=bound, allowed_account_ids=permitted_accounts,
-                                                 shares=await self._shares(db))
+                                                 shares=await self._shares(db), mark_context=self._mark_context())
         checked_source = result.pop("_checked_source", None)
         if checked_source and checked_source["message_id"] == sent.get("message_id"):
             if not hasattr(run, "checked_reply_sources"):
