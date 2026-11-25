@@ -23,6 +23,7 @@ export function DesktopAccountLogin({ status, onSignedIn }: { status: DesktopAcc
 
   // Opens the system browser and waits for the person to finish there (Google refuses embedded windows).
   async function signInWithGoogle() {
+    if (!status.profile_bound && !adopt) { setNotice(null); setError("Tick the box above to use this account for this local profile, then try again."); return; }
     setBusy(true); setGoogleWaiting(true); setError(null); setNotice("Finish signing in with Google in your browser, then return here.");
     try {
       await request("/desktop-account/google", { method: "POST", body: JSON.stringify({ adopt_local_data: adopt }) });
@@ -57,22 +58,22 @@ export function DesktopAccountLogin({ status, onSignedIn }: { status: DesktopAcc
 
   return <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center space-y-5 px-5 py-8">
     <ThemeToggle />
-    <div><h1 className="text-2xl font-semibold">Sign in to Suparagent</h1><p className="mt-2 text-sm text-muted">Use your email to sign in or create an account. Connecting Claude or Codex comes next.</p></div>
+    <div><h1 className="text-2xl font-semibold">Sign in to Suparagent</h1><p className="mt-2 text-sm text-muted">Sign in with Google, or use your email, to sign in or create an account. Connecting Claude or Codex comes next.</p></div>
     {status.profile_bound && <Banner tone="warning">Your agents and conversations on this computer are locked until you sign in with the account linked to it.</Banner>}
     <p className="text-sm text-muted">Your agents and files stay on this computer. Account sign-in does not upload them or connect your email inbox.</p>
+    {!status.profile_bound && <Checkbox label="Use this account for this local profile, including any agents and conversations already saved here." checked={adopt} disabled={busy} onChange={event => setAdopt(event.target.checked)} />}
+    {!sent && <div className="space-y-4">
+      {googleWaiting
+        ? <Button type="button" variant="ghost" className="w-full" onClick={() => void cancelGoogle()}>Cancel Google sign-in</Button>
+        : <Button type="button" variant="primary" className="w-full" disabled={busy} onClick={() => void signInWithGoogle()}>Continue with Google</Button>}
+      <p className="text-center text-xs text-muted">or use your email</p>
+    </div>}
+    {notice && <Banner>{notice}</Banner>}
+    {error && <Banner tone="danger">{error}</Banner>}
     <form className="space-y-4" onSubmit={submit}>
       <Field label="Email">{(props) => <Input {...props} type="email" autoComplete="email" required maxLength={254} disabled={busy || sent} value={email} onChange={event => setEmail(event.target.value)} />}</Field>
       {sent && <Field label="Email code">{(props) => <Input {...props} autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required value={code} disabled={busy} onChange={event => setCode(event.target.value.replace(/\D/g, ""))} />}</Field>}
-      {!status.profile_bound && <Checkbox label="Use this account for this local profile, including any agents and conversations already saved here." checked={adopt} disabled={busy} onChange={event => setAdopt(event.target.checked)} />}
-      {notice && <Banner>{notice}</Banner>}
-      {error && <Banner tone="danger">{error}</Banner>}
-      <Button type="submit" disabled={busy || (sent && !status.profile_bound && !adopt)}>{busy ? "Please wait…" : sent ? "Verify and continue" : "Email me a code"}</Button>
-      {!sent && <div className="space-y-3">
-        <p className="text-center text-xs text-muted">or</p>
-        {googleWaiting
-          ? <Button type="button" variant="ghost" onClick={() => void cancelGoogle()}>Cancel Google sign-in</Button>
-          : <Button type="button" variant="secondary" disabled={busy || (!status.profile_bound && !adopt)} onClick={() => void signInWithGoogle()}>Continue with Google</Button>}
-      </div>}
+      <Button type="submit" variant={sent ? "primary" : "secondary"} disabled={busy || (sent && !status.profile_bound && !adopt)}>{busy ? "Please wait…" : sent ? "Verify and continue" : "Email me a code"}</Button>
       {sent && <div className="flex flex-wrap gap-4 text-sm"><Button variant="ghost" size="sm" disabled={busy} onClick={() => void sendCode()}>Resend code</Button><Button variant="ghost" size="sm" disabled={busy} onClick={() => { setSent(false); setCode(""); setError(null); setNotice(null); }}>Use another email</Button></div>}
     </form>
     {status.profile_bound && <DesktopAccountDanger kind="reset" onDone={onSignedIn} />}
