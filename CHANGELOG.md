@@ -18,6 +18,10 @@
 - Give team setup a versioned review card: the person can revise, approve or decline the specialist plan, and nothing changes before approval. Approval rechecks current team state and records its result and Undo data with the transcript event. The applied card opens each new specialist with an editable, unsent first-task draft. No automated, live-provider or packaged-release verification is claimed for this source change.
 - Expand the Muapi Community MCP listing to selected data research APIs. Search and estimate are read-only; paid lookups require a per-call USD cap and approval and can consume Muapi credits.
 
+## 0.8.8 - 2026-11-25
+
+Desktop 0.8.8: you can sign in to the desktop app with Google. Continue with Google opens your own browser and returns you to the app signed in; the email code still works. This release also brings the ready-made workers and the business profile, spending limits for paid tools, and test fixes for Windows. Installed apps pick it up from Settings → App updates.
+
 ## 0.8.7 - 2026-11-17
 
 Desktop 0.8.7: the installed app now updates itself from Settings → App updates (Download, then Restart to update) instead of showing a command. This release still has to be installed by hand; later ones update in place.
