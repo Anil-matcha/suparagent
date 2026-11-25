@@ -30,6 +30,8 @@ class ButtonClick:
     message_ts: str
     action_id: str
     value: str
+    # The text of the message the button is on (a card's fallback line).
+    message_text: str = ""
 
 
 def event_id_of(envelope: dict) -> str | None:
@@ -91,4 +93,5 @@ def _button_click(payload: dict) -> ButtonClick | None:
         message_ts=values[2],
         action_id=values[3],
         value=values[4],
+        message_text=message.get("text") if isinstance(message.get("text"), str) else "",
     )

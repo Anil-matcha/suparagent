@@ -30,10 +30,10 @@ def to_mrkdwn(markdown: str) -> str:
         kept.append(piece)
         return f"\x00{len(kept) - 1}\x00"
 
-    text = _FENCE.sub(lambda m: keep(_escape(m.group(0))), text)
+    text = _FENCE.sub(lambda m: keep(escape(m.group(0))), text)
     text = _tables(text, keep)
-    text = _INLINE_CODE.sub(lambda m: keep(_escape(m.group(0))), text)
-    text = _escape(text)
+    text = _INLINE_CODE.sub(lambda m: keep(escape(m.group(0))), text)
+    text = escape(text)
     text = _LINK.sub(lambda m: f"<{m.group(2)}|{m.group(1)}>", text)
     text = _HEADING.sub(lambda m: "**" + m.group(1).replace("**", "") + "**", text)
     text = _BULLET.sub(lambda m: m.group(1) + "• ", text)
@@ -50,7 +50,8 @@ def to_mrkdwn(markdown: str) -> str:
     return re.sub(r"\x00(\d+)\x00", lambda m: kept[int(m.group(1))], text)
 
 
-def _escape(text: str) -> str:
+def escape(text: str) -> str:
+    """`&`, `<` and `>` as Slack wants them in text."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
@@ -68,6 +69,6 @@ def _tables(text: str, keep) -> str:
         while j < len(lines) and _TABLE_ROW.match(lines[j]):
             j += 1
         rows = [row.strip() for row in lines[i:j] if not _TABLE_RULE.match(row)]
-        out.append(keep(_escape("```\n" + "\n".join(rows) + "\n```")))
+        out.append(keep(escape("```\n" + "\n".join(rows) + "\n```")))
         i = j
     return "\n".join(out)

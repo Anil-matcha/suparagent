@@ -226,10 +226,10 @@ class ChannelBridge:
     async def _finish(self, kind: str, data: dict, texts: list[str]) -> None:
         reply = "\n\n".join(texts)
         if kind == "turn.completed":
-            await self._say(reply or NOTHING_TO_SAY, markdown=True)
+            await self._say(reply or NOTHING_TO_SAY)
             return
         if reply:
-            await self._say(reply, markdown=True)
+            await self._say(reply)
         if kind == "turn.cancelled":
             await self._say("That was stopped.")
         elif kind == "turn.interrupted":
@@ -296,10 +296,8 @@ class ChannelBridge:
 
     # -- posting ----------------------------------------------------------------------
 
-    async def _say(self, text: str, *, markdown: bool = False) -> None:
-        text = redact_secrets(text)[0]
-        if markdown:
-            text = self.adapter.render(text)
+    async def _say(self, text: str) -> None:
+        text = self.adapter.render(redact_secrets(text)[0])
         for piece in chunk_text(text, self.adapter.max_chars):
             try:
                 await self.adapter.send_text(piece)
