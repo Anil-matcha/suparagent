@@ -1935,7 +1935,7 @@ One summary in the worker's notes, dated. You change nothing in any account.
         suggested_tools=MUAPI_TOOLS,
         setup_depth="standard",
         setup_text="""\
-1. Which Gmail label or search finds your support mail? Connect Gmail if you can; otherwise tell me where you will leave messages.
+1. Which Gmail label or search finds your support mail? I will ask you to connect Gmail here in the chat; if you would rather not, tell me where you will leave messages.
 2. What is your refund and replacement policy, in plain words, and from what amount must you decide a refund yourself?
 3. What is your review page address, and how soon after a job should customers be asked?
 
@@ -1950,7 +1950,7 @@ Tone, your business name and town, and competitors can wait. I read your sent re
                 body="""\
 # Inbox triage
 
-Follow the shared run rules in your instructions. Needs no MuAPI: it works the same when MuAPI is not connected, and spends nothing. Missing input: the Gmail label or search that finds support mail. Without Gmail tools, read the messages in your notes; if there are none, end `skipped` and ask where to find them in one short question.
+Follow the shared run rules in your instructions. Needs no MuAPI: it works the same when MuAPI is not connected, and spends nothing. Missing input: the Gmail label or search that finds support mail. Without Gmail tools, read the messages in your notes; if there are none, call `request_app_connection` for `gmail` and end your turn (in a scheduled run, end `skipped` naming Gmail as the blocker).
 
 Your job this run: a ranked list of open threads the owner can act on in minutes.
 

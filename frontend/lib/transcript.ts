@@ -6,6 +6,7 @@
 // preview that the stored assistant.message replaces.
 import type { ThreadEvent } from "./api";
 import type { RecalledNote, RecalledPassage } from "./memory";
+import { parseAppConnection } from "./app-connection.ts";
 import type { NeedsYouRow } from "./needs-you";
 
 export type ApprovalStatus = "pending" | "allowed" | "denied" | "expired" | "cancelled";
@@ -65,6 +66,7 @@ export type TranscriptItem =
   | { kind: "team_setup"; key: string; turnId: number | null; requestId: string; state: "pending" | "rejected" | "applied"; version?: number; plan?: TeamSetupPlan; undoAvailable: boolean; rows: { action: string; agentId: number; name: string; firstTask?: string; changes?: { field: string; before: unknown; after: unknown }[] }[] }
   | { kind: "skill_change"; key: string; turnId: number | null; requestId: string; name: string; action: string; description: string; previousDescription: string | null; warnings: string[]; note: string }
   | { kind: "routine_change"; key: string; turnId: number | null; requestId: string; routineId: number; name: string; action: string; paused: boolean; note: string }
+  | { kind: "app_connection"; key: string; turnId: number | null; requestId: string; app: string; state: "needs_key" | "needs_connection" | "needs_access" | "ready"; reason: string; agentId: number; agentName: string }
   | { kind: "agent_created"; key: string; turnId: number | null; agentId: number; name: string; title: string }
   | { kind: "user"; key: string; turnId: number | null; text: string; attachments: AttachmentRef[]; skills?: string[]; ts?: string; person?: string }
   | {
@@ -441,6 +443,14 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
         previousDescription: skill.before && typeof skill.before.description === "string" ? skill.before.description : null,
         warnings: Array.isArray(skill.warnings) ? skill.warnings.filter((w): w is string => typeof w === "string") : [],
         note: text(data.undo_note) }] };
+    }
+
+    case "app.connection.requested": {
+      const request = parseAppConnection(data);
+      if (!request) return base;
+      const previous = state.items.find((item): item is Extract<TranscriptItem, { kind: "app_connection" }> => item.kind === "app_connection" && item.requestId === request.requestId);
+      const card = { kind: "app_connection" as const, key: previous?.key ?? key, turnId: previous?.turnId ?? id, ...request };
+      return { ...base, items: previous ? state.items.map(item => item === previous ? card : item) : [...state.items, card] };
     }
 
     case "team.setup.proposed": {

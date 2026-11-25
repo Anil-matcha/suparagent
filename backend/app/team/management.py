@@ -47,7 +47,7 @@ def routine_info(row):
 def capabilities():
     return {'available': ['create and edit team agents', 'profile and default model changes', 'delegation and follow-up',
                           'rooms and job-thread housekeeping', 'routine schedules, pause, resume and run now', 'saved skill authoring', 'conversation search'],
-            'requires_settings': {'connections': 'App connections need a separate integration; chat cannot provision credentials or app-event subscriptions.',
+            'requires_settings': {'connections': 'An agent can ask for an app with request_app_connection, which shows a connect card; the person signs in and allows access themselves. Chat never takes credentials and cannot set up app-event subscriptions.',
                                   'computers': 'Allocate or remove a computer in Agent settings. Computer actions use existing approved tools.',
                                   'lead_role': 'Only the person chooses the team lead and coordinated agents in Agent settings.'},
             'unavailable': ['app-event and limit-reset triggers', 'voice settings and voice notes', 'shared team memory catalog', 'arbitrary MCP server installation'],

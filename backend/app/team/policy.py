@@ -96,6 +96,11 @@ def automatic(tool, mode, team, arguments):
         if not team.is_lead:
             return 'denied', 'lead_only'
         return 'allowed', 'team_retry'
+    elif name == 'request_app_connection':
+        # Only shows a card and connects nothing; an unattended run has no one to answer it.
+        if team.origin in UNATTENDED:
+            return 'denied', 'outside_origin'
+        return 'allowed', 'team_connect_request'
     elif name == 'raise_escalation':
         return 'allowed', 'team_escalation'  # a lead's own flag goes to the person
     elif name == 'say_in_room':

@@ -221,7 +221,7 @@ def _agent_error(exc: ComposioError) -> dict:
 
 def _choose(active: list[Account], alias: str | None, app: str) -> tuple[Account | None, dict | None]:
     if not active:
-        return None, {"error": f"No {app} account is connected. The person can connect one in Settings.", "code": "not_connected"}
+        return None, {"error": f"No {app} account is connected. Call request_app_connection for {app} to show the person a card, then end your turn; do not retry.", "code": "not_connected"}
     names = sorted(a.alias or a.id for a in active)
     if alias is not None:
         match = [a for a in active if (a.alias or "").lower() == alias.lower()]
