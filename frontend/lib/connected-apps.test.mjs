@@ -153,3 +153,37 @@ test("an agent can be given the curated apps, then every other app with an accou
   assert.deepEqual(agentAppOptions(null, null).map((o) => o.slug), ["github", "gmail", "googlecalendar", "googleads", "metaads"]);
   assert.deepEqual(agentAppOptions([account("a", "ACTIVE", "Bad Name")], { "../x": "read" }).map((o) => o.slug), ["github", "gmail", "googlecalendar", "googleads", "metaads"]);
 });
+
+// Share of a mailbox (BL-172)
+test("an account with no share entry shows all mail", async () => {
+  const { shareOf } = await import("./connected-apps.ts");
+  assert.equal(shareOf(undefined, "gmail", "a"), 100);
+  assert.equal(shareOf({ gmail: { a: { percent: 10 } } }, "gmail", "a"), 10);
+  assert.equal(shareOf({ gmail: { a: { percent: 10 } } }, "gmail", "b"), 100);
+  assert.equal(shareOf({ gmail: { a: { percent: 0 } } }, "gmail", "a"), 100); // invalid is read as no rule, never as a narrower one
+});
+
+test("withShare sets one account, keeps pins and other accounts, and ignores invalid input", async () => {
+  const { withShare } = await import("./connected-apps.ts");
+  const base = { gmail: { a: { percent: 50, pins: ["t1"] }, b: { percent: 25 } } };
+  const next = withShare(base, "gmail", "a", 10);
+  assert.deepEqual(next, { gmail: { a: { percent: 10, pins: ["t1"] }, b: { percent: 25 } } });
+  assert.deepEqual(base.gmail.a, { percent: 50, pins: ["t1"] }); // the input is not changed
+  for (const bad of [0, 101, 2.5, NaN, "5"]) assert.deepEqual(withShare(base, "gmail", "a", bad), base);
+  assert.deepEqual(withShare(base, "github", "a", 10), base); // only Gmail has a share
+  assert.deepEqual(withShare(undefined, "gmail", "a", 100), {}); // all mail with no entry is already no entry
+  assert.deepEqual(withShare({ gmail: { a: { percent: 10 } } }, "gmail", "a", 100), { gmail: { a: { percent: 100 } } }); // stored explicitly
+});
+
+test("sharesToSend drops shares for accounts no longer selected, an app turned off and engines without apps", async () => {
+  const { sharesToSend } = await import("./connected-apps.ts");
+  const shares = { gmail: { a: { percent: 10, pins: ["t1"] }, gone: { percent: 5 } }, github: { x: { percent: 5 } } };
+  const accounts = { gmail: ["a"], github: ["x"] };
+  assert.deepEqual(sharesToSend(shares, accounts, { gmail: "read", github: "read" }, "claude"), { gmail: { a: { percent: 10, pins: ["t1"] } } });
+  assert.deepEqual(sharesToSend(shares, accounts, { gmail: "off" }, "claude"), {});
+  assert.deepEqual(sharesToSend(shares, accounts, { gmail: "read" }, "custom-command"), {});
+  assert.deepEqual(sharesToSend({ gmail: { a: { percent: 0 }, b: { percent: 100 } } }, { gmail: ["a", "b"] }, { gmail: "read" }, "claude"),
+    { gmail: { b: { percent: 100 } } });
+  const sent = sharesToSend({ gmail: { a: { percent: 10, reshuffle: true } } }, { gmail: ["a"] }, { gmail: "read" }, "claude");
+  assert.deepEqual(sent, { gmail: { a: { percent: 10 } } }); // a reshuffle request is never sent from a saved draft
+});

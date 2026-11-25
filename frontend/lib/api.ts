@@ -501,6 +501,8 @@ export type Agent = {
   connector_scopes?: Record<string, string> | null;
   // Exact connected accounts this agent may use, keyed by Composio app slug.
   connector_account_scopes?: Record<string, string[]>;
+  // The share of a mailbox it may see, {app: {accountId: {percent, pins}}}; no entry means all mail. Never a seed.
+  connector_shares?: Record<string, Record<string, { percent: number; pins?: string[] }>>;
   // Off: no quick model call files facts noticed in its conversations.
   memory_upkeep?: boolean;
   compaction_summary?: boolean;
@@ -574,6 +576,8 @@ export type AgentInput = {
   connector_scopes?: Record<string, string> | null;
   // Update only: exact connected account IDs this agent may use, keyed by app.
   connector_account_scopes?: Record<string, string[]>;
+  // Update only: the share of a mailbox it may see per account ({gmail: {accountId: {percent}}}); omit to leave it unchanged.
+  connector_shares?: Record<string, Record<string, { percent: number; pins?: string[] }>>;
   // Create only: the first contents of the agent's notes.
   starter_notes?: string | null;
 };

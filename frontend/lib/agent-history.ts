@@ -30,6 +30,7 @@ const FIELD_LABELS: Record<string, string> = {
   fallback_model: "fallback model",
   connector_scopes: "connected apps",
   connector_account_scopes: "connected accounts",
+  connector_shares: "share of mail",
 };
 
 export function fieldLabel(field: string): string {

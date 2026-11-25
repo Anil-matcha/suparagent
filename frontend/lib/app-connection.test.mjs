@@ -56,3 +56,31 @@ test("resumed marker is remembered per card and storage failures are harmless", 
   assert.doesNotThrow(() => markResumed("a", broken));
   assert.equal(wasResumed("a", null), false);
 });
+
+test('the first grant can start narrow, never widens a share, and leaves shares alone otherwise', async () => {
+  const { isSupportWorker, START_PRESETS, RECOMMENDED_START } = await import('./app-connection.ts');
+  const agent = { provider: 'claude', connector_scopes: {}, connector_account_scopes: {}, connector_shares: {} };
+  const accounts = [acct('gmail'), acct('gmail', 'ACTIVE', 'a2')];
+  // All mail (the default): the shares are not sent at all, so saved ones stay as they are.
+  assert.equal('connector_shares' in readGrant(agent, 'gmail', accounts, null), false);
+  assert.equal('connector_shares' in readGrant(agent, 'gmail', accounts, null, 100), false);
+  // Narrow start, both accounts.
+  assert.deepEqual(readGrant(agent, 'gmail', accounts, null, 10).connector_shares, { gmail: { 'a-gmail': { percent: 10 }, a2: { percent: 10 } } });
+  // Only the account just connected.
+  assert.deepEqual(readGrant(agent, 'gmail', accounts, 'a2', 25).connector_shares, { gmail: { a2: { percent: 25 } } });
+  // An existing narrower share is never widened; a wider one is narrowed; unrelated shares are kept.
+  const had = { ...agent, connector_scopes: { gmail: 'read' }, connector_account_scopes: { gmail: ['a-gmail', 'z'] },
+    connector_shares: { gmail: { 'a-gmail': { percent: 5, pins: ['t1'] }, z: { percent: 50 } } } };
+  assert.equal('connector_shares' in readGrant(had, 'gmail', [acct('gmail')], 'a-gmail', 25), false); // 25 would widen 5: nothing changes
+  assert.deepEqual(readGrant(had, 'gmail', [acct('gmail'), acct('gmail', 'ACTIVE', 'z')], 'z', 10).connector_shares,
+    { gmail: { 'a-gmail': { percent: 5, pins: ['t1'] }, z: { percent: 10 } } });
+  // Only Gmail has a share; invalid starts do nothing.
+  assert.equal('connector_shares' in readGrant(agent, 'github', [acct('github')], null, 10), false);
+  for (const bad of [0, 150, 2.5, NaN]) assert.equal('connector_shares' in readGrant(agent, 'gmail', accounts, null, bad), false);
+  // The page knows the support worker only by the skill it was hired with.
+  assert.equal(isSupportWorker([{ source: 'user' }, { source: 'template:support-customer-satisfaction' }]), true);
+  assert.equal(isSupportWorker([{ source: 'template:marketing-seo' }, { source: 'learned' }]), false);
+  assert.equal(isSupportWorker(null), false);
+  assert.deepEqual([...START_PRESETS], [100, 25, 10, 5]);
+  assert.equal(RECOMMENDED_START, 10);
+});

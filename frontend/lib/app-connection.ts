@@ -1,6 +1,6 @@
 // The "connect an app" card an agent asks for with request_app_connection: the plain logic, apart from the component.
-import { accountScopesToSend, accountsOf, appLabel, levelOf, scopesToSend, withAccount, withApp } from "./connected-apps.ts";
-import type { AccountScopes, ComposioAccount, Scopes } from "./connected-apps.ts";
+import { accountScopesToSend, accountsOf, appLabel, levelOf, scopesToSend, shareOf, sharesToSend, supportsShare, withAccount, withApp, withShare } from "./connected-apps.ts";
+import type { AccountScopes, ComposioAccount, Scopes, Shares } from "./connected-apps.ts";
 
 export type AppConnectionState = "needs_key" | "needs_connection" | "needs_access" | "ready";
 const STATES: readonly string[] = ["needs_key", "needs_connection", "needs_access", "ready"];
@@ -34,18 +34,39 @@ export function stepFor(state: AppConnectionState, accounts: ComposioAccount[] |
   return state === "needs_connection" ? "connect" : state === "needs_access" ? "allow" : "continue";
 }
 
+// The first grant of a mailbox can already be narrow (BL-172). All mail is the default; the Customer support worker
+// starts at a tenth, because a smaller share gives too little to judge it by. The page knows that worker only by the
+// skill it was hired with (source "template:<id>"); anything else, or a failed lookup, starts at all mail.
+export const START_PRESETS: readonly number[] = [100, 25, 10, 5];
+export const RECOMMENDED_START = 10;
+const SUPPORT_WORKER_SOURCE = "template:support-customer-satisfaction";
+export function isSupportWorker(skills: readonly { source?: string }[] | null | undefined): boolean {
+  return Boolean(skills?.some((skill) => skill.source === SUPPORT_WORKER_SOURCE));
+}
+
 // What to save to let the agent read the app. Never raises a level (an app already at "write" stays) and keeps every
 // other app and account the agent has. Account ids: the one just connected, else every active account of the app.
-export function readGrant(agent: { provider: string; connector_scopes?: Scopes | null; connector_account_scopes?: AccountScopes },
-                          app: string, accounts: ComposioAccount[], connectedId?: string | null) {
+// `startPercent` (Gmail only) can narrow the share of an account but never widen one the agent already has; when it
+// changes nothing, connector_shares is left out so the saved shares stay as they are.
+export function readGrant(agent: { provider: string; connector_scopes?: Scopes | null; connector_account_scopes?: AccountScopes; connector_shares?: Shares | null },
+                          app: string, accounts: ComposioAccount[], connectedId?: string | null, startPercent = 100) {
   const level = levelOf(agent.connector_scopes, app) === "write" ? "write" : "read";
   const ids = connectedId ? [connectedId] : accountsOf(accounts, app).filter((account) => account.status === "ACTIVE").map((account) => account.id);
   let accountScopes: AccountScopes = { ...(agent.connector_account_scopes ?? {}) };
   for (const id of ids) accountScopes = withAccount(accountScopes, app, id, true);
   const scopes = withApp(agent.connector_scopes, app, level);
+  let shares: Shares = { ...(agent.connector_shares ?? {}) };
+  let narrowed = false;
+  if (supportsShare(app) && Number.isInteger(startPercent) && startPercent >= 1 && startPercent < 100) {
+    for (const id of ids) {
+      const current = shareOf(shares, app, id);
+      if (startPercent < current) { shares = withShare(shares, app, id, startPercent); narrowed = true; }
+    }
+  }
   return {
     connector_scopes: scopesToSend(scopes, agent.provider),
     connector_account_scopes: accountScopesToSend(accountScopes, scopes, agent.provider),
+    ...(narrowed ? { connector_shares: sharesToSend(shares, accountScopes, scopes, agent.provider) } : {}),
   };
 }
 

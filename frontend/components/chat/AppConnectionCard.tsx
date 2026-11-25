@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { continueText, markResumed, readGrant, stepFor, wasResumed } from "@/lib/app-connection";
+import { RECOMMENDED_START, START_PRESETS, continueText, isSupportWorker, markResumed, readGrant, stepFor, wasResumed } from "@/lib/app-connection";
 import {
-  POLL_INTERVAL_MS, accountsOf, appLabel, outcomeFor, pollDeadline, reservePage,
+  POLL_INTERVAL_MS, accountsOf, appLabel, outcomeFor, pollDeadline, reservePage, supportsShare,
   type ComposioAccount, type TabWindow,
 } from "@/lib/connected-apps";
 import type { TranscriptItem } from "@/lib/transcript";
@@ -30,6 +30,11 @@ export function AppConnectionCard({ item, threadId, onContinue, sendDisabled = f
   const [busy, setBusy] = useState<"connect" | "allow" | "continue" | null>(null);
   const storage = typeof window === "undefined" ? null : window.localStorage;
   const [sent, setSent] = useState(() => wasResumed(item.requestId, storage));
+  // How much of a mailbox to start with (Gmail only). All mail unless this is the Customer support worker, which
+  // starts at a tenth; a choice the person already made is never replaced by that suggestion.
+  const [startPercent, setStartPercent] = useState(100);
+  const [suggested, setSuggested] = useState(false);
+  const chose = useRef(false);
   // Set only by the person's own click on Allow: the last step only they can do. A card that merely loads, such as an old
   // one in the history, never sends anything by itself.
   const [auto, setAuto] = useState(false);
@@ -37,6 +42,16 @@ export function AppConnectionCard({ item, threadId, onContinue, sendDisabled = f
   const [error, setError] = useState<string | null>(null);
   const live = useRef(true);
   useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
+
+  useEffect(() => {
+    if (!supportsShare(item.app) || !item.agentId) return;
+    let cancelled = false;
+    api.listSkills(item.agentId).then((skills) => {
+      if (cancelled || chose.current || !isSupportWorker(skills)) return;
+      setStartPercent(RECOMMENDED_START); setSuggested(true);
+    }, () => { /* no suggestion; All mail stays selected */ });
+    return () => { cancelled = true; };
+  }, [item.app, item.agentId]);
 
   const step = granted ? "continue" : stepFor(item.state, accounts, item.state === "ready" ? { [item.app]: "read" } : null, item.app);
 
@@ -84,7 +99,7 @@ export function AppConnectionCard({ item, threadId, onContinue, sendDisabled = f
       const agent = agents.find((candidate) => candidate.id === item.agentId);
       if (!agent) throw new Error("That agent is no longer here.");
       if (accountsOf(found, item.app).every((account) => account.status !== "ACTIVE")) throw new Error(`No ${label} account is connected yet.`);
-      await api.updateAgent(agent.id, readGrant(agent, item.app, found, connectedId));
+      await api.updateAgent(agent.id, readGrant(agent, item.app, found, connectedId, startPercent));
       if (live.current) { setAccounts(found); setGranted(true); setAuto(true); }
     } catch (err) { if (live.current) setError(fail(err, err instanceof Error ? err.message : "Could not save the access.")); }
     finally { if (live.current) setBusy(null); }
@@ -122,8 +137,29 @@ export function AppConnectionCard({ item, threadId, onContinue, sendDisabled = f
       </>}
       {step === "allow" && <>
         <p>{label} is connected. Let {who} look at it? It can only read; you can change this in the agent&apos;s settings.</p>
+        {supportsShare(item.app) && (
+          <fieldset className="space-y-1">
+            <legend className="text-xs font-medium">Start with</legend>
+            <div role="radiogroup" aria-label={`Share of ${label} to start with`} className="inline-flex max-w-full flex-wrap gap-1 rounded-md border border-line bg-inset p-1">
+              {START_PRESETS.map((preset) => (
+                <label key={preset} className="relative">
+                  <input type="radio" name={`start-${item.requestId}`} className="peer sr-only" disabled={busy !== null} checked={startPercent === preset}
+                    onChange={() => { chose.current = true; setStartPercent(preset); }} />
+                  <span className="inline-flex min-h-8 cursor-pointer items-center rounded border border-transparent px-2.5 text-xs font-medium text-muted hover:bg-hover hover:text-ink peer-checked:border-accent peer-checked:bg-hover peer-checked:text-ink">
+                    {preset === 100 ? "All mail" : `${preset}%`}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="text-xs leading-5 text-muted">
+              {startPercent < 100
+                ? `${who} will see a fixed ${startPercent}% of threads${suggested && startPercent === RECOMMENDED_START ? " (about a tenth of threads; raise it later)" : ""}. Raise it any time in the agent's settings; it cannot send email while the share is below All mail.`
+                : "A smaller share is a safer start. You can change it later in the agent's settings."}
+            </p>
+          </fieldset>
+        )}
         <button type="button" className={BUTTON} disabled={busy !== null} onClick={() => void allow()}>
-          {busy === "allow" ? "Saving…" : `Allow ${who} to read ${label}`}
+          {busy === "allow" ? "Saving…" : `Allow ${who} to read ${label}${startPercent < 100 && supportsShare(item.app) ? ` (${startPercent}% of mail)` : ""}`}
         </button>
       </>}
       {step === "continue" && <>
