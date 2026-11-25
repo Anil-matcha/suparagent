@@ -28,6 +28,7 @@ import {
 
 import { NeedsYouCard } from "./NeedsYouCard";
 import { RoutineChangeCard } from "./RoutineChangeCard";
+import { SkillChangeCard } from "./SkillChangeCard";
 import { DelegationCard, AgentCreatedCard, TeamNoticeCard, TeamSetupCard } from "./TeamCards";
 
 const STICK_DISTANCE_PX = 80;
@@ -213,6 +214,9 @@ export function Conversation({
                   break;
                 case "team_setup":
                   node = <TeamSetupCard key={item.key} item={item} />;
+                  break;
+                case "skill_change":
+                  node = <SkillChangeCard key={item.key} item={item} />;
                   break;
                 case "routine_change":
                   node = <RoutineChangeCard key={item.key} item={item} />;

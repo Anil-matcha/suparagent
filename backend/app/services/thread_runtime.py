@@ -953,7 +953,7 @@ class ThreadRuntime:
                 ctx.team = TurnTeam(team.id, agent.id, team.lead_agent_id == agent.id,
                                     app_settings.get("TEAM_LEAD_AUTO"), origin=team_origin,
                                     delegation_enabled=agent.delegation_enabled, configuration_allowed=configuration_allowed,
-                                    setup_allowed=setup_allowed)
+                                    setup_allowed=setup_allowed, profile_auto=bool(app_settings.get("TEAM_PROFILE_AUTO")))
                 from app.team import prompt as team_prompt
                 async with self.session() as db:
                     intro = await team_prompt.build(db, team=team, agent=agent, owner_id=self.owner_id)
