@@ -19,6 +19,7 @@ from typing import IO
 
 from sqlalchemy import select
 
+from app import agent_shares
 from app.db.models import Agent, Thread
 from app.services import attachments
 from app.services.agent_memory import redact_json
@@ -33,7 +34,7 @@ AGENT_FIELDS = (
     "id", "name", "title", "description", "instructions", "provider", "model",
     "fallback_provider", "fallback_model", "workspace_path", "approval_mode",
     "memory_enabled", "recall_enabled", "memory_upkeep", "compaction_summary",
-    "use_helper", "connector_scopes", "connector_account_scopes", "pinned", "team_id", "delegation_enabled",
+    "use_helper", "connector_scopes", "connector_account_scopes", "connector_shares", "pinned", "team_id", "delegation_enabled",
     "created_by_agent_id", "archived_at", "created_at", "updated_at",
 )
 THREAD_FIELDS = (
@@ -58,7 +59,10 @@ def _plain(value):
 
 
 def _row(obj, fields: tuple[str, ...]) -> dict:
-    return redact_json({name: _plain(getattr(obj, name, None)) for name in fields})
+    row = redact_json({name: _plain(getattr(obj, name, None)) for name in fields})
+    if "connector_shares" in row:
+        row["connector_shares"] = agent_shares.public(row["connector_shares"])  # the seed stays on the server
+    return row
 
 
 class _Writer:

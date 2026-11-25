@@ -20,6 +20,7 @@ CREATE TABLE agent (
 	use_helper BOOLEAN DEFAULT true NOT NULL, 
 	connector_scopes JSON, 
 	connector_account_scopes JSON DEFAULT '{}' NOT NULL,
+	connector_shares JSON DEFAULT '{}' NOT NULL,
 	pinned BOOLEAN DEFAULT false NOT NULL, 
 	team_id BIGINT, 
 	delegation_enabled BOOLEAN DEFAULT true NOT NULL, 

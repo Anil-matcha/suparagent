@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import agent_shares
 from app.db.models import Agent, AgentRevision
 from app.services.agent_memory import redact_json
 
@@ -22,11 +23,19 @@ PROFILE_FIELDS = (
     "name", "title", "description", "instructions", "provider", "model", "effort", "workspace_path",
     "approval_mode", "pinned", "memory_enabled", "recall_enabled", "memory_upkeep", "compaction_summary",
     "use_helper", "fallback_provider", "fallback_model", "connector_scopes", "connector_account_scopes",
+    "connector_shares",
 )
 
 
 class RevisionNotFound(Exception):
     pass
+
+
+def public_snapshot(snapshot: dict) -> dict:
+    """A stored snapshot as a client may read it: the share's seed stays on the server."""
+    if not isinstance(snapshot, dict) or "connector_shares" not in snapshot:
+        return snapshot
+    return {**snapshot, "connector_shares": agent_shares.public(snapshot["connector_shares"])}
 
 
 def profile_of(agent: Agent) -> dict:
