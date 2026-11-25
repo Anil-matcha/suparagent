@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from sqlalchemy import delete, select
 
 from app.core.config import settings
+from app.db.session import get_db
 from app.db.models import Agent, Approval, Event, CommunityMcpConnection, CommunityMcpToolGrant, SpendLedger, Thread, Turn
 from app.db.models.routine import Routine, RoutineAppAction, RoutineRun
 from app.routers.agents import get_runtime as agents_runtime
@@ -226,6 +227,14 @@ async def api(world):
     app = FastAPI()
     app.include_router(spend_router, prefix="/api/v1")
     app.dependency_overrides[agents_runtime] = lambda: world.runtime
+
+    async def db_of_this_test():
+        # The router's own get_db uses the app's global engine, whose pooled PostgreSQL connection can belong to
+        # another test's event loop ("another operation is in progress"). Use this test's own sessions instead.
+        async with world.sessions() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = db_of_this_test
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app, client=("127.0.0.1", 50000)), base_url="http://localhost") as client:
         yield client
 
