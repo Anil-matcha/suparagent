@@ -31,7 +31,7 @@ async def test_a_new_agent_has_empty_notes_in_its_own_folder(api):
     assert agent["memory_enabled"] is True
     memory = await memory_of(api, agent)
     assert memory["text"] == "" and memory["lines"] == 0 and memory["enabled"] is True
-    assert memory["path"].endswith(f"agents/{agent['id']}/MEMORY.md")
+    assert memory["path"].replace("\\", "/").endswith(f"agents/{agent['id']}/MEMORY.md")
     assert (memory["max_lines"], memory["max_bytes"]) == (agent_memory.MAX_LINES, agent_memory.MAX_BYTES)
 
 

@@ -68,6 +68,8 @@ export const INTEGRATIONS: readonly IntegrationManifest[] = [
       { id: "muapi_data_api_inspect", label: "Inspect model schema", risk: "read" },
       { id: "muapi_data_api_estimate", label: "Estimate a call", risk: "read" },
       { id: "muapi_data_api_call", label: "Make a capped paid call", risk: "spends" },
+      { id: "muapi_media_search", label: "Search image, video and audio models", risk: "read" },
+      { id: "muapi_media_generate", label: "Make one capped image, video or audio item", risk: "spends" },
       { id: "muapi_predict_result", label: "Check a prediction result", risk: "read" },
     ],
     blocks: ["spoken-replies"],

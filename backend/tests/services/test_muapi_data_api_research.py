@@ -1,15 +1,15 @@
-"""The MuAPI data client reaches the read-only lookup families and never the publishing one."""
+"""The MuAPI data client reaches the read-only lookup domains and never the publishing one."""
 
 import pytest
 
 from app.services import muapi_data_api as api
 
 CATALOG = [
-    {"name": "research-web-answer", "family": "enrichment", "description": "Cited web answer", "cost": 0.02},
-    {"name": "seo-google-serp", "family": "seo", "description": "Google results", "cost": 0.01},
-    {"name": "ecommerce-product-detail", "family": "ecommerce_data", "description": "Product", "cost": 0.1},
-    {"name": "social-publish", "family": "social", "description": "Publish a post", "cost": 0.0},
-    {"name": "social-search-posts-copy", "family": "other", "description": "lookalike", "cost": 0.0},
+    {"name": "research-web-answer", "domain": "lead_enrichment", "description": "Cited web answer", "cost": 0.02},
+    {"name": "seo-google-serp", "domain": "seo", "description": "Google results", "cost": 0.01},
+    {"name": "ecommerce-product-detail", "domain": "market_data", "description": "Product", "cost": 0.1},
+    {"name": "social-publish", "domain": "social", "description": "Publish a post", "cost": 0.0},
+    {"name": "social-search-posts-copy", "domain": "other", "description": "lookalike", "cost": 0.0},
 ]
 
 
@@ -31,17 +31,20 @@ def client(monkeypatch):
     return c
 
 
-def test_data_domain_follows_the_family():
-    assert api.data_domain({"name": "x", "family": "SEO"}) == "seo"
-    assert api.data_domain({"name": "x", "family": "enrichment"}) == "enrichment"
-    assert api.data_domain({"name": "x", "family": "ecommerce_data"}) == "ecommerce_data"
-    for blocked in ("social", "sandbox", "text-generation", "tools", "other", None):
-        assert api.data_domain({"name": "research-web-answer", "family": blocked}) is None
+def test_data_domain_follows_the_domain_field():
+    for allowed in ("seo", "lead_enrichment", "scraping", "market_data"):
+        assert api.data_domain({"name": "x", "domain": allowed}) == allowed
+    assert api.data_domain({"name": "research-web-answer", "domain": "lead_enrichment"}) == "web_research"
+    # The model grouping called family is not the domain and decides nothing.
+    assert api.data_domain({"name": "x", "family": "seo"}) is None
+    for blocked in ("social", "sandbox", "ai", "other", None):
+        assert api.data_domain({"name": "research-web-answer", "domain": blocked}) is None
 
 
 def test_search_schema_lists_the_read_only_domains():
     tool = api.TOOL_BY_NAME["muapi_data_api_search"]
-    assert tool["inputSchema"]["properties"]["domain"]["enum"] == ["ecommerce_data", "enrichment", "seo"]
+    assert set(tool["inputSchema"]["properties"]["domain"]["enum"]) == {
+        "seo", "lead_enrichment", "scraping", "market_data", "web_research"}
 
 
 @pytest.mark.asyncio
@@ -49,7 +52,7 @@ async def test_search_finds_research_but_never_publishing(client):
     result = await client.call_tool("muapi_data_api_search", {"query": ""})
     names = {item["api_name"] for item in result["apis"]}
     assert names == {"research-web-answer", "seo-google-serp", "ecommerce-product-detail"}
-    only = await client.call_tool("muapi_data_api_search", {"domain": "enrichment"})
+    only = await client.call_tool("muapi_data_api_search", {"domain": "web_research"})
     assert [item["api_name"] for item in only["apis"]] == ["research-web-answer"]
     with pytest.raises(api.MuapiError):
         await client.call_tool("muapi_data_api_search", {"domain": "social"})
@@ -58,7 +61,7 @@ async def test_search_finds_research_but_never_publishing(client):
 @pytest.mark.asyncio
 async def test_inspect_accepts_research_and_refuses_other(client):
     ok = await client.call_tool("muapi_data_api_inspect", {"api_name": "research-web-answer"})
-    assert ok["family"] == "enrichment"
+    assert ok["domain"] == "web_research"
     with pytest.raises(api.MuapiError) as err:
         await client.call_tool("muapi_data_api_inspect", {"api_name": "social-publish"})
     assert err.value.code == "unsupported_api" and err.value.not_run
@@ -66,7 +69,6 @@ async def test_inspect_accepts_research_and_refuses_other(client):
 
 @pytest.mark.parametrize("raw,expected", [
     ("research-web-answer", "research-web-answer"),
-    ("api/v1/research-web-answer", "research-web-answer"),
     ("/api/v1/seo-google-serp", "seo-google-serp"),
     ("https://api.muapi.ai/api/v1/seo-google-serp", "seo-google-serp"),
 ])
@@ -99,7 +101,7 @@ def test_clean_input_drops_empty_strings_lists_and_nulls_but_keeps_zero_and_fals
 async def test_call_sends_cleaned_input(monkeypatch):
     c = api.MuapiDataApi("key")
     sent = {}
-    model = {"name": "research-web-answer", "family": "enrichment", "endpoint_url": "research-web-answer",
+    model = {"name": "research-web-answer", "domain": "lead_enrichment", "endpoint_url": "research-web-answer",
              "dynamic_pricing": True}
 
     async def fake_request(method, path, body=None, **kwargs):

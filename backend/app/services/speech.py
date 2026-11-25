@@ -75,7 +75,7 @@ _BULLET = re.compile(r"^\s*(?:[-*+]|\d{1,3}[.)])\s+", re.M)
 _RULE = re.compile(r"^\s*(?:[-*_]\s*){3,}$", re.M)
 _TABLE_RULE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(?:\|\s*:?-{2,}:?\s*)*\|?\s*$", re.M)
 _EMPHASIS = re.compile(r"(\*\*|__|~~|\*|(?<!\w)_|_(?!\w))")
-_END = re.compile(r"[.!?:;。！？]$")
+_END = re.compile(r"[.!?:;\u3002\uff01\uff1f]$")
 _REDACTED_WORD = "secret omitted"
 
 
@@ -114,7 +114,7 @@ def cut_at_boundary(text: str, limit: int) -> tuple[str, bool]:
     if len(text) <= limit:
         return text, False
     window = text[:limit]
-    ends = [m.end() for m in re.finditer(r"[.!?。！？](?:\s|$)", window)]
+    ends = [m.end() for m in re.finditer(r"[.!?\u3002\uff01\uff1f](?:\s|$)", window)]
     if ends and ends[-1] >= limit // 3:
         return window[:ends[-1]].strip(), True
     space = window.rfind(" ")

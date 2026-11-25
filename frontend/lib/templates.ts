@@ -38,6 +38,8 @@ export type AgentTemplate = {
 export type TemplateCatalog = { version: number; categories: string[]; templates: AgentTemplate[] };
 
 export const CATEGORY_LABELS: Record<string, string> = {
+  operations: "Operations",
+  growth: "Growth",
   everyday: "Everyday",
   sales: "Sales",
   marketing: "Marketing",
@@ -162,15 +164,30 @@ export function groupByCategory(templates: AgentTemplate[], categories: string[]
 
 // The workers first-run leads with: the whole bundled catalog, in the order a small business usually wants them.
 export const FIRST_RUN_IDS = [
-  "everyday-daily-briefer",
-  "sales-lead-researcher",
-  "sales-outreach-drafter",
-  "marketing-seo-writer",
-  "marketing-social-manager",
+  "operations-analyst",
+  "growth-gtm-engineer",
+  "sales-sales",
+  "marketing-seo",
+  "marketing-social-media",
   "marketing-ad-manager",
-  "support-customer-care",
-  "web-site-keeper",
+  "support-customer-satisfaction",
+  "web-web-developer",
 ];
+
+// The first-run worker cards no longer depend on the lead checkbox or on the engine's team tools: hiring is a plain
+// server call. Only a person who is creating a starter agent sees them; skipping creates nothing.
+export function showWorkerCards(createStarter: boolean): boolean {
+  return createStarter;
+}
+
+// Anything that talks to a team lead ("Chat with your team lead", the Chief of Staff interview) needs the engine to
+// support team tools and a lead to be wanted. Without both, the cards and the quick questions still work.
+export function leadHelpAvailable(engineHasTeamTools: boolean, makeLead: boolean): boolean {
+  return engineHasTeamTools && makeLead;
+}
+
+export const NO_LEAD_HELP_NOTE =
+  "Tick the workers you want and press Add. To get suggestions from a team lead, turn on \"lead a team\" with an engine that supports teams.";
 
 // The short list first-run shows: the curated workers that can be added, topped up in catalog order to the hire limit.
 // A worker already ticked (for example from the team lead's suggestions) stays visible even if it is past the cut.

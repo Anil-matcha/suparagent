@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { api, ApiError } from './api.ts';
-import { addedTemplateIds, categoryLabel, LEAD_INTERVIEW_PROMPT, leadAgentId, newSuggestionSince, filterTemplates, groupByCategory, FIRST_RUN_IDS, featuredShortlist, hireableChoices, preTick, suggestionReasons, hireSummary, installTemplateSkills, MAX_HIRE, toggleChoice, requirementBadges, requirementLabel, skillInstallNotice, starterRoutinesLabel, uniqueAgentName } from './templates.ts';
+import { addedTemplateIds, categoryLabel, LEAD_INTERVIEW_PROMPT, leadAgentId, newSuggestionSince, filterTemplates, groupByCategory, FIRST_RUN_IDS, featuredShortlist, hireableChoices, preTick, showWorkerCards, leadHelpAvailable, suggestionReasons, hireSummary, installTemplateSkills, MAX_HIRE, toggleChoice, requirementBadges, requirementLabel, skillInstallNotice, starterRoutinesLabel, uniqueAgentName } from './templates.ts';
 
 const t = (id, name, role, category, description = '') => ({ id, name, role, category, description, instructions: '', color: '#000000', example_requests: [], requires: [], available: true, missing: [], starter_notes: null, skills: [], routines: [], suggested_tools: [], setup_depth: 'express', setup_text: null });
 const list = [
@@ -163,7 +163,7 @@ test('a worker counts as added only while an agent still has its instructions an
 });
 
 test('a lead suggestion counts only when it is newer than the one that existed when the chat opened', () => {
-  const suggestions = [{ template_id: 'marketing-seo-writer', reason: 'You want articles' }];
+  const suggestions = [{ template_id: 'marketing-seo', reason: 'You want articles' }];
   assert.equal(newSuggestionSince(null, 0), null);
   assert.equal(newSuggestionSince(undefined, 0), null);
   assert.equal(newSuggestionSince({ suggestions: [], created_at: 10 }, 0), null);
@@ -197,4 +197,21 @@ test('the first-run shortlist shows at most eight hireable workers and keeps tic
 test('the first-run shortlist leads with the curated workers', () => {
   const all = [...Array.from({ length: 6 }, (_, i) => t(`x${i}`, `X${i}`, 'r', 'work')), ...FIRST_RUN_IDS.map((id) => t(id, id, 'r', 'work'))];
   assert.deepEqual(featuredShortlist(all).map((x) => x.id), FIRST_RUN_IDS);
+});
+
+test('worker cards show whenever a starter agent is created, independent of the lead box and engine', () => {
+  assert.equal(showWorkerCards(true), true);
+  assert.equal(showWorkerCards(false), false);
+});
+
+test('lead help needs both team tools and the lead box', () => {
+  assert.equal(leadHelpAvailable(true, true), true);
+  assert.equal(leadHelpAvailable(true, false), false);
+  assert.equal(leadHelpAvailable(false, true), false);
+});
+
+test('the first-run list is the eight bundled workers and new categories have labels', () => {
+  assert.equal(FIRST_RUN_IDS.length, 8);
+  assert.equal(categoryLabel('operations'), 'Operations');
+  assert.equal(categoryLabel('growth'), 'Growth');
 });

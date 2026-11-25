@@ -35,9 +35,9 @@ test("the MuAPI tool list matches the backend's tool definitions", () => {
   assert.deepEqual([...capabilityIds(muapi)].sort(), [...new Set(backendTools)].sort());
 });
 
-test("only the capped paid call is marked as spending", () => {
+test("only the capped paid calls are marked as spending", () => {
   const muapi = INTEGRATIONS.find((item) => item.id === "muapi");
-  assert.deepEqual(spendingCapabilityIds(muapi), ["muapi_data_api_call"]);
+  assert.deepEqual(spendingCapabilityIds(muapi), ["muapi_data_api_call", "muapi_media_generate"]);
 });
 
 test("the connection texts name the integration", () => {

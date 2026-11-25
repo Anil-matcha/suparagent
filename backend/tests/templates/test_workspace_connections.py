@@ -83,8 +83,15 @@ async def test_the_muapi_computer_key_does_not_count(db_session):
     assert await workspace_connections.muapi_ready(db_session) is False
 
 
+def needs_nothing(monkeypatch):
+    # Every bundled worker needs MuAPI now, so a copy with no requirement stands in for a ready role.
+    template = dataclasses.replace(catalog.get("web-web-developer"), id="web-needs-nothing", requires=())
+    add_template(monkeypatch, template)
+    return template
+
+
 def needs_muapi(monkeypatch):
-    template = dataclasses.replace(catalog.get("web-site-keeper"), id="web-needs-muapi", requires=("muapi",))
+    template = dataclasses.replace(catalog.get("web-web-developer"), id="web-needs-muapi", requires=("muapi",))
     add_template(monkeypatch, template)
     return template
 
@@ -95,7 +102,7 @@ def add_template(monkeypatch, template):
 
 
 def needs_email(monkeypatch):
-    template = dataclasses.replace(catalog.get("web-site-keeper"), id="web-needs-email", requires=("email",))
+    template = dataclasses.replace(catalog.get("web-web-developer"), id="web-needs-email", requires=("email",))
     add_template(monkeypatch, template)
     return template
 
@@ -112,14 +119,15 @@ def test_a_role_that_needs_an_unconnectable_app_stays_unavailable(monkeypatch):
     assert not mailroom.is_available(frozenset())
     assert mailroom.missing(frozenset()) == ("email",)
     assert not mailroom.is_available(frozenset({"muapi"}))
-    assert catalog.get("web-site-keeper").missing(frozenset()) == ()
+    assert needs_nothing(monkeypatch).missing(frozenset()) == ()
 
 
 def test_ready_roles_sort_before_roles_that_still_need_a_connection(monkeypatch):
+    ready = needs_nothing(monkeypatch)
     template = needs_muapi(monkeypatch)
     mailroom = needs_email(monkeypatch)
     ids = [t.id for t in catalog.search(None, None, frozenset())]
-    assert ids.index("web-site-keeper") < ids.index(template.id) < ids.index(mailroom.id)
+    assert ids.index(ready.id) < ids.index(template.id) < ids.index(mailroom.id)
     ids_ready = [t.id for t in catalog.search(None, None, frozenset({"muapi"}))]
     assert ids_ready.index(template.id) < ids_ready.index(mailroom.id)
 
@@ -136,6 +144,7 @@ def client(db):
 
 
 async def test_the_list_route_reports_missing_connections_per_workspace(db_session, monkeypatch):
+    ready = needs_nothing(monkeypatch)
     template = needs_muapi(monkeypatch)
     mailroom = needs_email(monkeypatch)
     async with client(db_session) as http:
@@ -145,7 +154,8 @@ async def test_the_list_route_reports_missing_connections_per_workspace(db_sessi
         assert by_id[template.id]["missing"] == ["muapi"]
         assert by_id[mailroom.id]["available"] is False
         assert by_id[mailroom.id]["missing"] == ["email"]
-        assert by_id["web-site-keeper"]["missing"] == []
+        assert by_id[ready.id]["missing"] == []
+        assert by_id["web-web-developer"]["missing"] == ["muapi"]
 
         await install(db_session)
         body = (await http.get("/api/v1/templates")).json()
@@ -157,5 +167,5 @@ async def test_the_single_template_route_reports_missing_connections(db_session,
     async with client(db_session) as http:
         found = (await http.get(f"/api/v1/templates/{template.id}")).json()
         assert found["available"] is True and found["missing"] == ["muapi"]
-        assert (await http.get("/api/v1/templates/web-site-keeper")).json()["missing"] == []
+        assert (await http.get("/api/v1/templates/web-web-developer")).json()["missing"] == ["muapi"]
         assert (await http.get("/api/v1/templates/nope-missing")).status_code == 404

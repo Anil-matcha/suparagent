@@ -31,9 +31,11 @@ async function main() {
       check(`${attempt ? "restart" : "first launch"}: real window renders from loopback backend`);
       // The Electron session supplies its private launch token. External HTTP
       // clients must not be able to use the same API without it.
-      const insideStatus = await page.evaluate("fetch('/api/v1/threads', {signal: AbortSignal.timeout(5000)}).then(r => r.status)");
+      // The Electron session supplies its private launch token. External HTTP
+      // clients must not be able to use the same API without it.
+      const insideStatus = await page.evaluate("fetch('/api/v1/desktop-account/status', {signal: AbortSignal.timeout(5000)}).then(r => r.status)");
       assert.equal(insideStatus, 200);
-      const outside = await fetch(`${page.origin}/api/v1/threads`, { signal: AbortSignal.timeout(5000) });
+      const outside = await fetch(`${page.origin}/api/v1/desktop-account/status`, { signal: AbortSignal.timeout(5000) });
       assert.equal(outside.status, 401);
       await outside.body?.cancel();
       check("window API succeeds; external request without launch token is refused");

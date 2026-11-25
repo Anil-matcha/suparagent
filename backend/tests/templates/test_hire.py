@@ -13,8 +13,8 @@ from app.services import agent_skills
 from app.templates import catalog
 from tests.services.thread_harness import cleanup, cli, owner, rt, sessions  # noqa: F401
 
-SEO = "marketing-seo-writer"
-LEADS = "sales-lead-researcher"
+SEO = "marketing-seo"
+LEADS = "sales-sales"
 HIRE = "/api/v1/templates/hire"
 
 

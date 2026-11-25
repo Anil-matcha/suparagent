@@ -16,6 +16,7 @@ import {
   hireableChoices,
   hireSummary,
   LEAD_INTERVIEW_PROMPT,
+  NO_LEAD_HELP_NOTE,
   leadAgentId,
   MAX_HIRE,
   newSuggestionSince,
@@ -40,6 +41,7 @@ export function ChooseTeam({
   model,
   skipLabel = "Skip",
   shortlist = false,
+  leadHelp = true,
   onSkip,
   onHired,
   onUndone,
@@ -50,6 +52,8 @@ export function ChooseTeam({
   skipLabel?: string;
   /** First-run: show only a short list of workers, without category headings. The rest stay in Templates. */
   shortlist?: boolean;
+  /** False when no team lead can answer (lead box off or engine without team tools): hides the lead chat and says why. */
+  leadHelp?: boolean;
   onSkip?: () => void;
   onHired?: (receipt: HireReceipt) => void;
   onUndone?: () => void;
@@ -280,9 +284,12 @@ export function ChooseTeam({
           <button type="button" onClick={openHelp} className="cursor-pointer rounded-md border border-line px-3 py-1 text-xs font-medium hover:bg-hover">
             Help me choose
           </button>
-          <button type="button" onClick={() => void openLeadChat()} className="cursor-pointer rounded-md border border-line px-3 py-1 text-xs font-medium hover:bg-hover">
-            Chat with your team lead instead
-          </button>
+          {leadHelp && (
+<button type="button" onClick={() => void openLeadChat()} className="cursor-pointer rounded-md border border-line px-3 py-1 text-xs font-medium hover:bg-hover">
+Chat with your team lead instead
+</button>
+)}
+          {!leadHelp && <span className="min-w-0 break-words text-xs text-muted">{NO_LEAD_HELP_NOTE}</span>}
           {chatNote && <span role="status" className="min-w-0 break-words text-xs text-muted">{chatNote}</span>}
         </div>
       ) : (
@@ -324,9 +331,11 @@ export function ChooseTeam({
             >
               Suggest workers
             </button>
-            <button type="button" onClick={() => void openLeadChat()} className="cursor-pointer rounded-md border border-line px-3 py-1 text-xs font-medium hover:bg-hover">
-              Chat with your team lead instead
-            </button>
+            {leadHelp && (
+<button type="button" onClick={() => void openLeadChat()} className="cursor-pointer rounded-md border border-line px-3 py-1 text-xs font-medium hover:bg-hover">
+Chat with your team lead instead
+</button>
+)}
             <button type="button" onClick={() => setHelpOpen(false)} className="cursor-pointer rounded-md px-3 py-1 text-xs text-muted hover:bg-hover">
               Close
             </button>

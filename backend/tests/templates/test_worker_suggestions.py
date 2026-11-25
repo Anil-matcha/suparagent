@@ -91,7 +91,7 @@ def test_a_damaged_file_reads_as_nothing(tmp_path):
 async def test_the_lead_tool_remembers_its_answer_and_creates_nothing():
     run = SimpleNamespace(thread_id=7)
     result = await setup.call(None, run, "suggest_workers", {"goals": ["briefing"]})
-    assert result["suggestions"][0]["template_id"] == "everyday-daily-briefer"
+    assert result["suggestions"][0]["template_id"] == "operations-analyst"
     stored = worker_suggestions.latest()
     assert [s["template_id"] for s in stored["suggestions"]] == [s["template_id"] for s in result["suggestions"]]
 
