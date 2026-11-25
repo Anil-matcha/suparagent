@@ -109,7 +109,7 @@ def test_there_are_eight_worker_templates_with_plain_names():
         "Social media", "Ad manager", "Customer satisfaction", "Web developer",
     ]
     assert [t.category for t in workers()] == ["operations", "growth", "sales", "marketing", "marketing", "marketing", "support", "web"]
-    assert catalog.CATALOG_VERSION == 18
+    assert catalog.CATALOG_VERSION == 19
     assert "marketing" in catalog.CATEGORIES
 
 

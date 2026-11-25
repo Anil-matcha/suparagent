@@ -9,15 +9,17 @@ the person can supply and records one card in the conversation:
   needs_access      an account exists, but this agent may not use the app yet
   ready             the account exists and the agent may use it (tools mount on its next turn)
 
-The tool never connects, grants or stores anything and never takes a credential: the card sends
-the person to the app's own sign-in, and access stays the person's decision in the agent's
-settings. The result tells the agent to end its turn; the person's reply resumes it.
+The tool lives in the connected-apps server (composio_bridge.py), which every person-started turn
+can mount, so it does not depend on the agent being in a team. It never connects, grants or
+stores anything and never takes a credential: the card sends the person to the app's own
+sign-in, and access stays the person's decision in the agent's settings. The result tells the
+agent to end its turn; the person's reply resumes it.
 """
 from app import composio_generic, composio_tools
 from app.db.models import Agent
 from app.services import composio_service
 from app.services.composio_service import UserError
-from app.team import fence, service
+from app.team import fence
 
 EVENT = "app.connection.requested"
 REASON_MAX = 200
@@ -34,42 +36,51 @@ NEXT = {
 }
 
 
+class ConnectError(ValueError):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
 def _clean(app):
     if not isinstance(app, str):
-        raise service.TeamError("invalid_input", "Give the app's short name, such as gmail.")
+        raise ConnectError("invalid_input", "Give the app's short name, such as gmail.")
     slug = app.strip().lower()
     if not composio_generic.valid_app(slug) or composio_generic.blocked_app(slug):
-        raise service.TeamError("unsupported_app", "That app cannot be connected from here.")
+        raise ConnectError("unsupported_app", "That app cannot be connected from here.")
     return slug
 
 
-async def _state(rt, db, agent, app):
-    if not await composio_service.configured(db, rt.owner_id):
+async def _state(owner_id, db, agent, app, make_client):
+    if not await composio_service.configured(db, owner_id):
         return "needs_key"
-    from app.services import composio_bridge  # looked up late so a test can replace make_client
     try:
-        found = await composio_service.accounts(db, rt.owner_id, composio_bridge.make_client)
+        found = await composio_service.accounts(db, owner_id, make_client)
     except UserError as exc:
-        raise service.TeamError("connection_check_failed", exc.message) from None
+        raise ConnectError("connection_check_failed", exc.message) from None
     if not any(a.toolkit == app and a.status == "ACTIVE" for a in found):
         return "needs_connection"
     scopes = agent.connector_scopes if isinstance(agent.connector_scopes, dict) else {}
     return "ready" if scopes.get(app) in composio_tools.LEVELS else "needs_access"
 
 
-async def call(rt, run, name, args):
-    if name != "request_app_connection":
-        raise service.TeamError("unknown_tool", "Unknown team tool.")
-    if not isinstance(args, dict) or set(args) - {"app", "reason"}:
-        raise service.TeamError("invalid_input", "Send only app and reason.")
-    app = _clean(args.get("app"))
-    reason = args.get("reason", "")
-    if not isinstance(reason, str) or len(reason) > REASON_MAX:
-        raise service.TeamError("invalid_input", f"Give the reason in at most {REASON_MAX} characters.")
-    async with rt.session() as db:
-        agent = await service.member(db, rt.owner_id, run.agent_id, team_id=run.ctx.team.team_id)
-        state = await _state(rt, db, agent, app)
-        agent_name = fence.line(agent.name)
+async def call(rt, run, args, make_client):
+    """The tool's answer as a dict (errors carry `error` and `code`)."""
+    try:
+        if not isinstance(args, dict) or set(args) - {"app", "reason"}:
+            raise ConnectError("invalid_input", "Send only app and reason.")
+        app = _clean(args.get("app"))
+        reason = args.get("reason", "")
+        if not isinstance(reason, str) or len(reason) > REASON_MAX:
+            raise ConnectError("invalid_input", f"Give the reason in at most {REASON_MAX} characters.")
+        async with rt.session() as db:
+            agent = await db.get(Agent, run.agent_id)
+            if agent is None or agent.owner_id != rt.owner_id or agent.archived_at is not None:
+                raise ConnectError("agent_not_found", "No live agent with that id.")
+            state = await _state(rt.owner_id, db, agent, app, make_client)
+            agent_name = fence.line(agent.name)
+    except ConnectError as exc:
+        return {"error": str(exc), "code": exc.code}
     request_id = f"connect-{run.turn_id}-{app}"
     await run.recorder.emit(EVENT, {
         "request_id": request_id, "app": app, "state": state, "reason": fence.line(reason, REASON_MAX),

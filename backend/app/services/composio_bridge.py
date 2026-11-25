@@ -66,9 +66,9 @@ def make_client(key: str) -> ComposioClient:
 
 
 class ComposioBridge:
-    def __init__(self, runtime, run, apps: dict, client_factory=None, account_scopes: dict | None = None):
+    def __init__(self, runtime, run, apps: dict, client_factory=None, account_scopes: dict | None = None, connect: bool = False):
         # Looked up when used, so a test can replace make_client.
-        self.runtime, self.run, self.apps = runtime, run, apps
+        self.runtime, self.run, self.apps, self.connect = runtime, run, apps, connect
         self.account_scopes = accounts_for(account_scopes if account_scopes is not None else
                                            getattr(run.ctx, "composio_account_scopes", {}))
         self.client_factory = client_factory or (lambda key: make_client(key))
@@ -82,6 +82,7 @@ class ComposioBridge:
         grants = getattr(self.run, "routine_grants", None)
         exact = ["--exact-tools", ",".join(sorted(grants))] if grants is not None else []
         uninterrupted = ["--uninterrupted"] if getattr(self.run, "uninterrupted_access", False) else []
+        uninterrupted += ["--connect"] if self.connect else []
         if getattr(sys, "frozen", False):
             return SimpleNamespace(command=sys.executable,
                 args=["--composio-mcp", "--mailbox", str(self.folder), "--apps", apps] + exact + uninterrupted,
@@ -365,6 +366,11 @@ class ComposioBridge:
             approved = await consume_allowed_approval(db, run.turn_id, run.owner_token, PREFIX + name, args)
         if not approved:
             return {"error": "This call has no matching, unused approval.", "code": "not_approved"}
+        if name == composio_tools.CONNECT:
+            if not self.connect:
+                return {"error": "This turn cannot ask for an app.", "code": "not_allowed"}
+            from app.services import app_connection
+            return await app_connection.call(rt, run, args, self.client_factory)
         allowed = await self.allowed_now()
         allowed_account_ids = await self.allowed_account_ids_now()
         allowed = {app: level for app, level in allowed.items() if allowed_account_ids.get(app)}

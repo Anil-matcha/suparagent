@@ -21,7 +21,7 @@ Raise `CATALOG_VERSION` when a template's content changes.
 
 from dataclasses import dataclass, field
 
-CATALOG_VERSION = 18
+CATALOG_VERSION = 19
 
 CATEGORIES = ("operations", "growth", "sales", "marketing", "support", "web")
 
