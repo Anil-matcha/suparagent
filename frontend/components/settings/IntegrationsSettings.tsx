@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, type Agent } from "@/lib/api";
 import { INTEGRATIONS } from "@/lib/integrations";
 import { IntegrationPanel } from "./integrations/IntegrationPanel";
+import { SlackPanel } from "./integrations/SlackPanel";
 
 // The page title and its one-line summary come from the Settings frame (lib/settings-nav.ts), so this
 // component starts straight with the integrations.
@@ -27,7 +28,9 @@ export function IntegrationsSettings() {
   return (
     <div className="space-y-5">
       {error && <p role="alert" className="text-xs text-danger">{error}</p>}
-      {agents && INTEGRATIONS.map((manifest) => (
+      {agents && INTEGRATIONS.map((manifest) => manifest.kind === "channel" ? (
+        <SlackPanel key={manifest.id} manifest={manifest} agents={agents} />
+      ) : (
         <IntegrationPanel
           key={manifest.id}
           manifest={manifest}
