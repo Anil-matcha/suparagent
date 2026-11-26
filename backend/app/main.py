@@ -18,6 +18,7 @@ from app.auth.middleware import AuthMiddleware
 from app.desktop.launch_auth import LaunchAuthMiddleware
 from app.desktop.account_guard import DesktopAccountMiddleware, signed_in as desktop_signed_in
 from app.routers.router import router as app_router
+from app.routers.composio_hooks import router as composio_hooks_router
 from app.routers.hooks import router as hooks_router
 from app.services import routine_service, schedule_service, task_execution_service
 from app.services.thread_runtime import runtime as thread_runtime
@@ -252,3 +253,5 @@ app.include_router(app_router)
 # Webhook deliveries for routines, outside /api/v1: authenticated by each
 # routine's own secret (also served alone by app/ingress.py).
 app.include_router(hooks_router)
+# Composio's signed trigger events (BL-177): authenticated by the signature, not by the local access check.
+app.include_router(composio_hooks_router)

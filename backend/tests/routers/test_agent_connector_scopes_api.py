@@ -189,3 +189,19 @@ async def test_when_composio_cannot_be_asked_the_change_is_refused_not_guessed(a
     response = await api.patch(f"/api/v1/agents/{agent['id']}", json={"connector_scopes": {"unreachable": "read"}})
     assert response.status_code == 502 and code_of(response) == "composio_unavailable"
     assert (await api.get(f"/api/v1/agents/{agent['id']}")).json()["connector_scopes"] is None
+
+
+async def test_the_labels_level_is_only_for_an_app_with_label_tools_and_can_be_changed_either_way(api, listed):  # noqa: F811
+    agent = await new_agent(api)
+    url = f"/api/v1/agents/{agent['id']}"
+    up = await api.patch(url, json={"connector_scopes": {"gmail": "labels"}})
+    assert up.status_code == 200, up.text
+    assert up.json()["connector_scopes"] == {"gmail": "labels"}
+    for scopes in ({"gmail": "write"}, {"gmail": "read"}, {"gmail": "labels"}):
+        response = await api.patch(url, json={"connector_scopes": scopes})
+        assert response.status_code == 200 and response.json()["connector_scopes"] == scopes
+    # GitHub, Calendar and an app Composio merely lists have no label tools, so the middle level means nothing there.
+    for scopes in ({"github": "labels"}, {"googlecalendar": "labels"}, {"slack": "labels"}, {"gmail": "labels", "github": "labels"}):
+        refused = await api.patch(url, json={"connector_scopes": scopes})
+        assert refused.status_code == 422 and code_of(refused) == "invalid_connector_scopes", scopes
+    assert (await api.get(url)).json()["connector_scopes"] == {"gmail": "labels"}

@@ -53,7 +53,7 @@ def automatic(tool: str, mode: str | None, levels: dict | None, arguments: objec
               first_use_hit: bool = False, uninterrupted: bool = False):
     """('allowed' | 'denied', reason) for a composio tool, None when a person must
     decide, or None for a tool that is not a composio tool. `levels` is what this
-    turn's agent may do, {app: "read" | "write"}."""
+    turn's agent may do, {app: "read" | "labels" | "write"}."""
     if not tool.startswith(PREFIX):
         return None
     if tool == PREFIX + composio_tools.CONNECT:
@@ -80,6 +80,9 @@ def automatic(tool: str, mode: str | None, levels: dict | None, arguments: objec
         return "allowed", "composio_read"
     if mode == "plan":
         return "denied", "plan_mode"
+    if found.kind == "label":
+        # Adds a label of this app's own under Worker/ and nothing else (services/worker_label_ops.py); the level is the grant.
+        return "allowed", "routine_uninterrupted_app" if uninterrupted else "composio_label_grant"
     if uninterrupted:
         return "allowed", "routine_uninterrupted_app"
     return None  # a change: the person decides on a card

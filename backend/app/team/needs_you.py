@@ -478,7 +478,7 @@ class NeedsYou:
         key = (self.owner_id, lead_id, json.dumps(scopes, sort_keys=True),
                json.dumps(account_scopes, sort_keys=True), zone.key, local_day(now, zone))
         def unknown(sources):
-            return any(scopes.get(app) in {"read", "write"} and sources[source] in {"failed", "unavailable", "partial"}
+            return any(scopes.get(app) in {"read", "labels", "write"} and sources[source] in {"failed", "unavailable", "partial"}
                        for source, app in (("gmail", "gmail"), ("calendar", "googlecalendar")))
         cached = self._provider_cache
         if (not force_refresh and cached and cached[0] == key

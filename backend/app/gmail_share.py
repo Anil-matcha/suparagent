@@ -37,7 +37,8 @@ NO_SEND = {"error": "Sending email is switched off while this agent sees only a 
                     "Save a draft reply instead; the person sends it.", "code": "share_blocks_send"}
 
 # The tools that name a thread, so they can be refused before anything is sent to Gmail.
-THREAD_TOOLS = frozenset({"gmail_fetch_thread", "gmail_create_draft_reply", "gmail_prepare_checked_reply"})
+THREAD_TOOLS = frozenset({"gmail_fetch_thread", "gmail_create_draft_reply", "gmail_prepare_checked_reply",
+                         "gmail_apply_worker_label"})
 
 
 class ShareInvalid(ValueError):

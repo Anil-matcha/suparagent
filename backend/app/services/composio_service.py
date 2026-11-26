@@ -354,6 +354,30 @@ async def _shared_result(client, session_id: str, tool, arguments: dict, account
     return result
 
 
+async def _run_label_tool(db, owner_id: str, client, record: dict, session_id: str, tool, arguments: dict,
+                          account_id: str, context: dict | None) -> dict:
+    """The two Gmail label tools (services/worker_label_ops.py), after the account, share and routine rules.
+    A Composio problem before anything changed a thread is reported like any other; a forgotten session is replaced."""
+    from app.services import worker_label_ops
+
+    for attempt in range(2):
+        try:
+            if tool.special == "label_list":
+                return await worker_label_ops.list_labels(db, owner_id, client, session_id, account_id, _execute)
+            return await worker_label_ops.apply(db, owner_id, client, session_id, account_id, arguments, context, _execute)
+        except ComposioError as exc:
+            if exc.kind != "not_found":
+                return _agent_error(exc)
+            # Composio forgot the session (the connection belongs to the user, so it is replaced).
+            try:
+                session_id, record = await _session(db, owner_id, client, record, replace=session_id)
+            except ComposioError as again:
+                return _agent_error(again)
+            if tool.special == "label_apply" or attempt:
+                return dict(SESSION_EXPIRED)
+    return dict(SESSION_EXPIRED)
+
+
 async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments: dict, alias: str | None, *,
                    account_id: str | None = None, allowed_account_ids: list[str] | None = None,
                    before_execute=None, shares: dict | None = None, mark_context: dict | None = None) -> dict:
@@ -368,11 +392,12 @@ async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments
     mailbox it may see. Every caller that acts for an agent must pass it; None means no rule
     (tests/services/test_run_tool_callers.py checks that no caller forgets).
 
-    `mark_context` ({"agent_id", "turn_id"}) is only for gmail_triage_mark, which records in this
-    app's database and never reaches Composio (services/shadow_marks.py)."""
+    `mark_context` ({"agent_id", "turn_id", "run_id"}) is only for gmail_triage_mark, which records in this
+    app's database and never reaches Composio (services/shadow_marks.py), and for the label tools, which
+    record each label they add (services/worker_label_ops.py)."""
     from app import composio_tools, gmail_share
 
-    write = tool.kind == "write"
+    write = tool.kind != "read"  # a label is a change too: sent once, never repeated after an unknown outcome
     record = await load(db, owner_id)
     if record is None:
         return {"error": "Connected apps are not set up. The person can add their Composio key in Settings.", "code": "not_configured"}
@@ -416,6 +441,8 @@ async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments
             from app.services import shadow_marks
             return await shadow_marks.record(db, owner_id, arguments, account.id, rule, mark_context)
         session_id, record = await _session(db, owner_id, client, record)
+        if tool.special in ("label_apply", "label_list"):
+            return await _run_label_tool(db, owner_id, client, record, session_id, tool, arguments, account.id, mark_context)
     except ComposioError as exc:  # nothing was sent for the tool yet
         return _agent_error(exc)
     if tool.name == "github_commit_file" and "insert_after" in arguments:
