@@ -2,7 +2,9 @@ import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview
 import type { SpendLimits, SpendLimitsChange, SpendOverview, WorkerSpend } from "./spend";
 import type { HireReceipt, LatestSuggestion, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
+import type { AppEventConfig, AppEventStatus } from "./app-event";
 import type { ShadowReport } from "./shadow-report";
+import type { UndoResult, WorkerLabels } from "./worker-labels";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
 import type { CustomMcpConnection, CustomMcpDraft, CustomMcpTool } from "./custom-mcp";
 import type { ServiceAudit, ServiceCandidate, ServiceKind, ServicePreset, ServiceProvider, ServiceResource } from "./agent-services";
@@ -144,6 +146,8 @@ function authHeaders(method: string | undefined): Record<string, string> {
 }
 
 export type ShadowReportResponse = ShadowReport;
+export type WorkerLabelsResponse = WorkerLabels;
+export type WorkerLabelsUndoResponse = UndoResult;
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -1000,6 +1004,9 @@ export type Routine = {
   latest_run: RoutineRun | null;
   connected_app_grants: ConnectedAppGrant[];
   uninterrupted_access: boolean;
+  // The optional new-mail trigger and how it is doing (BL-177); absent on a server that predates it.
+  app_event?: AppEventConfig | null;
+  app_event_status?: AppEventStatus | null;
 };
 
 export type RoutineInput = {
@@ -1018,6 +1025,8 @@ export type RoutineInput = {
   retry_delay_minutes: number;
   connected_app_grants: ConnectedAppGrant[];
   uninterrupted_access: boolean;
+  // A config turns the trigger on, null removes it, leaving it out keeps what the routine has.
+  app_event?: AppEventConfig | null;
 };
 
 export type SchedulePreview = { summary: string; next_dates: string[] };
@@ -1208,6 +1217,9 @@ export const api = {
   // A support worker's shadow-mode comparison (numbers and thread ids only). `refresh` asks the server to recompute; it may answer 429.
   getShadowReport: (agentId: number, options: { days?: number; refresh?: boolean } = {}) =>
     request<ShadowReportResponse>(`/agents/${agentId}/shadow-report?days=${options.days ?? 28}&refresh=${options.refresh ? "true" : "false"}`),
+  // The labels a support worker added under Worker/ (counts and names only), and the one-click removal of exactly those.
+  getWorkerLabels: (agentId: number) => request<WorkerLabelsResponse>(`/agents/${agentId}/worker-labels`),
+  undoWorkerLabels: (agentId: number) => request<WorkerLabelsUndoResponse>(`/agents/${agentId}/worker-labels/undo`, { method: "POST" }),
   connectComposioApp: (toolkit: string, alias?: string) =>
     request<ComposioLink>("/integrations/composio/connect", { method: "POST", body: JSON.stringify(alias ? { toolkit, alias } : { toolkit }) }),
   disconnectComposioAccount: (id: string) => request<void>(`/integrations/composio/accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),

@@ -21,6 +21,8 @@ import {
   type SchedulePreview,
 } from "@/lib/api";
 import type { ComposioAccount } from "@/lib/connected-apps";
+import { RoutineNewMailSection } from "@/components/chat/RoutineNewMailSection";
+import { appEventDraftOf, appEventInput, appEventProblem, emptyAppEventDraft, parseAppEventStatus, type AppEventDraft } from "@/lib/app-event";
 import { activeAgents, approvalModesForProvider } from "@/lib/agents";
 import {
   curlExample,
@@ -78,6 +80,7 @@ type Draft = {
   retryDelay: string;
   connectedAppGrants: ConnectedAppGrant[];
   uninterruptedAccess: boolean;
+  appEvent: AppEventDraft;
 };
 
 // These exact tool identifiers mirror the routine-safe read inventory and the
@@ -121,7 +124,7 @@ function newDraft(agents: Agent[]): Draft {
   return {
     id: null, name: "", agentId: agents[0]?.id ?? null, prompt: "", schedule: emptySchedule(),
     runLimit: "30", approvalMode: "ask", approvalWait: "30", catchUp: "60",
-    quietReporting: false, retryLimit: "0", retryDelay: "5", connectedAppGrants: [], uninterruptedAccess: false,
+    quietReporting: false, retryLimit: "0", retryDelay: "5", connectedAppGrants: [], uninterruptedAccess: false, appEvent: emptyAppEventDraft(),
   };
 }
 
@@ -136,6 +139,7 @@ function draftOf(routine: Routine, provider?: string): Draft {
     retryDelay: String(routine.retry_delay_minutes),
     connectedAppGrants: routine.connected_app_grants ?? [],
     uninterruptedAccess: routine.uninterrupted_access ?? false,
+    appEvent: appEventDraftOf(routine.app_event),
   };
 }
 
@@ -156,6 +160,8 @@ function inputOf(draft: Draft): RoutineInput {
     retry_delay_minutes: Number(draft.retryDelay),
     connected_app_grants: draft.connectedAppGrants,
     uninterrupted_access: draft.uninterruptedAccess,
+    // Left out unless the trigger is on or is being removed, so a routine without one saves exactly as before.
+    ...(appEventInput(draft.appEvent) !== undefined ? { app_event: appEventInput(draft.appEvent) } : {}),
   };
 }
 
@@ -387,7 +393,7 @@ export function RoutinesPanel({ agents, onClose, routineId = null }: { agents: A
     const grants = new Map<string, ConnectedAppGrant>(draft.connectedAppGrants.map((grant) => [grant.tool, grant] as const));
     for (const group of ROUTINE_READ_TOOLS) {
       const scope = agent.connector_scopes?.[group.app];
-      const hasReadScope = scope === "read" || scope === "write";
+      const hasReadScope = scope === "read" || scope === "labels" || scope === "write";
       const allowedIds = agent.connector_account_scopes?.[group.app] ?? [];
       const available = connectedAccounts.filter((account) => account.toolkit === group.app && account.status === "ACTIVE"
         && hasReadScope && allowedIds.includes(account.id));
@@ -435,7 +441,7 @@ export function RoutinesPanel({ agents, onClose, routineId = null }: { agents: A
   const selectableRoutineToolNames = new Set<string>(routineAgent && connectedAccounts
     ? ROUTINE_READ_TOOLS.flatMap((group) => {
       const scope = routineAgent.connector_scopes?.[group.app];
-      const hasReadScope = scope === "read" || scope === "write";
+      const hasReadScope = scope === "read" || scope === "labels" || scope === "write";
       const allowedIds = routineAgent.connector_account_scopes?.[group.app] ?? [];
       const hasAvailableAccount = connectedAccounts.some((account) => account.toolkit === group.app && account.status === "ACTIVE"
         && hasReadScope && allowedIds.includes(account.id));
@@ -484,7 +490,7 @@ export function RoutinesPanel({ agents, onClose, routineId = null }: { agents: A
                 </div>
                 {connectedAccounts === null ? <p role="status" className="text-xs text-muted">Loading connected accounts…</p> : ROUTINE_READ_TOOLS.map((group) => {
                   const agent = agents.find((item) => item.id === draft.agentId);
-                  const hasReadScope = agent?.connector_scopes?.[group.app] === "read" || agent?.connector_scopes?.[group.app] === "write";
+                  const hasReadScope = ["read", "labels", "write"].includes(agent?.connector_scopes?.[group.app] ?? "");
                   const allowedIds = agent?.connector_account_scopes?.[group.app] ?? [];
                   const available = connectedAccounts.filter((account) => account.toolkit === group.app && account.status === "ACTIVE"
                     && hasReadScope && allowedIds.includes(account.id));
@@ -536,6 +542,17 @@ export function RoutinesPanel({ agents, onClose, routineId = null }: { agents: A
                   <span>{t("knowledgeRoutines.allowUninterruptedAccess")}</span>
                 </label>
               </section>
+              <RoutineNewMailSection
+                value={draft.appEvent}
+                onChange={(appEvent) => setDraft({ ...draft, appEvent })}
+                agent={routineAgent}
+                accounts={connectedAccounts}
+                grants={draft.connectedAppGrants}
+                uninterruptedAccess={draft.uninterruptedAccess}
+                timezone={draft.schedule.timezone}
+                status={parseAppEventStatus(routines?.find((routine) => routine.id === draft.id)?.app_event_status)}
+                disabled={busy}
+              />
               <details className="rounded-md border border-line p-3 text-xs">
                 <summary className="cursor-pointer font-medium text-muted">Limits and approvals</summary>
                 <div className="mt-2 grid grid-cols-2 gap-2">
@@ -556,7 +573,7 @@ export function RoutinesPanel({ agents, onClose, routineId = null }: { agents: A
                 </p>
               </details>
               <div className="flex gap-2">
-                <button type="submit" disabled={busy || draft.agentId === null || !canSaveSchedulePreview(draft.schedule, validPreviewKey)} className="cursor-pointer rounded-md px-3 py-1.5 text-sm disabled:opacity-50 bg-accent text-accent-fg hover:opacity-90">{busy ? "Saving…" : "Save"}</button>
+                <button type="submit" disabled={busy || draft.agentId === null || !canSaveSchedulePreview(draft.schedule, validPreviewKey) || appEventProblem(draft.appEvent) !== null} className="cursor-pointer rounded-md px-3 py-1.5 text-sm disabled:opacity-50 bg-accent text-accent-fg hover:opacity-90">{busy ? "Saving…" : "Save"}</button>
                 <button type="button" onClick={() => { setValidPreviewKey(null); setDraft(null); }} className="rounded-md border border-line px-3 py-1.5 text-sm">Cancel</button>
               </div>
             </form>

@@ -50,6 +50,7 @@ import { useT } from "@/lib/use-i18n";
 import { AgentEditorFooter } from "./agents/AgentEditorFooter";
 import { ConnectedAppsSection } from "./agents/ConnectedAppsSection";
 import { ShadowResultsPanel } from "./agents/ShadowResultsPanel";
+import { WorkerLabelsPanel } from "./agents/WorkerLabelsPanel";
 import { filterAgents, shouldShowAgentSearch, unavailableEnginesInUse } from "./agents/agent-list";
 import { draftSignature } from "./agents/draft-state";
 
@@ -965,6 +966,7 @@ export function AgentsPanel({
                         onSharesChange={(connector_shares) => setDraft({ ...draft, connector_shares })}
                       />
                       <ShadowResultsPanel agentId={draft.id} connectorScopes={draft.connector_scopes} />
+                      <WorkerLabelsPanel agentId={draft.id} connectorScopes={draft.connector_scopes} />
                     </TabPanel>
                   )}
 
