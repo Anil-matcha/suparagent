@@ -139,7 +139,16 @@ def resolve_codex_executable() -> Path | None:
     if configured:
         path = Path(configured)
         return path if path.is_file() else None
-    found = shutil.which("codex")
+    try:
+        from app.services import engine_install
+        if engine_install.installed("codex"):
+            managed = engine_install.executable_path("codex")
+            if managed.is_file():
+                return managed
+    except Exception:
+        pass
+    found = shutil.which("codex.cmd") if os.name == "nt" else None
+    found = found or shutil.which("codex")
     return Path(found) if found else None
 
 

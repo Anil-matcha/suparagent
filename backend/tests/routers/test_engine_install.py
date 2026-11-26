@@ -63,6 +63,16 @@ def make_installer(monkeypatch, tmp_path, *, npm_code=0, version_code=0, version
     return calls, lambda: process
 
 
+def link_current(parent: Path, target_name: str) -> Path:
+    link = parent / "current"
+    if os.name == "nt":
+        import _winapi
+        _winapi.CreateJunction(str((parent / target_name).resolve()), str(link))
+    else:
+        link.symlink_to(target_name)
+    return link
+
+
 async def test_install_stages_validates_and_atomically_activates(monkeypatch, desktop_profile):
     calls, _ = make_installer(monkeypatch, desktop_profile)
     op = engine_install.begin("claude", "install")
@@ -74,9 +84,10 @@ async def test_install_stages_validates_and_atomically_activates(monkeypatch, de
     assert Path(args[4]).parent == desktop_profile / "engine-runtimes" / "claude"
     assert Path(args[4]).name.startswith("staging-")
     assert kwargs["start_new_session"] is True and "shell" not in kwargs
-    assert calls[1][0][0].endswith("/claude") and calls[1][0][1] == "--version"
+    assert (calls[1][0][0].endswith("/claude") or calls[1][0][0].endswith("\\claude")) and calls[1][0][1] == "--version"
     current = desktop_profile / "engine-runtimes" / "claude" / "current"
-    assert current.is_symlink() and (current / "bin" / "claude").is_file()
+    is_link_like = current.is_symlink() or (hasattr(current, "is_junction") and current.is_junction())
+    assert is_link_like and (current / "bin" / "claude").is_file()
     assert engine_install.installed("claude")
     assert (desktop_profile / "bin").exists() is False  # does not overwrite the user's regular CLI path
 
@@ -89,13 +100,13 @@ async def test_failed_update_version_check_preserves_previous_release(monkeypatc
     old_executable.write_text("old executable")
     old_executable.chmod(0o755)
     engine_root.mkdir(parents=True, exist_ok=True)
-    (engine_root / "current").symlink_to("release-old")
+    link_current(engine_root, "release-old")
     calls, _ = make_installer(monkeypatch, desktop_profile, version_code=1, version_text="not valid\n")
 
     op = engine_install.begin("claude", "update")
     await op.task
     assert op.status == "failed" and "version check" in op.error
-    assert os.readlink(engine_root / "current") == "release-old"
+    assert "release-old" in os.readlink(engine_root / "current")
     assert old_executable.read_text() == "old executable"
     assert not list(engine_root.glob("staging-*"))
     assert len(calls) == 2
@@ -107,14 +118,14 @@ async def test_nonzero_npm_failure_preserves_current_and_duplicate_returns_same_
     (old / "bin").mkdir(parents=True)
     (old / "bin" / "codex").write_text("old")
     (old / "bin" / "codex").chmod(0o755)
-    (engine_root / "current").symlink_to("release-old")
+    link_current(engine_root, "release-old")
     make_installer(monkeypatch, desktop_profile, npm_code=17)
     first = engine_install.begin("codex", "update")
     second = engine_install.begin("codex", "install")
     assert first is second
     await first.task
     assert first.status == "failed" and "status 17" in first.error
-    assert os.readlink(engine_root / "current") == "release-old"
+    assert "release-old" in os.readlink(engine_root / "current")
     with pytest.raises(KeyError):
         engine_install.begin("made-up", "install")
     with pytest.raises(ValueError):
@@ -179,17 +190,11 @@ async def test_cancel_kills_process_drains_reader_and_cleans_stage(monkeypatch, 
     assert len(calls) == 1
 
 
-async def test_headless_and_unsupported_platform_guards(monkeypatch, desktop_profile):
+async def test_headless_guard(monkeypatch, desktop_profile):
     monkeypatch.setattr(profile, "_current", None)
     headless = engine_install.begin("claude", "install")
     await headless.task
     assert headless.status == "failed" and "desktop" in headless.error
-
-    monkeypatch.setattr(profile, "_current", profile.DesktopProfile(desktop_profile, "http://localhost", "x" * 48))
-    monkeypatch.setattr(engine_install.os, "name", "nt")
-    unsupported = engine_install.begin("codex", "install")
-    await unsupported.task
-    assert unsupported.status == "failed" and "macOS or Linux" in unsupported.error
 
 
 def test_status_checks_managed_current_executable_and_rejects_extra_action_fields(desktop_profile):
@@ -201,7 +206,7 @@ def test_status_checks_managed_current_executable_and_rejects_extra_action_field
     executable.write_text("cli")
     executable.chmod(0o755)
     root.mkdir(parents=True, exist_ok=True)
-    (root / "current").symlink_to("release-one")
+    link_current(root, "release-one")
     assert engine_install.status("claude")["installed"] is True
     with pytest.raises(ValidationError):
         InstallRequest.model_validate({"action": "install", "prefix": "/tmp/arbitrary"})
