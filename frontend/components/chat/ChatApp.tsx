@@ -904,6 +904,35 @@ export function ChatApp() {
     finally { setModelBusy(false); }
   };
 
+  const handleDirectModelChange = async (provider: string, model: string | null, effort?: string | null) => {
+    const nextModel = model?.trim() || null;
+    const nextEffort = effort?.trim() || null;
+    if (threadId !== null) {
+      if (provider !== selectedProvider) {
+        router.push(`/chat?engine=${encodeURIComponent(provider)}${nextModel ? `&model=${encodeURIComponent(nextModel)}` : ""}${nextEffort ? `&effort=${encodeURIComponent(nextEffort)}` : ""}`);
+        return;
+      }
+      try {
+        const updated = await api.updateThread(threadId, { model: nextModel, effort: nextEffort });
+        setThreads((previous) => previous?.map((item) => item.id === threadId ? updated : item) ?? null);
+        setOpenedThread((previous) => previous?.id === threadId ? updated : previous);
+      } catch (err) {
+        toast(err instanceof ApiError ? err.message : "Could not change the model.", "danger");
+      }
+    } else {
+      setNewModel(nextModel);
+      setNewEffort(nextEffort);
+      if (startingAgentId !== null) {
+        setNewProviderOverride(provider === startingAgent?.provider ? null : provider);
+      } else {
+        setNewProvider(provider);
+        setNewProviderOverride(null);
+        writeCachedPreference({ provider, model: nextModel, effort: nextEffort });
+        void api.setEnginePreference({ provider, model: nextModel, effort: nextEffort }).catch(() => {});
+      }
+    }
+  };
+
   const stop = async () => {
     if (threadId === null || transcript.runningTurnId === null) return;
     setSendError(null);
@@ -1083,31 +1112,6 @@ export function ChatApp() {
       agentChoice={
         roomId === null && agents !== null && threadId === null
           ? { agents: choosable, value: startingAgentId, onChange: (id) => { setNewAgentId(id); setNewProviderOverride(null); setNewModel(null); setNewEffort(null); setModelDraft(null); } }
-          : undefined
-      }
-      engine={
-        roomId === null && ready && engines && (threadId === null || thread !== null)
-          ? {
-              label: (() => {
-                const baseEngine = selectedEngine?.label ?? selectedProvider;
-                const modelObj = selectedEngine?.models.find((item) => item.id === selectedModel);
-                const modelName = modelObj?.label ?? (selectedModel ? modelLabel(selectedModel) : "default");
-                const supportsEffort = Boolean(
-                  modelObj?.supported_reasoning_efforts &&
-                  modelObj.supported_reasoning_efforts.length > 1 &&
-                  modelObj.reasoning_effort_configurable !== false
-                );
-                const effortToShow = supportsEffort
-                  ? (selectedEffort ?? modelObj?.default_reasoning_effort)
-                  : null;
-                const effortPart = effortToShow
-                  ? ` · ${effortToShow.charAt(0).toUpperCase() + effortToShow.slice(1)}`
-                  : "";
-                return `${baseEngine} · ${modelName}${effortPart}`;
-              })(),
-              disabled: modelBusy || sending || transcript.runningTurnId !== null,
-              onClick: openModelDialog,
-            }
           : undefined
       }
       computer={
@@ -1522,6 +1526,11 @@ export function ChatApp() {
             chosenSkills={chosenSkills}
             onToggleSkill={skillAgentId !== null ? (name) => setChosenSkills((names) => toggleSkill(names, name)) : undefined}
             onSaveAsSkill={canSaveSkill ? () => { setSkillSeed({ source: { thread_id: threadId!, turn_id: skillTurnId! }, nonce: Date.now() }); setPanel("skills"); } : undefined}
+            engines={engines}
+            selectedProvider={selectedProvider}
+            selectedModel={selectedModel}
+            selectedEffort={selectedEffort}
+            onModelChange={handleDirectModelChange}
           />
           </>}
         </main>

@@ -11,6 +11,9 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+if not hasattr(os, "killpg"):
+    os.killpg = None  # for platform compatibility and test monkeypatching
+
 from app.desktop import profile
 
 INSTALLERS = {
@@ -43,6 +46,7 @@ class Operation:
     action: str
     status: str = "queued"
     progress: str = "Waiting to start."
+    percent: int | None = None
     error: str | None = None
     output: str = ""
     task: asyncio.Task | None = field(default=None, repr=False)
@@ -52,6 +56,7 @@ class Operation:
     def public(self) -> dict[str, object]:
         return {"id": self.id, "engine": self.engine, "action": self.action,
                 "status": self.status, "progress": self.progress,
+                "percent": self.percent,
                 "error": self.error, "output": self.output}
 
 
@@ -69,12 +74,27 @@ def runtime_bin(profile_data_dir: Path, engine: str) -> Path:
 def executable_path(engine: str) -> Path:
     if not profile.active():
         raise RuntimeError("Managed installs are available only in the desktop app.")
-    return runtime_bin(profile.current().data_dir, engine) / INSTALLERS[engine][1]
+    base = runtime_bin(profile.current().data_dir, engine)
+    name = INSTALLERS[engine][1]
+    if os.name == "nt":
+        candidates = [
+            base.parent / f"{name}.cmd",
+            base.parent / f"{name}.exe",
+            base / f"{name}.cmd",
+            base / f"{name}.exe",
+            base.parent / name,
+            base / name,
+        ]
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+        return base.parent / f"{name}.cmd"
+    return base / name
 
 
 def installed(engine: str) -> bool:
     path = executable_path(engine)
-    return path.is_file() and os.access(path, os.X_OK)
+    return path.is_file() and (os.access(path, os.X_OK) or os.name == "nt")
 
 
 def _redact(line: str) -> str:
@@ -131,38 +151,52 @@ async def _drain_reader(op: Operation) -> str:
 
 async def _kill_process_group(process: asyncio.subprocess.Process) -> None:
     """Stop descendants that kept the install pipe open after npm exited."""
-    if os.name != "posix":
+    if callable(getattr(os, "killpg", None)):
+        sigterm = getattr(signal, "SIGTERM", 15)
+        sigkill = getattr(signal, "SIGKILL", sigterm)
+        try:
+            os.killpg(process.pid, sigterm)
+        except (ProcessLookupError, OSError):
+            return
+        await asyncio.sleep(0.15)
+        try:
+            os.killpg(process.pid, sigkill)
+        except (ProcessLookupError, OSError):
+            pass
         return
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    await asyncio.sleep(0.15)
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+    if os.name == "nt":
+        import subprocess
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True)
+        except Exception:
+            pass
 
 
 async def _stop_process(process: asyncio.subprocess.Process) -> None:
     if process.returncode is not None:
         return
+    sigterm = getattr(signal, "SIGTERM", 15)
+    sigkill = getattr(signal, "SIGKILL", sigterm)
     try:
-        if os.name == "posix":
-            os.killpg(process.pid, signal.SIGTERM)
+        if callable(getattr(os, "killpg", None)):
+            os.killpg(process.pid, sigterm)
+        elif os.name == "nt":
+            await _kill_process_group(process)
         else:
             process.terminate()
-    except ProcessLookupError:
+    except (ProcessLookupError, OSError):
         return
     try:
         await asyncio.wait_for(process.wait(), timeout=3)
     except asyncio.TimeoutError:
         try:
-            if os.name == "posix":
-                os.killpg(process.pid, signal.SIGKILL)
+            if callable(getattr(os, "killpg", None)):
+                os.killpg(process.pid, sigkill)
+            elif os.name == "nt":
+                await _kill_process_group(process)
             else:
                 process.kill()
-        except ProcessLookupError:
+        except (ProcessLookupError, OSError):
             pass
         await asyncio.wait_for(process.wait(), timeout=3)
 
@@ -170,6 +204,7 @@ async def _stop_process(process: asyncio.subprocess.Process) -> None:
 async def _run_child(op: Operation, args: list[str], *, cwd: Path, env: dict[str, str], timeout: float) -> tuple[int, str]:
     process = await asyncio.create_subprocess_exec(
         *args, cwd=str(cwd), env=env,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         start_new_session=True,
     )
@@ -210,25 +245,48 @@ def _commit_release(engine_root: Path, stage: Path, operation_id: str) -> None:
     release = engine_root / release_name
     current = engine_root / "current"
     temporary_link = engine_root / f".current-{operation_id}"
-    if current.exists() and not current.is_symlink():
+
+    is_link_like = current.is_symlink() or (hasattr(current, "is_junction") and current.is_junction())
+    if current.exists() and not is_link_like and os.name != "nt":
         raise InstallFailure("The managed runtime pointer is not a regular link. Fix it, then retry.")
-    previous_target = os.readlink(current) if current.is_symlink() else None
+    previous_target = os.readlink(current) if (current.exists() and is_link_like) else None
     os.replace(stage, release)
-    try:
-        os.symlink(release_name, temporary_link)
-        os.replace(temporary_link, current)
-    except OSError:
-        temporary_link.unlink(missing_ok=True)
-        # os.replace is atomic; if it had switched the pointer before an
-        # exceptional filesystem response, restore its previous target.
-        if previous_target is not None:
-            rollback_link = engine_root / f".rollback-{operation_id}"
-            os.symlink(previous_target, rollback_link)
-            os.replace(rollback_link, current)
-        elif current.is_symlink() and os.readlink(current) == release_name:
-            current.unlink()
-        shutil.rmtree(release, ignore_errors=True)
-        raise InstallFailure("Could not activate the new CLI. The previous install remains available.") from None
+
+    if os.name == "nt":
+        try:
+            import _winapi
+            if current.exists() or (hasattr(current, "is_junction") and current.is_junction()):
+                if hasattr(current, "is_junction") and current.is_junction():
+                    os.rmdir(str(current))
+                elif current.is_symlink():
+                    current.unlink()
+                elif current.is_dir():
+                    shutil.rmtree(str(current), ignore_errors=True)
+            _winapi.CreateJunction(str(release.resolve()), str(current))
+        except Exception:
+            try:
+                if current.exists():
+                    shutil.rmtree(str(current), ignore_errors=True)
+                shutil.copytree(str(release), str(current))
+            except Exception:
+                shutil.rmtree(release, ignore_errors=True)
+                raise InstallFailure("Could not activate the new CLI. The previous install remains available.") from None
+    else:
+        try:
+            os.symlink(release_name, temporary_link)
+            os.replace(temporary_link, current)
+        except OSError:
+            temporary_link.unlink(missing_ok=True)
+            # os.replace is atomic; if it had switched the pointer before an
+            # exceptional filesystem response, restore its previous target.
+            if previous_target is not None:
+                rollback_link = engine_root / f".rollback-{operation_id}"
+                os.symlink(previous_target, rollback_link)
+                os.replace(rollback_link, current)
+            elif current.is_symlink() and os.readlink(current) == release_name:
+                current.unlink()
+            shutil.rmtree(release, ignore_errors=True)
+            raise InstallFailure("Could not activate the new CLI. The previous install remains available.") from None
 
 
 async def _run(op: Operation) -> None:
@@ -243,10 +301,8 @@ async def _run(op: Operation) -> None:
         if not profile.active():
             op.status, op.error = "failed", "Managed installs are available only in the desktop app."
             return
-        if os.name != "posix":
-            op.status, op.error = "failed", "Managed installs currently require macOS or Linux."
-            return
-        npm = shutil.which("npm")
+        npm = shutil.which("npm.cmd") if os.name == "nt" else None
+        npm = npm or shutil.which("npm")
         if not npm:
             op.status, op.error = "failed", "Node.js and npm are required. Install Node.js, restart the app, then retry."
             return
@@ -261,21 +317,49 @@ async def _run(op: Operation) -> None:
             stage.mkdir(mode=0o700)
             args = [npm, "install", "--global", "--prefix", str(stage)]
             args.append(package if op.action == "install" else f"{package}@latest")
+            args.extend(["--no-audit", "--no-fund"])
             env = {"PATH": os.environ.get("PATH", ""), "HOME": str(Path.home()),
                    "NPM_CONFIG_UPDATE_NOTIFIER": "false", "CI": "1"}
-            for key in ("TMPDIR", "TEMP", "TMP", "SYSTEMROOT"):
+            for key in ("TMPDIR", "TEMP", "TMP", "SYSTEMROOT", "COMSPEC", "PATHEXT", "APPDATA", "LOCALAPPDATA", "USERPROFILE"):
                 if os.environ.get(key):
                     env[key] = os.environ[key]
 
-            op.progress = "Installing the selected engine CLI in a staging folder."
+            op.progress = "Downloading and installing packages from npm..."
+            op.percent = None
             code, _ = await _run_child(op, args, cwd=data_dir, env=env, timeout=TIMEOUT_SECONDS)
+
             if code != 0:
                 raise InstallFailure(f"npm exited with status {code}. Check Node.js/npm and your connection, then retry.")
-            staged_executable = stage / "bin" / executable
-            if not staged_executable.is_file() or not os.access(staged_executable, os.X_OK):
+
+            op.progress = "Checking the staged CLI before activation..."
+            candidates = [
+                stage / f"{executable}.cmd",
+                stage / f"{executable}.exe",
+                stage / executable,
+                stage / "bin" / executable,
+                stage / "bin" / f"{executable}.cmd",
+                stage / "bin" / f"{executable}.exe",
+            ]
+            staged_executable = None
+            for cand in candidates:
+                if cand.is_file() and (os.access(cand, os.X_OK) or os.name == "nt"):
+                    staged_executable = cand
+                    break
+            if staged_executable is None:
                 raise InstallFailure("The installer did not produce a usable CLI. Check the output and retry.")
 
-            op.progress = "Checking the staged CLI before activation."
+            if os.name == "nt":
+                bin_dir = stage / "bin"
+                bin_dir.mkdir(exist_ok=True)
+                for file_candidate in stage.glob(f"{executable}*"):
+                    if file_candidate.is_file():
+                        target_file = bin_dir / file_candidate.name
+                        if not target_file.exists():
+                            if file_candidate.suffix.lower() in (".cmd", ".bat"):
+                                target_file.write_text(f'@ECHO off\n"%~dp0..\\{file_candidate.name}" %*\n', encoding="utf-8")
+                            else:
+                                shutil.copy2(file_candidate, target_file)
+
             version_code, version_output = await _run_child(
                 op, [str(staged_executable), "--version"], cwd=data_dir, env=env,
                 timeout=VERSION_TIMEOUT_SECONDS,
@@ -283,9 +367,11 @@ async def _run(op: Operation) -> None:
             if version_code != 0 or not version_output:
                 raise InstallFailure("The staged CLI did not pass its version check. The existing install is unchanged.")
 
+            op.progress = "Activating CLI runtime..."
             _commit_release(engine_root, stage, op.id)
             committed = True
             op.status, op.progress = "succeeded", "Install complete. Check engine status to continue."
+            op.percent = 100
         except asyncio.CancelledError:
             op.status, op.progress = "cancelled", "Install cancelled."
             raise

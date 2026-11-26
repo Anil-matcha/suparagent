@@ -3,7 +3,7 @@
 import { ArrowUp, Check, FileText, Image as ImageIcon, Loader2, Mic, Music, Plus, Sparkles, Square, Video as VideoIcon, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, useDeferredValue } from "react";
 import { cn } from "@/lib/cn";
-import { api } from "@/lib/api";
+import { api, type Engine } from "@/lib/api";
 import { isLongPaste, isSendKey, livePastes, removePaste } from "@/lib/composer";
 import { loadDraft, saveDraft } from "@/lib/drafts";
 import { useT } from "@/lib/use-i18n";
@@ -11,6 +11,7 @@ import { MAX_SKILLS_PER_MESSAGE, skillCompletions, suggestSkills, type SkillSumm
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { PendingAttachments } from "./Attachments";
+import { ModelPicker } from "./ModelPicker";
 
 const MAX_HEIGHT_PX = 200;
 
@@ -66,6 +67,11 @@ export function Composer({
   onToggleSkill,
   onSaveAsSkill,
   draftKey = null,
+  engines,
+  selectedProvider,
+  selectedModel,
+  selectedEffort,
+  onModelChange,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -104,6 +110,11 @@ export function Composer({
   // Identifies the conversation (its id, or "new"). With it the unsent text is kept per
   // conversation and put back when you return. Without it nothing is stored.
   draftKey?: string | null;
+  engines?: Engine[] | null;
+  selectedProvider?: string;
+  selectedModel?: string | null;
+  selectedEffort?: string | null;
+  onModelChange?: (provider: string, model: string | null, effort?: string | null) => void;
 }) {
   const t = useT();
   const box = useRef<HTMLTextAreaElement>(null);
@@ -583,6 +594,16 @@ export function Composer({
                     </div>
                   </div>
                 </div>
+              )}
+              {engines && engines.length > 0 && selectedProvider && onModelChange && (
+                <ModelPicker
+                  engines={engines}
+                  selectedProvider={selectedProvider}
+                  selectedModel={selectedModel ?? null}
+                  selectedEffort={selectedEffort}
+                  onChange={onModelChange}
+                  disabled={sending || running}
+                />
               )}
               {onToggleSkill && (
                 <Tooltip content={t("composer.pickSkills")}>
