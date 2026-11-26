@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.8.9 - 2026-11-27
+
+Desktop 0.8.9: a new model picker in the chat composer with real engine usage limits, managed engine installs on Windows with real download progress, the support worker's shadow mode, label controls and Gmail new-mail trigger, plus MuAPI integrations (spoken replies and agent pictures). Installed apps pick it up from Settings → App updates.
+
 ### Added
 
 - Let routines add a Gmail new-mail trigger alongside their schedule. Composio filters at the source; the app keeps event identifiers only, follows the routine's existing account grants and mailbox share, and applies debounce, daily caps and quiet hours. A signed-in desktop receives events through the hosted relay. The backend is deployed on staging; a real Composio delivery and installed-desktop qualification remain.
