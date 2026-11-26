@@ -38,8 +38,14 @@ class SlackAdapter:
         if card.detail:
             # A fence inside the request must not end ours early.
             body += "\n```" + escape(card.detail).replace("```", "'''") + "```"
+        interactive = card.interactive
+        if len(body) > CARD_CHARS:
+            # Escaping can expand a request that fitted the bridge's raw-text
+            # limit. Never show buttons on a shortened approval request.
+            body = "The request is too long to review in Slack. Open the app to answer it."
+            interactive = False
         blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": body}}]
-        if card.interactive:
+        if interactive:
             blocks.append({
                 "type": "actions",
                 "elements": [

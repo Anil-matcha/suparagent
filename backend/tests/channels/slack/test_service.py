@@ -511,3 +511,15 @@ async def test_the_adapter_posts_to_its_channel_and_shows_a_big_request_without_
     assert api.updates[-1][:3] == ("D1", "2.0", "Write: Write a <big> file: Denied")
     await adapter.close_approval(None, "ignored")
     assert len(api.updates) == 1
+
+
+async def test_escaped_approval_that_outgrows_slack_has_no_buttons():
+    from app.channels.base import ApprovalCard
+
+    api = FakeApi(BOT, APP)
+    adapter = SlackAdapter(api, "D1")
+    await adapter.send_approval(ApprovalCard("ap-2", "Write", "A file", "&" * 2500, interactive=True))
+    _, _, blocks = api.posts[-1]
+    assert len(blocks[0]["text"]["text"]) <= adapter.card_chars
+    assert all(block["type"] != "actions" for block in blocks)
+    assert "Open the app" in blocks[1]["elements"][0]["text"]

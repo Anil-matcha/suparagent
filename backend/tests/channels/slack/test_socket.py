@@ -204,6 +204,41 @@ async def test_a_redelivered_event_is_acknowledged_but_handled_once(slack_factor
         await h.client.stop()
 
 
+async def test_a_full_queue_leaves_an_event_unacknowledged_for_redelivery():
+    class Inbox:
+        def __init__(self, message):
+            self.message = message
+            self.acks = []
+
+        async def __aiter__(self):
+            yield json.dumps(self.message)
+
+        async def send(self, text):
+            self.acks.append(json.loads(text))
+
+    async def handle(message):
+        pass
+
+    client = SocketModeClient(FakeApi(), handle)
+    client._queue = asyncio.Queue(maxsize=1)
+    client._queue.put_nowait(envelope(0))
+    first = Inbox(envelope(1))
+    await client._read(first)
+    assert first.acks == []
+    assert "Ev1" not in client._seen_set
+
+    client._queue.get_nowait()
+    redelivery = Inbox(envelope(1))
+    await client._read(redelivery)
+    assert redelivery.acks == [{"envelope_id": "e1"}]
+    assert client._queue.get_nowait()["payload"]["event_id"] == "Ev1"
+
+    duplicate = Inbox(envelope(2, "Ev1"))
+    await client._read(duplicate)
+    assert duplicate.acks == [{"envelope_id": "e2"}]
+    assert client._queue.empty()
+
+
 async def test_envelopes_are_handled_in_order_and_a_failing_one_does_not_stop_the_rest(slack_factory):
     fake = await slack_factory(await hello_then(envelope(1), envelope(2), envelope(3)))
     seen = []

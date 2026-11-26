@@ -2,6 +2,7 @@
 chat app. Nothing here talks to Slack or any network."""
 
 import asyncio
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -197,6 +198,14 @@ async def test_a_failed_turn_says_why_in_one_line(world):
     await world.bridge.on_owner_message("go")
     await wait_until(lambda: world.chat.sent)
     assert world.chat.sent == ["That did not finish: the engine said boom"]
+
+
+async def test_an_engine_fallback_is_announced_in_the_chat(world):
+    event = SimpleNamespace(type="engine.switched", data={
+        "message": "Switched this turn to Codex because Claude reached its usage limit."
+    })
+    assert await world.bridge._handle(event, []) is False
+    assert world.chat.sent == ["Switched this turn to Codex because Claude reached its usage limit."]
 
 
 async def test_partial_text_of_a_failed_turn_is_posted_first(world):

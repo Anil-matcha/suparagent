@@ -166,23 +166,26 @@ class SocketModeClient:
                 logger.info("slack asked for a new connection", reason=reason if isinstance(reason, str) else None)
                 return
             envelope_id = message.get("envelope_id")
-            if isinstance(envelope_id, str) and envelope_id:
+            if isinstance(envelope_id, str) and envelope_id and self._enqueue(message):
+                # A full queue cannot keep this event. Leave it unacknowledged
+                # so Slack can redeliver it after the worker catches up.
                 await ws.send(json.dumps({"envelope_id": envelope_id}))
-                self._enqueue(message)
 
-    def _enqueue(self, envelope: dict) -> None:
+    def _enqueue(self, envelope: dict) -> bool:
         event_id = event_id_of(envelope)
+        if event_id is not None and event_id in self._seen_set:
+            return True  # a redelivery of an accepted event still needs an ack
+        try:
+            self._queue.put_nowait(envelope)
+        except asyncio.QueueFull:
+            logger.warning("slack events are arriving faster than they are handled; one was left for redelivery")
+            return False
         if event_id is not None:
-            if event_id in self._seen_set:
-                return
             if len(self._seen) == self._seen.maxlen:
                 self._seen_set.discard(self._seen[0])
             self._seen.append(event_id)
             self._seen_set.add(event_id)
-        try:
-            self._queue.put_nowait(envelope)
-        except asyncio.QueueFull:
-            logger.warning("slack events are arriving faster than they are handled; one was dropped")
+        return True
 
     async def _work(self) -> None:
         while True:

@@ -214,6 +214,12 @@ class ChannelBridge:
             text = data.get("text")
             if isinstance(text, str) and text.strip():
                 texts.append(text.strip())
+        elif kind == "engine.switched":
+            # The app shows this event in its transcript. A channel reader
+            # needs the same notice before the fallback's answer arrives.
+            message = data.get("message")
+            if isinstance(message, str) and message.strip():
+                await self._say(message.strip())
         elif kind == "approval.requested":
             await self._open_card(event.thread_id, data)
         elif kind == "approval.resolved":
