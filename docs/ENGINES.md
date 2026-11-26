@@ -16,6 +16,7 @@ UI do not know which engine they are talking to.
 | `acp` | ACP agent | acp | any agent CLI that speaks the Agent Client Protocol, from a saved command |
 | `openai_compat` | OpenAI-compatible | api | `POST {base_url}/chat/completions`, streamed (Ollama, LM Studio, vLLM, hosted APIs) |
 | `openrouter` | OpenRouter | api | the OpenAI-compatible engine preset for `https://openrouter.ai/api/v1` |
+| `aimlapi` | AI/ML API | api | the OpenAI-compatible engine preset for `https://api.aimlapi.com/v1` |
 
 ## Choose and configure an engine
 
@@ -354,6 +355,27 @@ differences:
 Tested against a mock endpoint only; no turn has been run against the real
 OpenRouter service yet.
 
+## AI/ML API
+
+A second preset of the OpenAI-compatible engine (`AimlapiAdapter` in
+`backend/app/services/openai_chat_adapter.py`), registered as the engine
+`aimlapi` with its own saved configuration (`engine:aimlapi`). It follows the
+OpenRouter preset, with these differences:
+
+- The address is fixed to `https://api.aimlapi.com/v1`; configuration requests
+  with another `base_url` are rejected. The key and the source header are only
+  ever put on requests to `api.aimlapi.com`, and redirects are not followed.
+- A key is required (https://aimlapi.com/app/keys). Readiness authenticates
+  through `GET /billing/balance`; its body is not read or shown. A rejected key
+  reports signed out.
+- Refresh lists models from `GET /models`, keeping only entries whose `type` is
+  `openai/chat-completions` (up to 600). Model ids use `vendor/model`, for
+  example `openai/gpt-4o-mini`, which is also the default when no model is
+  chosen. Usage is billed to the AI/ML API account.
+- Requests carry `X-AIMLAPI-Source: suparagent`, the counterpart of OpenRouter's
+  attribution headers, sent only to `api.aimlapi.com`.
+- Chat only, like any OpenAI-compatible endpoint: no tools, images or computers.
+
 ## Limits and the fallback engine
 
 When an engine refuses a turn for a usage limit, a rate limit or a lack of
@@ -431,7 +453,7 @@ Gemini CLI (`gemini`) and Cursor (`cursor`) use the same ACP transport, approval
 - **Cursor:** install from [Cursor's CLI documentation](https://cursor.com/docs/cli), then `cursor-agent login` or save a key. Starts with `cursor-agent acp`, without automatic approval flags. Credentials suppress ACP browser authentication. Status and model discovery use bounded CLI commands. A selected model must be offered by the session and accepted by `session/set_model`; refusal ends the turn before the prompt. Cursor's `cursor/ask_question` extension is answered as unsupported, so it cannot hang waiting for a question card.
 - **OpenCode (experimental):** install `npm install -g opencode-ai` and run `opencode auth login`. Discovery uses `opencode models` without creating a session. A model must be offered by the session's configuration and confirmed by `session/set_config_option`. Additional saved provider-key maps are not implemented. OpenCode strips ambient foreign API keys and configuration overrides, pins project configuration off, and supplies `OPENCODE_PERMISSION` asking for every tool (edit/bash denied in plan mode, all tools denied when tools are off). This override has **not** been proven against hostile real CLI configuration; OpenCode is disabled by default.
 
-`SUPARAGENT_PRESET_ENGINES` selects enabled presets by comma-separated ID. Unset enables `gemini,cursor,openrouter,antigravity`. An empty value disables all presets; add `opencode` to also enable experimental OpenCode. Include `antigravity` when setting an explicit list to show Google account setup. Custom ACP and OpenAI-compatible engines are always registered. Preset CLIs are not supported on Windows yet.
+`SUPARAGENT_PRESET_ENGINES` selects enabled presets by comma-separated ID. Unset enables `gemini,cursor,openrouter,aimlapi,antigravity`. An empty value disables all presets; add `opencode` to also enable experimental OpenCode. Include `antigravity` when setting an explicit list to show Google account setup. Custom ACP and OpenAI-compatible engines are always registered. Preset CLIs are not supported on Windows yet.
 
 For ask and accept-edits modes, Gemini always uses `--approval-mode default`, Cursor receives no automatic approval flag, and OpenCode receives ask rules. Every permission request uses the existing approval gate; accept-edits only auto-allows edits whose listed locations all lie inside the workspace. Plan mode and tools-off refuse permission requests. A vendor's own configuration can allow tools without sending a request, especially Cursor allow rules; these presets do not provide a filesystem sandbox. Review CLI configuration before enabling tools.
 
@@ -445,5 +467,6 @@ For ask and accept-edits modes, Gemini always uses `--approval-mode default`, Cu
 | Cursor | Synthetic status/models discovery, credential isolation, model selection/refusal, generic ACP lifecycle regression tests | Real CLI/account, exact live model IDs, question behavior, permission bypass from user configuration |
 | OpenCode | Synthetic model discovery without sessions, model confirmation, pinned environment controls | Real CLI/account, permission overrides against hostile configuration, real resume; remains opt-in |
 | OpenRouter | Mock HTTP authentication, catalog, streaming and fallback tests | Real account and credits/limit behavior |
+| AI/ML API | Mock HTTP authentication, chat-only catalog filter, host pinning, streaming; one real streamed turn with `openai/gpt-4o-mini` | Credits/limit behavior |
 
 No real-account compatibility, Windows compatibility, optional Docker package build or approval bypass resistance is claimed by these checks. Real CLI runs must record version, redacted responses and permission behavior before changing this table or default-enabling OpenCode.

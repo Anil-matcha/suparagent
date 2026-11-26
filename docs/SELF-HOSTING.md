@@ -16,7 +16,7 @@ There are two ways to run it. Both use the same server, the same settings and th
 ## Before you start
 
 - A Linux server with `sudo`, a domain name whose address points at it, and ports 80 and 443 open.
-- At least one connected engine: Claude Code, Codex, Gemini CLI, Cursor, OpenRouter, a custom ACP command or an OpenAI-compatible endpoint. CLI engines must be installed and signed in **on the server**, as the same account that runs Suparagent: see [ENGINES.md](ENGINES.md) and [Engines](#engines). Agents run there, with that account's files.
+- At least one connected engine: Claude Code, Codex, Gemini CLI, Cursor, OpenRouter, AI/ML API, a custom ACP command or an OpenAI-compatible endpoint. CLI engines must be installed and signed in **on the server**, as the same account that runs Suparagent: see [ENGINES.md](ENGINES.md) and [Engines](#engines). Agents run there, with that account's files.
 - Two secrets you must keep: your **passphrase**, and the **encryption key** (`TOKEN_ENCRYPTION_KEYS`). The key encrypts the credentials the server stores. Back it up somewhere else: without it those credentials cannot be read, and a backup archive does not contain it.
 
 Agents only run when the settings say `LOCAL_EXECUTION_ENABLED=true` (both routes below set it). Tools (file edits and commands) stay off until you also set `LOCAL_TOOLS_ENABLED=true`; every command still asks for your approval.
@@ -297,10 +297,11 @@ Preset connection options:
 | Cursor | Save a key in Settings, or `CURSOR_API_KEY` / `CURSOR_AUTH_TOKEN` | None; install Cursor separately |
 | OpenCode (experimental) | `opencode auth login` or its hosted API key | `opencode-ai` |
 | OpenRouter | Save an OpenRouter key in Settings | None |
+| AI/ML API | Save an AI/ML API key in Settings | None |
 
 For example, `SUPARAGENT_ENGINES="@google/gemini-cli opencode-ai" docker compose build` installs those packages; a direct image build uses `--build-arg ENGINES="@google/gemini-cli opencode-ai"`. These optional package builds have not been run. Cursor's installer is outside the supported image build. Preset CLIs on Windows have not been enabled.
 
-`SUPARAGENT_PRESET_ENGINES` is a comma-separated selection of presets. Unset means Gemini, Cursor and OpenRouter. Set it to an empty string to disable all presets, or `gemini,cursor,openrouter,opencode` to also expose experimental OpenCode. OpenCode must remain opt-in until a real adversarial configuration check proves its permission override. Custom ACP and endpoint engines remain available.
+`SUPARAGENT_PRESET_ENGINES` is a comma-separated selection of presets. Unset means Gemini, Cursor, OpenRouter and AI/ML API. Set it to an empty string to disable all presets, or `gemini,cursor,openrouter,opencode` to also expose experimental OpenCode. OpenCode must remain opt-in until a real adversarial configuration check proves its permission override. Custom ACP and endpoint engines remain available.
 
 Saved keys are injected only into their engine's process and are readable by shell commands that process starts. Cursor credentials are not added to other engines' environments; existing globally allowed provider prefixes remain as described below. OpenCode strips ambient foreign API keys, removes configuration override variables, and pins project configuration off. Additional OpenCode provider-key maps are not implemented.
 

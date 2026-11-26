@@ -15,7 +15,8 @@ error message from the endpoint has it removed before it is shown.
 
 `OpenRouterAdapter` at the end is a preset of the same engine: OpenRouter's
 address filled in, its key required, and OpenRouter's optional app-attribution
-headers (sent to openrouter.ai only).
+headers (sent to openrouter.ai only). `AimlapiAdapter` is the same kind of
+preset for AI/ML API (https://api.aimlapi.com/v1).
 """
 
 import asyncio
@@ -50,6 +51,15 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_HOST = "openrouter.ai"
 # OpenRouter's optional app attribution (its public app rankings).
 OPENROUTER_ATTRIBUTION = {"HTTP-Referer": "https://github.com/Anil-matcha/suparagent", "X-Title": "Suparagent"}
+
+AIMLAPI_BASE_URL = "https://api.aimlapi.com/v1"
+AIMLAPI_HOST = "api.aimlapi.com"
+# A cheap model with streaming, tools and image input in AI/ML API's live catalog.
+AIMLAPI_DEFAULT_MODEL = "openai/gpt-4o-mini"
+# Only catalog rows of this type speak `POST /chat/completions`.
+AIMLAPI_CHAT_TYPE = "openai/chat-completions"
+# Source attribution, like OpenRouter's (sent to api.aimlapi.com only).
+AIMLAPI_ATTRIBUTION = {"X-AIMLAPI-Source": "suparagent"}
 
 
 class InvalidConfig(ValueError):
@@ -557,4 +567,108 @@ class OpenRouterAdapter(OpenAIChatAdapter):
         if not ctx.model and not config.get("model"):
             probe = await self._probe_config(config)
             ctx.model = next((model.id for model in probe.models or [] if model.default), None)
+        return await super().run_turn(ctx, sink, gate)
+
+
+class AimlapiAdapter(OpenAIChatAdapter):
+    preset = True
+    config_fields = [
+        {"name": "api_key", "label": "AI/ML API key", "kind": "secret", "required": True},
+        {"name": "model", "label": "Default model", "placeholder": AIMLAPI_DEFAULT_MODEL},
+    ]
+    setup = {
+        "credential": "api_key", "docs_url": "https://aimlapi.com/app/keys",
+        "notes": ["Create an AI/ML API key and save it here. Chat only.",
+                  ("Requests go to AI/ML API and its model providers, billed to your AI/ML API account. "
+                   "Check their data policies before sending private content.")],
+    }
+    """AI/ML API (https://aimlapi.com) as a preset of the OpenAI-compatible
+    engine, shaped like the OpenRouter preset: its own saved configuration
+    (`engine:aimlapi`), a fixed address, a required key and model ids such as
+    `openai/gpt-4o-mini`. The key and the source header go only to
+    api.aimlapi.com; redirects are not followed."""
+
+    key = "aimlapi"
+    label = "AI/ML API"
+    max_models = 600
+    not_configured = "Add your AI/ML API key in Settings → Engines."
+
+    def validate_config(self, payload: dict, current: dict | None) -> dict:
+        base = payload.get("base_url")
+        if base and base.strip().rstrip("/") != AIMLAPI_BASE_URL:
+            raise InvalidConfig("AI/ML API uses its fixed address. Use the OpenAI-compatible engine for a proxy.")
+        payload = {**payload, "base_url": AIMLAPI_BASE_URL}
+        config = super().validate_config(payload, current)
+        if not config.get("api_key"):
+            raise InvalidConfig("Give your AI/ML API key (aimlapi.com → Keys).")
+        return config
+
+    def _headers(self, config: dict) -> dict:
+        if urlsplit(config.get("base_url") or "").hostname != AIMLAPI_HOST:
+            # Never send the key or the source header anywhere else.
+            return {"Accept": "application/json"}
+        headers = super()._headers(config)
+        headers.update(AIMLAPI_ATTRIBUTION)
+        return headers
+
+    async def status(self) -> ProviderStatus:
+        probe = await self.probe()
+        return ProviderStatus(ready=probe.ready, error=probe.reason, installed=probe.installed, signed_in=probe.signed_in)
+
+    async def probe(self) -> EngineProbe:
+        return await self._probe_config(self.config or {})
+
+    async def _probe_config(self, config: dict) -> EngineProbe:
+        if not config.get("api_key"):
+            return EngineProbe(installed=False, ready=False, reason=self.not_configured)
+        if config.get("base_url", AIMLAPI_BASE_URL) != AIMLAPI_BASE_URL:
+            return EngineProbe(installed=True, ready=False, reason="Use the OpenAI-compatible engine for a proxy, or save your AI/ML API settings again.")
+        try:
+            async with self._client(httpx.Timeout(PROBE_TIMEOUT_SECONDS)) as client:
+                # The balance check needs a valid key; its body is not read or shown.
+                response = await client.get(f"{AIMLAPI_BASE_URL}/billing/balance", headers=self._headers(config))
+                if response.status_code in (401, 403):
+                    return EngineProbe(installed=True, ready=False, signed_in=False, reason="AI/ML API refused the key. Save a valid key in Settings → Engines.")
+                if response.status_code != 200:
+                    return EngineProbe(installed=True, ready=False, reason=f"AI/ML API key check answered {response.status_code}. Try again later.")
+                # A failed catalog must not turn a valid key into a signed-out
+                # account. A saved or default model still works.
+                try:
+                    catalog = await client.get(f"{AIMLAPI_BASE_URL}/models", headers=self._headers(config))
+                    data = catalog.json() if catalog.status_code == 200 else []
+                    if isinstance(data, dict):
+                        data = data.get("data")
+                except (httpx.HTTPError, ValueError, AttributeError):
+                    data = []
+        except httpx.HTTPError as exc:
+            return EngineProbe(installed=True, ready=False, reason=f"AI/ML API did not answer ({exc.__class__.__name__}).")
+        ids = sorted({
+            item["id"] for item in (data if isinstance(data, list) else [])
+            if isinstance(item, dict) and isinstance(item.get("id"), str) and item.get("type") == AIMLAPI_CHAT_TYPE
+        })[:self.max_models]
+        default = config.get("model") or AIMLAPI_DEFAULT_MODEL
+        if default not in ids:
+            ids.insert(0, default)
+        models = []
+        for model in ids:
+            is_reasoning = any(p in model.lower() for p in ("o1", "o3-mini", "o3", "o4", "r1"))
+            efforts = ("low", "medium", "high") if is_reasoning else ()
+            models.append(
+                ModelOption(
+                    model,
+                    model,
+                    model == default,
+                    default_reasoning_effort="medium" if is_reasoning else None,
+                    supported_reasoning_efforts=efforts,
+                    reasoning_effort_configurable=bool(efforts),
+                )
+            )
+        return EngineProbe(installed=True, ready=True, signed_in=True, models=models)
+
+    async def run_turn(self, ctx: TurnContext, sink, gate) -> TurnOutcome:
+        config = ctx.engine_config or self.config or {}
+        if not config.get("api_key") or config.get("base_url", AIMLAPI_BASE_URL) != AIMLAPI_BASE_URL:
+            return TurnOutcome("failed", error="Save your AI/ML API key in Settings → Engines. For a proxy use the OpenAI-compatible engine.", error_code="engine_not_configured")
+        if not ctx.model and not config.get("model"):
+            ctx.model = AIMLAPI_DEFAULT_MODEL
         return await super().run_turn(ctx, sink, gate)

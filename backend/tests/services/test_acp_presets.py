@@ -151,12 +151,12 @@ async def test_cursor_discovery_parses_synthetic_catalog_markers(fake):
 def test_opencode_default_off_and_explicit_preset_list(monkeypatch):
     from app.services.engine_registry import default_adapters
     monkeypatch.delenv("SUPARAGENT_PRESET_ENGINES", raising=False)
-    assert {"gemini", "cursor", "openrouter"} <= default_adapters().keys()
+    assert {"gemini", "cursor", "openrouter", "aimlapi"} <= default_adapters().keys()
     assert "opencode" not in default_adapters()
     monkeypatch.setenv("SUPARAGENT_PRESET_ENGINES", "opencode")
     assert "opencode" in default_adapters() and "gemini" not in default_adapters()
     monkeypatch.setenv("SUPARAGENT_PRESET_ENGINES", "")
-    assert not ({"gemini", "cursor", "opencode", "openrouter"} & default_adapters().keys())
+    assert not ({"gemini", "cursor", "opencode", "openrouter", "aimlapi"} & default_adapters().keys())
 
 
 async def test_prompt_errors_redact_saved_keys_before_output_clipping(fake):

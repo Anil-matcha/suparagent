@@ -29,6 +29,7 @@ SIGN_IN_ADVICE = {
     "cursor": "Save a Cursor API key in Settings → Engines, or run `cursor-agent login` as the account running the server.",
     "opencode": "Run `opencode auth login` as the account running the server, or save its key in Settings → Engines.",
     "openrouter": "Save an OpenRouter API key in Settings → Engines.",
+    "aimlapi": "Save an AI/ML API key in Settings → Engines.",
     "claude": "Sign in as the account that runs the server: `claude auth login` (it prints a link; open it in any browser and paste the code back).",
     "codex": "Sign in as the account that runs the server: `codex login --device-auth` (it shows a code to enter on the provider's page).",
 }
@@ -244,7 +245,7 @@ def check_engines(describe: Callable | None = None) -> list[Check]:
         checks.append(Check("Engines", OK, f"Ready: {', '.join(ready)}."))
     else:
         checks.append(_problem("Engines", "No engine is ready, so agents cannot answer.",
-                               "Connect Claude, Codex, Gemini, Cursor, OpenRouter, an ACP command or an OpenAI-compatible endpoint in Settings → Engines (see the lines above). Experimental OpenCode is opt-in. "
+                               "Connect Claude, Codex, Gemini, Cursor, OpenRouter, AI/ML API, an ACP command or an OpenAI-compatible endpoint in Settings → Engines (see the lines above). Experimental OpenCode is opt-in. "
                                "If it is installed but not found, put its folder on the PATH or set LOCAL_CLAUDE_CLI_PATH / LOCAL_CODEX_CLI_PATH."))
     return checks
 
