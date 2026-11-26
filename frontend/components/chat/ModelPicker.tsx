@@ -190,7 +190,16 @@ export function ModelPicker({
   }, [open]);
 
   // Pill Title & Short Label for trigger button
-  const currentEffort = selectedEffort ?? activeModelObj?.default_reasoning_effort ?? null;
+  // Only display reasoning effort if the active model supports configurable reasoning efforts
+  const supportsEffort = Boolean(
+    activeModelObj?.reasoning_effort_configurable &&
+    activeModelObj?.supported_reasoning_efforts &&
+    activeModelObj.supported_reasoning_efforts.length > 1
+  );
+  const currentEffort = supportsEffort
+    ? (selectedEffort ?? activeModelObj?.default_reasoning_effort ?? null)
+    : null;
+
   const pillTitle = useMemo(() => {
     const engineName = activeEngine?.label ?? selectedProvider;
     const modelName = activeModelObj?.label ?? (selectedModel ? selectedModel : "Default");
@@ -223,7 +232,12 @@ export function ModelPicker({
     for (const m of viewedEngine.models) {
       const efforts = m.supported_reasoning_efforts;
       if (efforts && efforts.length > 0 && m.reasoning_effort_configurable !== false) {
-        for (const eff of efforts) {
+        // Place default reasoning effort first, followed by other efforts in order
+        const sortedEfforts = m.default_reasoning_effort && efforts.includes(m.default_reasoning_effort)
+          ? [m.default_reasoning_effort, ...efforts.filter((e) => e !== m.default_reasoning_effort)]
+          : efforts;
+
+        for (const eff of sortedEfforts) {
           const isCurrent =
             isThisEngineSelected &&
             (selectedModel === m.id || (!selectedModel && m.id === viewedEngine.default_model)) &&
@@ -410,7 +424,7 @@ export function ModelPicker({
           {/* Main 2-Column Split: Left Rail + Right Content */}
           <div className="flex flex-1 min-h-[280px] max-h-[360px] overflow-hidden">
             {/* Left Vertical Provider Rail */}
-            <div className="flex w-12 shrink-0 flex-col items-center gap-1.5 border-r border-line/60 bg-inset/20 p-1.5 overflow-y-auto">
+            <div className="flex w-14 shrink-0 flex-col items-center gap-1.5 border-r border-line/60 bg-inset/20 p-1.5 overflow-x-hidden overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               <span className="text-[9px] uppercase tracking-wider text-muted font-semibold mt-1">Cloud</span>
               {cloudEngines.map((eng) => {
                 const isViewed = eng.id === viewedEngine.id;

@@ -163,10 +163,10 @@ def catalog(session):
                     model_efforts = tuple(e for e in ("low", "medium", "high", "xhigh", "max") if e in me_list)
                     configurable = len(model_efforts) > 1
                 elif "(medium)" in lower_label:
-                    model_efforts = ("medium",)
+                    model_efforts = ()
                     configurable = False
                 elif "(thinking)" in lower_label:
-                    model_efforts = ("high",)
+                    model_efforts = ()
                     configurable = False
                 elif global_efforts:
                     model_efforts = tuple(global_efforts)
