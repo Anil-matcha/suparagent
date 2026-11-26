@@ -87,6 +87,9 @@ platform and release qualification limits.
   `v0.2.0`. The `v0.3.0` Windows app includes an assisted, checksum-verified
   updater; it does not install an update automatically. The release-to-release
   update path has not been verified end to end.
+- **Slack channel.** Talk to one of your agents from a Slack direct message and answer its
+  approvals with buttons. Owner only, over an outbound connection, and only while the app is
+  running. See [connected apps](CONNECTED_APPS.md#slack-settings--integrations).
 - **Optional legacy path.** The original Boat sandbox tasks and Telegram bot
   remain separate from the local agent workspace. Neither is needed for local
   chat or routines.
