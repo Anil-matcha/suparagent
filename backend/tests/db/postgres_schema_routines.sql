@@ -26,6 +26,7 @@ CREATE TABLE routine (
 	schedule_spec JSON NOT NULL, 
 	timezone VARCHAR DEFAULT 'UTC' NOT NULL, 
 	paused BOOLEAN DEFAULT false NOT NULL, 
+	app_event JSON, 
 	paused_reason TEXT, 
 	next_run_at TIMESTAMP WITH TIME ZONE, 
 	run_limit_minutes INTEGER DEFAULT '30' NOT NULL, 
@@ -76,6 +77,8 @@ CREATE TABLE routine_run (
 CREATE INDEX ix_routine_run_routine_id_created_at ON routine_run (routine_id, created_at);
 
 CREATE INDEX ix_routine_run_state ON routine_run (state);
+
+CREATE UNIQUE INDEX uq_routine_run_app_event_slot ON routine_run (routine_id, scheduled_for) WHERE trigger = 'app_event';
 
 CREATE UNIQUE INDEX uq_routine_run_occurrence ON routine_run (routine_id, scheduled_for) WHERE trigger = 'schedule';
 

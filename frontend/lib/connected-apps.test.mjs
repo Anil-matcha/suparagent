@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AGENT_APPS, GENERIC_READ, GENERIC_WRITE, accountScopesToSend, accountsOf, agentAppOptions, appLabel, isComposioLink, levelOf, outcomeFor, pollDeadline, reservePage, scopesToSend, statusLabel, supportsConnectedApps, withAccount, withApp } from "./connected-apps.ts";
+import { AGENT_APPS, GENERIC_READ, GENERIC_WRITE, accountScopesToSend, accountsOf, agentAppOptions, appLabel, isComposioLink, levelOf, outcomeFor, pollDeadline, reservePage, scopesToSend, statusLabel, supportsConnectedApps, supportsLabels, withAccount, withApp } from "./connected-apps.ts";
 
 const LINK = "https://connect.composio.dev/link/lk_abc";
 const account = (id, status, toolkit = "github") => ({ id, status, toolkit, alias: null, created_at: null, updated_at: null });
@@ -186,4 +186,52 @@ test("sharesToSend drops shares for accounts no longer selected, an app turned o
     { gmail: { b: { percent: 100 } } });
   const sent = sharesToSend({ gmail: { a: { percent: 10, reshuffle: true } } }, { gmail: ["a"] }, { gmail: "read" }, "claude");
   assert.deepEqual(sent, { gmail: { a: { percent: 10 } } }); // a reshuffle request is never sent from a saved draft
+});
+
+
+// -- the labels level (BL-173): Gmail only ---------------------------------------------------------------------------------
+
+test("only Gmail has the labels level", () => {
+  assert.equal(supportsLabels("gmail"), true);
+  for (const slug of ["github", "googlecalendar", "googleads", "metaads", "slack", "notion", ""]) assert.equal(supportsLabels(slug), false);
+  assert.match(AGENT_APPS.find((app) => app.slug === "gmail").labels, /^Read mail and add its own labels under Worker\/\. It cannot send, draft, remove, archive or delete anything\.$/);
+  assert.ok(AGENT_APPS.filter((app) => app.slug !== "gmail").every((app) => !app.labels));
+});
+
+test("levelOf reads labels for Gmail and never for another app", () => {
+  assert.equal(levelOf({ gmail: "labels" }, "gmail"), "labels");
+  for (const slug of ["github", "googlecalendar", "slack"]) assert.equal(levelOf({ [slug]: "labels" }, slug), "off");
+  assert.equal(levelOf({ gmail: "read" }, "gmail"), "read");
+  assert.equal(levelOf({ gmail: "write" }, "gmail"), "write");
+});
+
+test("withApp sets labels on Gmail, keeps the rest, and ignores it for any other app", () => {
+  assert.deepEqual(withApp({ github: "read" }, "gmail", "labels"), { github: "read", gmail: "labels" });
+  assert.deepEqual(withApp({ gmail: "labels" }, "gmail", "write"), { gmail: "write" });
+  assert.deepEqual(withApp({ gmail: "labels" }, "gmail", "off"), {});
+  assert.deepEqual(withApp({ gmail: "read" }, "github", "labels"), { gmail: "read" });
+  assert.deepEqual(withApp(null, "slack", "labels"), {});
+  const before = { gmail: "read" };
+  withApp(before, "gmail", "labels");
+  assert.deepEqual(before, { gmail: "read" });
+});
+
+test("scopesToSend keeps labels for Gmail and drops it for any other app", () => {
+  assert.deepEqual(scopesToSend({ gmail: "labels" }, "claude"), { gmail: "labels" });
+  assert.deepEqual(scopesToSend({ gmail: "labels", github: "write" }, "codex"), { gmail: "labels", github: "write" });
+  assert.equal(scopesToSend({ github: "labels" }, "claude"), null);
+  assert.deepEqual(scopesToSend({ github: "labels", gmail: "read", slack: "labels" }, "claude"), { gmail: "read" });
+  assert.equal(scopesToSend({ gmail: "labels" }, "openai_compat"), null);
+});
+
+test("the settings options carry the labels text for Gmail only", () => {
+  const options = agentAppOptions(null, null);
+  assert.equal(options.find((o) => o.slug === "gmail").labels, AGENT_APPS.find((a) => a.slug === "gmail").labels);
+  assert.ok(options.filter((o) => o.slug !== "gmail").every((o) => o.labels === null));
+  assert.ok(agentAppOptions([account("z", "ACTIVE", "zoho")], { slack: "read" }).filter((o) => o.generic).every((o) => o.labels === null));
+});
+
+test("a labels account still counts as selected for the account and share rules", () => {
+  assert.deepEqual(accountScopesToSend({ gmail: ["a1"] }, { gmail: "labels" }, "claude"), { gmail: ["a1"] });
+  assert.deepEqual(accountScopesToSend({ github: ["a1"] }, { github: "labels" }, "claude"), {});
 });

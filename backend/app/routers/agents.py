@@ -295,7 +295,7 @@ def _check_fallback(rt: ThreadRuntime, provider: str, fallback: str | None, mode
 
 async def _check_connector_scopes(rt: ThreadRuntime, scopes: dict | None, provider: str, existing: dict | None = None) -> dict | None:
     """The connected apps an agent may use, checked and put in order; None when
-    there are none. The levels are read and write; an app is one with curated tools or one
+    there are none. The levels are read, read and label (only for an app with label tools: Gmail), and read and change; an app is one with curated tools or one
     Composio lists (asked with the owner's key, for apps not already allowed, so a made-up
     name fails closed), and never a shell, code or Composio itself. The agent's engine must be
     able to mount them (409 `engine_without_connected_apps`)."""
@@ -309,8 +309,10 @@ async def _check_connector_scopes(rt: ThreadRuntime, scopes: dict | None, provid
         if level not in composio_tools.LEVELS or not composio_generic.valid_app(app) or composio_generic.blocked_app(app):
             raise bad
         if app in composio_tools.apps():
-            if level == "write" and not composio_tools.has_write_tools(app):
+            if (level == "write" and not composio_tools.has_write_tools(app)) or (level == "labels" and not composio_tools.has_label_tools(app)):
                 raise bad
+        elif level == "labels":
+            raise bad  # an app Composio merely lists has no label tools
         elif app not in (existing or {}):
             try:
                 async with rt.session() as db:
@@ -559,6 +561,9 @@ async def _apply_update(
             from app.services import composio_actions
             async with rt.session() as db:
                 await composio_actions.forget(db, rt.owner_id, agent_id=agent_id)
+                # A routine woken by new mail that can no longer read that mail stops being woken (BL-177); its schedule goes on.
+                from app.services import app_events, composio_bridge
+                await app_events.on_access_changed(db, agent_id, lambda key: composio_bridge.make_client(key))
         return (await _with_computers(rt, [agent]))[0]
     except store.AgentNotFound:
         raise HTTPException(status_code=404, detail="Agent not found") from None

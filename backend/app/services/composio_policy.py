@@ -53,7 +53,7 @@ def automatic(tool: str, mode: str | None, levels: dict | None, arguments: objec
               first_use_hit: bool = False, uninterrupted: bool = False):
     """('allowed' | 'denied', reason) for a composio tool, None when a person must
     decide, or None for a tool that is not a composio tool. `levels` is what this
-    turn's agent may do, {app: "read" | "write"}."""
+    turn's agent may do, {app: "read" | "labels" | "write"}."""
     if not tool.startswith(PREFIX):
         return None
     if tool == PREFIX + composio_tools.CONNECT:
@@ -74,12 +74,15 @@ def automatic(tool: str, mode: str | None, levels: dict | None, arguments: objec
         return "denied", "app_not_allowed"
     if not composio_tools.allows(level, found.kind):
         return "denied", "write_not_allowed"
-    if name == composio_tools.TRIAGE_MARK and mode == "plan":
-        return "denied", "plan_mode"  # it records in this app's database; a plan changes nothing, not even that
+    if name in (composio_tools.TRIAGE_MARK, composio_tools.SENT_REPLIES, composio_tools.LESSON_PROPOSE) and mode == "plan":
+        return "denied", "plan_mode"  # they record in this app's database or count against the owner's allowance; a plan changes nothing
     if found.kind == "read":
         return "allowed", "composio_read"
     if mode == "plan":
         return "denied", "plan_mode"
+    if found.kind == "label":
+        # Adds a label of this app's own under Worker/ and nothing else (services/worker_label_ops.py); the level is the grant.
+        return "allowed", "routine_uninterrupted_app" if uninterrupted else "composio_label_grant"
     if uninterrupted:
         return "allowed", "routine_uninterrupted_app"
     return None  # a change: the person decides on a card

@@ -196,6 +196,17 @@ def first_owner_reply(messages: list, owner_address: str, after: datetime) -> tu
 
 async def compute(rt, agent_id: int, days: int, now: datetime) -> dict | None:
     """The report from the database and the mailbox, or None when the agent is not this owner's."""
+    entries = await collect(rt, agent_id, now - timedelta(days=days), None, now)
+    if entries is None:
+        return None
+    return _assemble(agent_id, days, now, entries)
+
+
+async def collect(rt, agent_id: int, since: datetime, until: datetime | None, now: datetime) -> list[dict] | None:
+    """One entry per predicted thread with `since <= predicted_at < until` (no upper bound when `until` is None): the
+    prediction row, the thread's newest draft, and the owner's first reply read through the agent's own account under its
+    current share. None when the agent is not this owner's; an empty list when it has no usable Gmail access. A read that
+    fails or is hidden by the share is skipped silently (BL-173). Shared by the report and the share suggestion (BL-175)."""
     async with rt.session() as db:
         await purge_old_drafts(db, now=now)
         agent = await db.get(Agent, agent_id, populate_existing=True)
@@ -203,13 +214,14 @@ async def compute(rt, agent_id: int, days: int, now: datetime) -> dict | None:
             return None
         rows = list((await db.execute(
             select(ShadowPrediction)
-            .where(ShadowPrediction.agent_id == agent_id, ShadowPrediction.predicted_at >= now - timedelta(days=days))
+            .where(ShadowPrediction.agent_id == agent_id, ShadowPrediction.predicted_at >= since,
+                   *([ShadowPrediction.predicted_at < until] if until is not None else []))
             .order_by(ShadowPrediction.predicted_at.desc(), ShadowPrediction.id.desc()))).scalars())
         shares = agent.connector_shares or {}
         scopes = composio_bridge.apps_for(agent.connector_scopes)
         allowed_accounts = composio_bridge.accounts_for(agent.connector_account_scopes).get("gmail", [])
         if scopes.get("gmail") not in composio_tools.LEVELS or not allowed_accounts:
-            return _empty(agent_id, days, now)
+            return []
 
         seen: set = set()
         picked: list = []
@@ -256,7 +268,7 @@ async def compute(rt, agent_id: int, days: int, now: datetime) -> dict | None:
             reply = first_owner_reply(messages, owner_address, row.predicted_at)
             entries.append({"row": row, "draft_text": drafts.get((row.account_id, row.thread_id)), "reply_at": reply[0] if reply else None, "reply_text": reply[1] if reply else None})
 
-    return _assemble(agent_id, days, now, entries)
+    return entries
 
 
 def _assemble(agent_id: int, days: int, now: datetime, entries: list[dict]) -> dict:

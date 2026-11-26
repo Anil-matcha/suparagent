@@ -50,12 +50,15 @@ KIND_ORDER = {
     "approval": 3,
     "question": 4,
     "routine": 5,
-    "due": 6,
-    "repeated_failure": 7,
-    "routine_completed": 8,
-    "calendar_event": 9,
-    "gmail_message": 10,
+    "support_unanswered": 6,
+    "due": 7,
+    "repeated_failure": 8,
+    "routine_completed": 9,
+    "calendar_event": 10,
+    "gmail_message": 11,
 }
+SUPPORT_REFS_SHOWN = 5
+SUPPORT_CACHE = timedelta(minutes=5)
 _BAD_RUN_STATES = frozenset({"failed", "missed", "interrupted"})
 _SETTLED_RUN_STATES = frozenset({"completed", "failed", "missed", "interrupted"})
 
@@ -120,6 +123,38 @@ def valid_zone(name: object) -> str:
 
 def local_day(now: datetime, zone: ZoneInfo) -> str:
     return _aware(now).astimezone(zone).date().isoformat()
+
+
+async def collect_support(db, owner_id: str, *, now: datetime, zone: ZoneInfo, make_client=None,
+                          answered: set | None = None, agents=None) -> list[Item]:
+    """One item per support worker with threads that have waited past the owner's answer time (BL-176).
+
+    The threads are the ones the worker ranked (`shadow_prediction`); each was checked for an owner reply through the
+    same Gmail path as the shadow report, under the agent's share, and only when the agent still has Gmail access
+    (services/support_unanswered.py). The item lists thread references, categories and times, never any text. It leaves
+    when the owner has answered, and time alone never clears it."""
+    from app.services import support_unanswered as unanswered
+
+    windows = unanswered.profile_windows()
+    answered = answered if answered is not None else set()
+    items: list[Item] = []
+    for agent in (agents if agents is not None else await unanswered.agents_with_marks(db, owner_id, now)):
+        found = await unanswered.waiting_for_agent(db, owner_id, agent, now=now, zone=zone, make_client=make_client,
+                                                   answered=answered, windows=windows)
+        if found is None:
+            continue
+        count = len(found.waiting)
+        shown = [f"{w.category.replace('_', ' ')} {w.thread_id} ({w.waited_hours:g}h)" for w in found.waiting[:SUPPORT_REFS_SHOWN]]
+        rest = count - len(shown)
+        detail = "; ".join(shown) + (f"; and {rest} more" if rest > 0 else "")
+        if found.more:
+            detail += f"; {found.more} more not checked yet"
+        detail += f". Answer times: {windows.urgent_hours:g}h for urgent, {windows.normal_hours:g}h for the rest, working days only."
+        items.append(Item(
+            "support_unanswered", f"support_unanswered:{agent.id}",
+            f"{count} support thread{'s are' if count != 1 else ' is'} waiting longer than your answer time",
+            _clip(detail, 400), None, found.waiting[0].since, source=f"Support worker {_clip(found.agent_name, 40)}"))
+    return items
 
 
 def _clip(text: str | None, limit: int) -> str:
@@ -432,6 +467,8 @@ class NeedsYou:
         self.clock = clock
         self._provider_client = provider_client
         self._provider_cache = None
+        self._support_cache = None
+        self._support_answered: set = set()   # threads seen answered, so they are not read again
         self._engines = engines
         self._issues = issues
         self._dirty = False
@@ -478,7 +515,7 @@ class NeedsYou:
         key = (self.owner_id, lead_id, json.dumps(scopes, sort_keys=True),
                json.dumps(account_scopes, sort_keys=True), zone.key, local_day(now, zone))
         def unknown(sources):
-            return any(scopes.get(app) in {"read", "write"} and sources[source] in {"failed", "unavailable", "partial"}
+            return any(scopes.get(app) in {"read", "labels", "write"} and sources[source] in {"failed", "unavailable", "partial"}
                        for source, app in (("gmail", "gmail"), ("calendar", "googlecalendar")))
         cached = self._provider_cache
         if (not force_refresh and cached and cached[0] == key
@@ -488,6 +525,25 @@ class NeedsYou:
             zone=zone, make_client=self._provider_client)
         self._provider_cache = (key, now, items, sources)
         return items, sources, now, unknown(sources)
+
+    async def _support(self, db, now, zone, *, force_refresh=False) -> list[Item]:
+        """The support-worker items (collect_support), cached for a few minutes. The key holds every input that decides
+        what may be read, so a change of access, share or answer time shows at once."""
+        from app.services import support_unanswered as unanswered
+
+        agents = await unanswered.agents_with_marks(db, self.owner_id, now)
+        if not agents:
+            return []
+        windows = unanswered.profile_windows()
+        key = (self.owner_id, local_day(now, zone), zone.key, windows,
+               json.dumps([[a.id, a.connector_scopes, a.connector_account_scopes, a.connector_shares] for a in agents], sort_keys=True, default=str))
+        cached = self._support_cache
+        if not force_refresh and cached and cached[0] == key and timedelta(0) <= now - cached[1] < SUPPORT_CACHE:
+            return cached[2]
+        items = await collect_support(db, self.owner_id, now=now, zone=zone, make_client=self._provider_client,
+                                      answered=self._support_answered, agents=agents)
+        self._support_cache = (key, now, items)
+        return items
 
     async def read(self, *, refresh=False) -> dict:
         """The card as it would be written now, with no side effects.
@@ -505,6 +561,7 @@ class NeedsYou:
             team = await db.scalar(select(Team).where(Team.owner_id == self.owner_id))
             provider_items, sources, provider_checked, provider_unknown = await self._providers(
                 db, team.lead_agent_id if team else None, now, zone, force_refresh=refresh)
+            items.extend(await self._support(db, now, zone, force_refresh=refresh))
         items.extend(provider_items)
         return build_card(items, day=local_day(now, zone), now=now, zone=zone, sources=sources, provider_checked_at=provider_checked, provider_unknown=provider_unknown)
 
@@ -584,6 +641,7 @@ class NeedsYou:
                                   issues=await self._issue_entries(now))
             items = await collect_local(db, self.owner_id, now=now, zone=zone, attention=items)
             provider_items, sources, provider_checked, provider_unknown = await self._providers(db, lead_id, now, zone)
+            items.extend(await self._support(db, now, zone))
         items.extend(provider_items)
         card = build_card(items, day=day, now=now, zone=zone, sources=sources, provider_checked_at=provider_checked, provider_unknown=provider_unknown)
         has_card = state is not None and state.card_day == day and state.card_thread_id is not None

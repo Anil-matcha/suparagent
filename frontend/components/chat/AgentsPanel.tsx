@@ -50,6 +50,8 @@ import { useT } from "@/lib/use-i18n";
 import { AgentEditorFooter } from "./agents/AgentEditorFooter";
 import { ConnectedAppsSection } from "./agents/ConnectedAppsSection";
 import { ShadowResultsPanel } from "./agents/ShadowResultsPanel";
+import { WorkerLabelsPanel } from "./agents/WorkerLabelsPanel";
+import { HistoryLearningPanel, LessonsPanel } from "./agents/HistoryLearningPanel";
 import { filterAgents, shouldShowAgentSearch, unavailableEnginesInUse } from "./agents/agent-list";
 import { draftSignature } from "./agents/draft-state";
 
@@ -964,7 +966,18 @@ export function AgentsPanel({
                         onAccountScopesChange={(connector_account_scopes) => setDraft({ ...draft, connector_account_scopes })}
                         onSharesChange={(connector_shares) => setDraft({ ...draft, connector_shares })}
                       />
-                      <ShadowResultsPanel agentId={draft.id} connectorScopes={draft.connector_scopes} />
+                      <ShadowResultsPanel
+                        agentId={draft.id}
+                        connectorScopes={draft.connector_scopes}
+                        onSharesChanged={(connector_shares) => {
+                          // An accepted suggestion is already saved: keep the editor's copies in step so saving it does not undo the change.
+                          setDraft((current) => current ? { ...current, connector_shares } : current);
+                          setOriginalDraft((current) => current ? { ...current, connector_shares } : current);
+                        }}
+                      />
+                      <WorkerLabelsPanel agentId={draft.id} connectorScopes={draft.connector_scopes} />
+                      <HistoryLearningPanel agentId={draft.id} connectorScopes={draft.connector_scopes} />
+                      <LessonsPanel agentId={draft.id} connectorScopes={draft.connector_scopes} />
                     </TabPanel>
                   )}
 

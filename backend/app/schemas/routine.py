@@ -22,6 +22,53 @@ class ConnectedAppGrant(BaseModel):
         return value
 
 
+class AppEventQuiet(BaseModel):
+    """Hours during which new mail does not start a run; the mail waits for the end of the window."""
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    from_: str = Field(alias="from", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    to: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+
+    @field_validator("to")
+    @classmethod
+    def different(cls, value, info):
+        if info.data.get("from_") == value:
+            raise ValueError("Quiet hours need two different times.")
+        return value
+
+
+class AppEventConfig(BaseModel):
+    """A routine's optional new-mail trigger (BL-177): wake the routine when mail arrives in one Gmail account."""
+    model_config = ConfigDict(extra="forbid")
+    app: Literal["gmail"] = "gmail"
+    account_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    # The owner's Gmail search (for example `label:support`), applied at the source so other mail never produces an event.
+    query: str = Field(default="", max_length=200)
+    debounce_minutes: int = Field(default=5, ge=1, le=60)
+    max_runs_per_day: int = Field(default=12, ge=1, le=48)
+    quiet: AppEventQuiet | None = None
+
+    @field_validator("query")
+    @classmethod
+    def plain_query(cls, value):
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+            raise ValueError("The mail search must be plain text.")
+        return value.strip()
+
+    def stored(self) -> dict:
+        return self.model_dump(by_alias=True, exclude_none=True)
+
+
+class AppEventStatus(BaseModel):
+    """What the routine editor shows about the new-mail trigger. Counts only; never an id, a sender or text."""
+    state: str = "off"  # off, active, paused or error
+    last_event_at: datetime | None = None
+    last_error: str | None = None
+    today: dict[str, int] = Field(default_factory=dict)
+    can_receive: bool = False
+    reason: str | None = None   # why this install cannot receive events, as a code
+    message: str | None = None  # the same, in plain words
+
+
 def validate_draft_grants(grants: list[ConnectedAppGrant]) -> None:
     """A checked reply workflow has exactly one mailbox and no other writes."""
     draft = "gmail_prepare_checked_reply"
@@ -33,6 +80,27 @@ def validate_draft_grants(grants: list[ConnectedAppGrant]) -> None:
             or not {"gmail_fetch_message", "gmail_get_profile"}.issubset(tools)
             or any(g.tool != draft and (g.tool not in BY_NAME or BY_NAME[g.tool].app != "gmail" or BY_NAME[g.tool].kind != "read") for g in grants)):
         raise ValueError("A checked reply requires Read a message and View account profile from one Gmail account, with no other writes or apps.")
+
+
+def is_shadow(grants) -> bool:
+    """Whether grants make a routine a shadow run (BL-173): it records how it ranks mail or adds its own labels."""
+    from app.composio_tools import LABEL_APPLY, TRIAGE_MARK
+    return any(g.tool in (TRIAGE_MARK, LABEL_APPLY) for g in grants)
+
+
+def validate_shadow_grants(grants: list[ConnectedAppGrant]) -> None:
+    """A shadow run works in one Gmail account and only reads mail, records how it ranks it, and adds labels under
+    Worker/. A routine holding `gmail_triage_mark` or `gmail_apply_worker_label` therefore holds no other app, no
+    sending, no drafting and no other change (a change tool of any kind except the label tool). Exact grants are all
+    a routine ever gets, so anything not named here is refused at dispatch too (composio_bridge.execute_routine)."""
+    if not is_shadow(grants):
+        return
+    from app.composio_tools import BY_NAME, LABEL_APPLY
+    if (len({g.account_id for g in grants}) != 1
+            or any(g.tool not in BY_NAME or BY_NAME[g.tool].app != "gmail"
+                   or (BY_NAME[g.tool].kind != "read" and g.tool != LABEL_APPLY) for g in grants)):
+        raise ValueError("A shadow run uses one Gmail account and only reads mail, records how it ranks it and adds its own "
+                         "labels under Worker/: no other app, and no sending, drafting or other changes.")
 
 
 class RoutineCreateRequest(BaseModel):
@@ -52,6 +120,7 @@ class RoutineCreateRequest(BaseModel):
     quiet_reporting: bool = False
     retry_limit: int = 0
     retry_delay_minutes: int = 5
+    app_event: AppEventConfig | None = None
 
 
 class RoutineUpdateRequest(BaseModel):
@@ -70,6 +139,8 @@ class RoutineUpdateRequest(BaseModel):
     quiet_reporting: bool | None = None
     retry_limit: int | None = None
     retry_delay_minutes: int | None = None
+    # Present and null switches the new-mail wake off; absent leaves it alone.
+    app_event: AppEventConfig | None = None
 
 
 class SchedulePreviewRequest(BaseModel):
@@ -150,6 +221,9 @@ class RoutineResponse(BaseModel):
     next_dates: list[datetime] = Field(default_factory=list)
     webhook_enabled: bool = False
     latest_run: RoutineRunResponse | None = None
+    # The new-mail trigger (BL-177): its setting (the account id is the only id) and how it is doing.
+    app_event: dict | None = None
+    app_event_status: AppEventStatus | None = None
 
 
 class WebhookSecretResponse(BaseModel):

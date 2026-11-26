@@ -1,5 +1,6 @@
-"""The webhook ingress: a separate small app that serves only `GET /health`
-and `POST /hooks/{routine_id}` (docs/ROUTINES.md), for exposing webhooks
+"""The webhook ingress: a separate small app that serves only `GET /health`,
+`POST /hooks/{routine_id}` (docs/ROUTINES.md) and Composio's signed trigger events
+(`POST /hooks/composio/{route_id}`), for exposing webhooks
 through a tunnel or reverse proxy without exposing the rest of the API.
 
     uv run uvicorn app.ingress:app --host 127.0.0.1 --port 8788
@@ -11,6 +12,7 @@ starts one (it has no scheduler), so the backend's next poll starts them.
 from fastapi import FastAPI
 
 from app.core.logging import configure_logging
+from app.routers.composio_hooks import router as composio_hooks_router
 from app.routers.hooks import router as hooks_router
 
 configure_logging()
@@ -24,3 +26,4 @@ async def health():
 
 
 app.include_router(hooks_router)
+app.include_router(composio_hooks_router)
