@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { RECOMMENDED_START, START_PRESETS, continueText, isSupportWorker, markResumed, readGrant, stepFor, wasResumed } from "@/lib/app-connection";
+import { OFFER_DETAIL, OFFER_QUESTION, OFFER_SHORT, SEARCH_HELP, canOffer, cleanQuery, learnAccountIds } from "@/lib/history-learning";
 import {
   POLL_INTERVAL_MS, accountsOf, appLabel, outcomeFor, pollDeadline, reservePage, supportsShare,
   type ComposioAccount, type TabWindow,
@@ -35,6 +36,10 @@ export function AppConnectionCard({ item, threadId, onContinue, sendDisabled = f
   const [startPercent, setStartPercent] = useState(100);
   const [suggested, setSuggested] = useState(false);
   const chose = useRef(false);
+  // The support worker may also be allowed to learn from the owner's past replies (BL-174): an explicit, unticked choice made
+  // together with Allow. It needs the support search, since it never reads the whole mailbox.
+  const [learn, setLearn] = useState(false);
+  const [learnQuery, setLearnQuery] = useState("");
   // Set only by the person's own click on Allow: the last step only they can do. A card that merely loads, such as an old
   // one in the history, never sends anything by itself.
   const [auto, setAuto] = useState(false);
@@ -100,6 +105,12 @@ export function AppConnectionCard({ item, threadId, onContinue, sendDisabled = f
       if (!agent) throw new Error("That agent is no longer here.");
       if (accountsOf(found, item.app).every((account) => account.status !== "ACTIVE")) throw new Error(`No ${label} account is connected yet.`);
       await api.updateAgent(agent.id, readGrant(agent, item.app, found, connectedId, startPercent));
+      const query = learn && canOffer(suggested, supportsShare(item.app)) ? cleanQuery(learnQuery) : null;
+      if (query !== null) {
+        // The access is already saved: a problem here is reported, and never undoes the Allow.
+        try { for (const id of learnAccountIds(found, item.app, connectedId)) await api.updateHistoryLearning(agent.id, id, { enabled: true, query }); }
+        catch (err) { if (live.current) setError(`Access saved, but learning from your past replies was not turned on: ${fail(err, "try again in the agent's settings.")}`); }
+      }
       if (live.current) { setAccounts(found); setGranted(true); setAuto(true); }
     } catch (err) { if (live.current) setError(fail(err, err instanceof Error ? err.message : "Could not save the access.")); }
     finally { if (live.current) setBusy(null); }
@@ -158,7 +169,26 @@ export function AppConnectionCard({ item, threadId, onContinue, sendDisabled = f
             </p>
           </fieldset>
         )}
-        <button type="button" className={BUTTON} disabled={busy !== null} onClick={() => void allow()}>
+        {canOffer(suggested, supportsShare(item.app)) && (
+          <fieldset className="space-y-1">
+            <label className="flex items-start gap-2 text-xs">
+              <input type="checkbox" className="mt-0.5" checked={learn} disabled={busy !== null} onChange={(event) => setLearn(event.target.checked)} />
+              <span><span className="font-medium">{OFFER_QUESTION}</span> {OFFER_SHORT}</span>
+            </label>
+            {learn && (
+              <>
+                <label className="block text-xs font-medium">
+                  Gmail label or search for your support mail
+                  <input className="mt-1 w-full rounded-field border border-line bg-surface px-2 py-1 text-sm" value={learnQuery} maxLength={200}
+                    disabled={busy !== null} placeholder="label:support" onChange={(event) => setLearnQuery(event.target.value)} />
+                </label>
+                <p className="text-xs leading-5 text-muted">{SEARCH_HELP} {OFFER_DETAIL}</p>
+                {cleanQuery(learnQuery) === null && <p className="text-xs text-muted">Add the search above, or untick this to skip it.</p>}
+              </>
+            )}
+          </fieldset>
+        )}
+        <button type="button" className={BUTTON} disabled={busy !== null || (learn && canOffer(suggested, supportsShare(item.app)) && cleanQuery(learnQuery) === null)} onClick={() => void allow()}>
           {busy === "allow" ? "Saving…" : `Allow ${who} to read ${label}${startPercent < 100 && supportsShare(item.app) ? ` (${startPercent}% of mail)` : ""}`}
         </button>
       </>}

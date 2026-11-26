@@ -24,6 +24,8 @@ import type { ComposioAccount } from "@/lib/connected-apps";
 import { RoutineNewMailSection } from "@/components/chat/RoutineNewMailSection";
 import { appEventDraftOf, appEventInput, appEventProblem, emptyAppEventDraft, parseAppEventStatus, type AppEventDraft } from "@/lib/app-event";
 import { activeAgents, approvalModesForProvider } from "@/lib/agents";
+import { isSupportWorker } from "@/lib/app-connection";
+import { MARK_TOOL, LABEL_TOOL, SHADOW_TOOL_PAIRS, isShadowTool, shadowOptions, shadowPreset, shadowProblem, suggestShadow } from "@/lib/shadow-grants";
 import {
   curlExample,
   DAY_LABELS,
@@ -116,9 +118,10 @@ const ROUTINE_READ_TOOLS = [
   ], writes: [] },
 ] as const;
 
-const ROUTINE_APP_TOOL_NAMES = new Set<string>(ROUTINE_READ_TOOLS.flatMap((group) =>
-  [...group.tools, ...group.writes].map(([tool]) => tool),
-));
+const ROUTINE_APP_TOOL_NAMES = new Set<string>([
+  ...ROUTINE_READ_TOOLS.flatMap((group) => [...group.tools, ...group.writes].map(([tool]) => tool)),
+  MARK_TOOL, LABEL_TOOL,   // the shadow run's two actions (lib/shadow-grants.ts)
+]);
 
 function newDraft(agents: Agent[]): Draft {
   return {
@@ -348,7 +351,19 @@ export function RoutinesPanel({ agents, onClose, routineId = null }: { agents: A
   const setHistory = (next: Routine | null) => { requestHistory(null); chooseHistory(next); };
   const [secret, setSecret] = useState<{ routineId: number; secret: string; url: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const [supportWorkerIds, setSupportWorkerIds] = useState<number[]>([]);
   const live = activeAgents(agents);
+
+  const draftAgentId = draft?.agentId ?? null;
+  useEffect(() => {
+    // Only used to suggest the shadow run for the Customer support worker; a failed lookup just means no suggestion.
+    if (draftAgentId === null || supportWorkerIds.includes(draftAgentId)) return;
+    let cancelled = false;
+    api.listSkills(draftAgentId).then((skills) => {
+      if (!cancelled && isSupportWorker(skills)) setSupportWorkerIds((ids) => [...ids, draftAgentId]);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [draftAgentId, supportWorkerIds]);
 
   const load = useCallback(() => {
     api.listRoutines().then(setRoutines).catch((err) => setError(errorText(err, "Could not load routines.")));
@@ -376,9 +391,14 @@ export function RoutinesPanel({ agents, onClose, routineId = null }: { agents: A
   const setRoutineGrantAccount = (app: string, accountId: string) => {
     if (!draft) return;
     const group = ROUTINE_READ_TOOLS.find((candidate) => candidate.app === app);
-    const names = new Set<string>([...(group?.tools ?? []), ...(group?.writes ?? [])].map(([name]) => name));
+    const names = new Set<string>([...(group?.tools ?? []), ...(group?.writes ?? []), ...(app === "gmail" ? SHADOW_TOOL_PAIRS : [])].map(([name]) => name));
     setDraft({ ...draft, connectedAppGrants: draft.connectedAppGrants.map((grant) =>
       names.has(grant.tool) ? { ...grant, account_id: accountId } : grant) });
+  };
+
+  const applyShadowPreset = (level: string | undefined, accountId: string) => {
+    if (!draft) return;
+    setDraft({ ...draft, connectedAppGrants: shadowPreset(level, accountId) });
   };
 
   const setAllRoutineGrants = (selected: boolean) => {
@@ -390,7 +410,7 @@ export function RoutinesPanel({ agents, onClose, routineId = null }: { agents: A
     if (!connectedAccounts) return;
     const agent = agents.find((item) => item.id === draft.agentId);
     if (!agent) return;
-    const grants = new Map<string, ConnectedAppGrant>(draft.connectedAppGrants.map((grant) => [grant.tool, grant] as const));
+    const grants = new Map<string, ConnectedAppGrant>(draft.connectedAppGrants.filter((grant) => !isShadowTool(grant.tool)).map((grant) => [grant.tool, grant] as const));
     for (const group of ROUTINE_READ_TOOLS) {
       const scope = agent.connector_scopes?.[group.app];
       const hasReadScope = scope === "read" || scope === "labels" || scope === "write";
@@ -494,7 +514,8 @@ export function RoutinesPanel({ agents, onClose, routineId = null }: { agents: A
                   const allowedIds = agent?.connector_account_scopes?.[group.app] ?? [];
                   const available = connectedAccounts.filter((account) => account.toolkit === group.app && account.status === "ACTIVE"
                     && hasReadScope && allowedIds.includes(account.id));
-                  const allTools = [...group.tools, ...group.writes];
+                  const allTools = [...group.tools, ...group.writes, ...(group.app === "gmail" ? SHADOW_TOOL_PAIRS : [])];
+                  const level = agent?.connector_scopes?.[group.app];
                   const current = draft.connectedAppGrants.find((grant) => allTools.some(([tool]) => tool === grant.tool));
                   const selectedAccount = (available.some((account) => account.id === current?.account_id)
                     ? current?.account_id : (available[0]?.id ?? current?.account_id)) ?? "";
@@ -524,6 +545,20 @@ export function RoutinesPanel({ agents, onClose, routineId = null }: { agents: A
                           <span>{label}{grant && grant.account_id !== selectedAccount ? <span className="text-warning"> · account unavailable</span> : null}{!hasWriteScope && !grant ? <span className="text-muted"> · allow write access for this agent first</span> : null}</span>
                         </label>;
                       })}
+                    </div>}
+                    {group.app === "gmail" && <div className="space-y-2 border-t border-line pt-2" aria-label="Shadow run">
+                      <div><p className="text-xs font-semibold">Shadow run</p>
+                        <p className="text-xs text-muted">The routine ranks your support mail and adds its own labels under Worker/. It reads, records and labels only: it never sends, drafts, removes, archives or deletes, and the preset replaces the other actions chosen here.</p></div>
+                      {suggestShadow(supportWorkerIds.includes(draft.agentId ?? -1), draft.connectedAppGrants, level) && <p className="text-xs">Suggested for this worker: start in shadow mode, so it only ranks and labels while you answer as usual.</p>}
+                      <button type="button" className={button} disabled={shadowPreset(level, selectedAccount).length === 0 || !available.some((account) => account.id === selectedAccount)} onClick={() => applyShadowPreset(level, selectedAccount)}>Use the shadow run preset</button>
+                      {shadowOptions(level).map((option) => {
+                        const grant = draft.connectedAppGrants.find((item) => item.tool === option.tool);
+                        return <label key={option.tool} className="flex items-start gap-2 text-xs">
+                          <input type="checkbox" checked={Boolean(grant)} disabled={!grant && (!option.allowed || !available.some((account) => account.id === selectedAccount))} onChange={() => toggleRoutineGrant(option.tool, grant?.account_id ?? selectedAccount)} />
+                          <span>{option.label}{grant && grant.account_id !== selectedAccount ? <span className="text-warning"> · account unavailable</span> : null}{!option.allowed && !grant && option.note ? <span className="text-muted"> · {option.note}</span> : null}</span>
+                        </label>;
+                      })}
+                      {shadowProblem(draft.connectedAppGrants) && <p role="alert" className="text-xs text-danger">{shadowProblem(draft.connectedAppGrants)}</p>}
                     </div>}
                   </fieldset>;
                 })}
@@ -573,7 +608,7 @@ export function RoutinesPanel({ agents, onClose, routineId = null }: { agents: A
                 </p>
               </details>
               <div className="flex gap-2">
-                <button type="submit" disabled={busy || draft.agentId === null || !canSaveSchedulePreview(draft.schedule, validPreviewKey) || appEventProblem(draft.appEvent) !== null} className="cursor-pointer rounded-md px-3 py-1.5 text-sm disabled:opacity-50 bg-accent text-accent-fg hover:opacity-90">{busy ? "Saving…" : "Save"}</button>
+                <button type="submit" disabled={busy || draft.agentId === null || !canSaveSchedulePreview(draft.schedule, validPreviewKey) || appEventProblem(draft.appEvent) !== null || shadowProblem(draft.connectedAppGrants) !== null} className="cursor-pointer rounded-md px-3 py-1.5 text-sm disabled:opacity-50 bg-accent text-accent-fg hover:opacity-90">{busy ? "Saving…" : "Save"}</button>
                 <button type="button" onClick={() => { setValidPreviewKey(null); setDraft(null); }} className="rounded-md border border-line px-3 py-1.5 text-sm">Cancel</button>
               </div>
             </form>

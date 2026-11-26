@@ -151,6 +151,25 @@ def propose(agent_id: int, *, thread_id: int, title: str | None, turns: list[tup
     return added
 
 
+def enqueue(agent_id: int, *, text: str, line: str) -> dict | None:
+    """Queue one ready-made suggestion that does not come from a conversation (what a worker learned from the owner's
+    past replies, services/history_learning.py). The owner still decides: Accept appends `line` to MEMORY.md, Reject is
+    remembered. Returns None when it was not queued: the queue is full, the same text is pending, was decided before or
+    is already in the notes, or it looked like a secret."""
+    data = _load(agent_id)
+    clean, redacted = redact_secrets(" ".join((text or "").split())[:SENTENCE_MAX])
+    key = identity(clean)
+    known = {identity(p["text"]) for p in data["items"]} | set(data["decided"])
+    if (redacted or not clean or key in known or key in identity(agent_memory.read_memory(agent_id).text)
+            or len(data["items"]) >= MAX_PENDING):
+        return None
+    proposal = {"id": uuid4().hex, "at": time.time(), "text": clean, "line": " ".join(line.split()),
+                "target": agent_memory.MEMORY_FILE, "thread_id": None, "thread_title": None, "turn_id": None}
+    data["items"].append(proposal)
+    _save(agent_id, data)
+    return proposal
+
+
 def mark_scanned(agent_id: int, thread_id: int, turn_id: int) -> None:
     data = _load(agent_id)
     data["scanned"][str(thread_id)] = turn_id

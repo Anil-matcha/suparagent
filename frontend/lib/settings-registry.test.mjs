@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { INTEGRATIONS } from "./integrations.ts";
 import { SETTINGS_PAGES } from "./settings-nav.ts";
 import {
   rankSettings,
@@ -19,12 +20,18 @@ const pageMarkupFiles = [
   "../components/settings/NotificationsSettings.tsx",
   "../components/settings/AccountSettings.tsx",
   "../components/settings/IntegrationsSettings.tsx",
+  "../components/settings/integrations/blocks.tsx",
 ];
 
 const renderedPageMarkup = pageMarkupFiles.map((file) => readFileSync(new URL(file, import.meta.url), "utf8"));
-const idsInMarkup = renderedPageMarkup.flatMap((source) =>
+const literalIds = renderedPageMarkup.flatMap((source) =>
   [...source.matchAll(/(?:^|\s)id="([^"]+)"/g)].map((match) => match[1]),
 );
+// The Integrations page draws one block per manifest and gives it the manifest's anchor. Count those
+// anchors only while the panel still renders them, so removing the attribute fails this test.
+const integrationPanel = readFileSync(new URL("../components/settings/integrations/IntegrationPanel.tsx", import.meta.url), "utf8");
+const manifestAnchors = integrationPanel.includes("id={manifest.anchorId}") ? INTEGRATIONS.map((item) => item.anchorId) : [];
+const idsInMarkup = [...literalIds, ...manifestAnchors];
 const settingIdsInMarkup = idsInMarkup.filter((id) => id.startsWith("setting-"));
 
 test("registry entries are complete and have unique ids and anchors", () => {

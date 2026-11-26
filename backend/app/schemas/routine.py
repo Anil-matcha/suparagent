@@ -82,6 +82,27 @@ def validate_draft_grants(grants: list[ConnectedAppGrant]) -> None:
         raise ValueError("A checked reply requires Read a message and View account profile from one Gmail account, with no other writes or apps.")
 
 
+def is_shadow(grants) -> bool:
+    """Whether grants make a routine a shadow run (BL-173): it records how it ranks mail or adds its own labels."""
+    from app.composio_tools import LABEL_APPLY, TRIAGE_MARK
+    return any(g.tool in (TRIAGE_MARK, LABEL_APPLY) for g in grants)
+
+
+def validate_shadow_grants(grants: list[ConnectedAppGrant]) -> None:
+    """A shadow run works in one Gmail account and only reads mail, records how it ranks it, and adds labels under
+    Worker/. A routine holding `gmail_triage_mark` or `gmail_apply_worker_label` therefore holds no other app, no
+    sending, no drafting and no other change (a change tool of any kind except the label tool). Exact grants are all
+    a routine ever gets, so anything not named here is refused at dispatch too (composio_bridge.execute_routine)."""
+    if not is_shadow(grants):
+        return
+    from app.composio_tools import BY_NAME, LABEL_APPLY
+    if (len({g.account_id for g in grants}) != 1
+            or any(g.tool not in BY_NAME or BY_NAME[g.tool].app != "gmail"
+                   or (BY_NAME[g.tool].kind != "read" and g.tool != LABEL_APPLY) for g in grants)):
+        raise ValueError("A shadow run uses one Gmail account and only reads mail, records how it ranks it and adds its own "
+                         "labels under Worker/: no other app, and no sending, drafting or other changes.")
+
+
 class RoutineCreateRequest(BaseModel):
     agent_id: int
     uninterrupted_access: bool = False

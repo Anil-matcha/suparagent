@@ -144,9 +144,16 @@ async def _serving(app: FastAPI):
         # Local routines: due occurrences, starts, approvals, run limits, endings.
         asyncio.create_task(run_every(settings.ROUTINE_POLL_SECONDS, per_tenant(routines.tick))),
     ]
+    event_stream_task = None
+    if profile.active():
+        from app.services import event_stream
+        event_stream_task = event_stream.start()
     yield
     # Stopping (SIGTERM, Ctrl+C, the desktop launcher going away). First the
     # background jobs, so no routine starts a new turn while we stop.
+    if event_stream_task is not None:
+        from app.services import event_stream
+        await event_stream.stop()
     for job in jobs:
         job.cancel()
     await asyncio.gather(*jobs, return_exceptions=True)

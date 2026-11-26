@@ -436,11 +436,19 @@ async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments
             refusal = await before_execute(account.id)
             if refusal is not None:
                 return refusal
+        if tool.special == "lesson_propose":
+            # Like the triage mark: this app's own files only, never a Composio call.
+            from app.services import history_learning
+            return history_learning.record_from_tool((mark_context or {}).get("agent_id"), arguments)
         if tool.special == "triage_mark":
             # After the account rules, the share rule and the routine's receipt: no session and no Composio call.
             from app.services import shadow_marks
             return await shadow_marks.record(db, owner_id, arguments, account.id, rule, mark_context)
         session_id, record = await _session(db, owner_id, client, record)
+        if tool.special == "sent_replies":
+            # The owner opted in separately, so the share of the mailbox is not applied; the opt-in's own bounds are.
+            from app.services import history_reader
+            return await history_reader.read(db, owner_id, client, session_id, account.id, mark_context)
         if tool.special in ("label_apply", "label_list"):
             return await _run_label_tool(db, owner_id, client, record, session_id, tool, arguments, account.id, mark_context)
     except ComposioError as exc:  # nothing was sent for the tool yet

@@ -61,9 +61,10 @@ async def _validated_grants(db, owner_id, agent_id, grants):
         raise _error(422, "invalid_app_grant", "Use an empty list to switch app access off.")
     if not grants:
         return []
-    from app.schemas.routine import validate_draft_grants
+    from app.schemas.routine import validate_draft_grants, validate_shadow_grants
     try:
         validate_draft_grants(grants)
+        validate_shadow_grants(grants)
     except ValueError as exc:
         raise _error(422, "invalid_app_grant", str(exc)) from None
     tools = [g.tool for g in grants]

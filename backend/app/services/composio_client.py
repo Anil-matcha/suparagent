@@ -59,7 +59,7 @@ MAX_TRIGGER_QUERY = 200
 MAX_WEBHOOK_URL = 2048
 TRIGGER_EVENT = "composio.trigger.message"
 _STATUS_EVENTS = ("composio.connected_account.expired", "composio.connected_account.activated")
-WEBHOOK_EVENTS = (TRIGGER_EVENT,) + _STATUS_EVENTS  # what our single project subscription listens to
+WEBHOOK_EVENTS = (TRIGGER_EVENT, "composio.trigger.disabled") + _STATUS_EVENTS  # what our single project subscription listens to
 
 
 @dataclass(frozen=True)
@@ -539,6 +539,32 @@ class ComposioClient:
         if found is None:
             raise ComposioError("bad_response", "Composio sent a webhook this app cannot read.")
         return found
+
+    async def update_webhook_subscription(self, saved: WebhookSubscription, events: tuple[str, ...]) -> WebhookSubscription:
+        """Add events to a subscription already identified by its saved ID and URL.
+
+        The saved URL is the ownership check. Keep unrecognized event names so
+        this app cannot remove events managed by another consumer of the project.
+        The signing secret is stored only in the existing app record; Composio
+        may omit it from a PATCH response.
+        """
+        if not isinstance(saved, WebhookSubscription) or not isinstance(saved.id, str) or not _ID.fullmatch(saved.id):
+            raise ComposioError("not_found", "Composio could not find that webhook.")
+        url = saved.url
+        if not isinstance(url, str) or not url.startswith("https://") or len(url) > MAX_WEBHOOK_URL:
+            raise ComposioError("rejected", "The webhook address must be an https address.")
+        if not isinstance(events, tuple) or any(not isinstance(event, str) or not event for event in events):
+            raise ComposioError("rejected", "The webhook events are invalid.")
+        merged_events = tuple(dict.fromkeys((*saved.events, *events)))
+        result = await self._request(
+            "PATCH", f"/webhook_subscriptions/{saved.id}",
+            body={"webhook_url": url, "enabled_events": list(merged_events)},
+        )
+        updated = self._subscription(result)
+        if (updated is None or updated.id != saved.id or updated.url != url
+                or not set(merged_events).issubset(updated.events)):
+            raise ComposioError("bad_response", "Composio did not confirm the webhook update.")
+        return WebhookSubscription(updated.id, updated.url, updated.events, saved.secret or updated.secret)
 
     async def delete_webhook_subscription(self, subscription_id: str) -> None:
         if not _ID.match(subscription_id):
