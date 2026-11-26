@@ -191,9 +191,22 @@ async def get_antigravity_usage_limits() -> dict[str, Any] | None:
     primary_left = five_hour["left_percent"]
     tone = "out" if primary_left <= 0 else "near" if primary_left <= 20 else "fine"
 
+    user_email = None
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            ui_res = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if ui_res.status_code == 200:
+                user_email = ui_res.json().get("email")
+    except Exception as exc:
+        logger.debug("Could not fetch userinfo email: %s", exc)
+
     report = {
         "engine": "antigravity",
         "name": "Antigravity",
+        "user_email": user_email,
         "checked_at": int(now * 1000),
         "windows": windows,
         "primary_left_percent": primary_left,

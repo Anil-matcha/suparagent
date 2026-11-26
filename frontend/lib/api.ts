@@ -648,6 +648,7 @@ export type EngineUsageWindow = {
 export type EngineUsageReport = {
   engine: string;
   name: string;
+  user_email?: string | null;
   checked_at: number;
   windows: EngineUsageWindow[];
   primary_left_percent: number;

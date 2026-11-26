@@ -5,13 +5,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
-  ChevronRight,
-  ChevronUp,
   Download,
-  Lightbulb,
+  KeyRound,
   LogIn,
+  Plus,
+  RefreshCw,
   Search,
-  Settings,
   Sparkles,
   X,
 } from "lucide-react";
@@ -28,7 +27,7 @@ export interface ModelPickerProps {
   className?: string;
 }
 
-export function EngineMark({ engineId, size = 14, className }: { engineId: string; size?: number; className?: string }) {
+export function EngineMark({ engineId, size = 16, className }: { engineId: string; size?: number; className?: string }) {
   const id = engineId.toLowerCase();
   if (id.includes("antigravity") || id.includes("google") || id.includes("gemini")) {
     return (
@@ -54,17 +53,9 @@ export function EngineMark({ engineId, size = 14, className }: { engineId: strin
       </svg>
     );
   }
-  if (id.includes("cursor")) {
-    return (
-      <svg width={size} height={size} viewBox="0 0 466.73 532.09" className={cn("fill-current text-sky-400 shrink-0", className)} aria-hidden>
-        <path d="M457.43,125.94L244.42,2.96c-6.84-3.95-15.28-3.95-22.12,0L9.3,125.94c-5.75,3.32-9.3,9.46-9.3,16.11v247.99c0,6.65,3.55,12.79,9.3,16.11l213.01,122.98c6.84,3.95,15.28,3.95,22.12,0l213.01-122.98c5.75-3.32,9.3-9.46,9.3-16.11v-247.99c0-6.65-3.55-12.79-9.3-16.11h-.01ZM444.05,151.99l-205.63,356.16c-1.39,2.4-5.06,1.42-5.06-1.36v-233.21c0-4.66-2.49-8.97-6.53-11.31L24.87,145.67c-2.4-1.39-1.42-5.06,1.36-5.06h411.26c5.84,0,9.49,6.33,6.57,11.39h-.01Z" />
-      </svg>
-    );
-  }
   return <Sparkles size={size} className={cn("text-accent shrink-0", className)} aria-hidden />;
 }
 
-/** Four rising bars indicating the remaining usage signal: empty and struck through when out. */
 export function UsageGlyph({
   leftPercent,
   tone,
@@ -100,16 +91,19 @@ function formatResetTime(isoString: string): string {
   }
 }
 
-const EFFORT_DESCRIPTIONS: Record<string, string> = {
-  auto: "The model decides how long to think.",
-  none: "Reasoning disabled.",
-  low: "Fast response with lightweight reasoning.",
-  medium: "Balanced speed and reasoning depth.",
-  high: "Deep reasoning for complex multi-step problems.",
-  xhigh: "Maximum reasoning effort for difficult tasks.",
+export const EFFORT_LABELS: Record<string, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra",
+  max: "Max",
+  ultra: "Ultra",
 };
 
-const SUGGESTIONS_LIMIT = 4;
+export function effortName(effort: string | null | undefined): string {
+  if (!effort) return "Default";
+  return EFFORT_LABELS[effort.toLowerCase()] ?? (effort.charAt(0).toUpperCase() + effort.slice(1));
+}
 
 export function ModelPicker({
   engines,
@@ -122,59 +116,49 @@ export function ModelPicker({
 }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({});
-  const [thinkingOpen, setThinkingOpen] = useState(false);
+  const [activeRailEngineId, setActiveRailEngineId] = useState<string>(selectedProvider);
   const [usageReport, setUsageReport] = useState<EngineUsageReport | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [threadScope, setThreadScope] = useState<"thread" | "default">("thread");
 
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Active engine and model details
+  // Sync active rail provider with selected provider
+  useEffect(() => {
+    setActiveRailEngineId(selectedProvider);
+  }, [selectedProvider]);
+
+  // Selected engine & model details
   const activeEngine = engines.find((e) => e.id === selectedProvider) ?? engines[0];
   const activeModelId = selectedModel ?? activeEngine?.default_model ?? activeEngine?.models[0]?.id ?? null;
   const activeModelObj = activeEngine?.models.find((m) => m.id === activeModelId);
 
-  // Fetch real usage limits whenever provider changes or popover opens
-  useEffect(() => {
-    let active = true;
+  // The engine currently viewed in the right pane (from left rail selection)
+  const viewedEngine = engines.find((e) => e.id === activeRailEngineId) ?? activeEngine;
+
+  // Real usage limits: query for active rail engine or selected provider
+  const fetchUsageLimits = () => {
     api.getEngineUsageLimits(selectedProvider)
-      .then((rep) => {
-        if (active) setUsageReport(rep);
-      })
-      .catch(() => {
-        if (active) setUsageReport(null);
-      });
-    return () => {
-      active = false;
-    };
+      .then((rep) => setUsageReport(rep))
+      .catch(() => setUsageReport(null));
+  };
+
+  useEffect(() => {
+    fetchUsageLimits();
   }, [selectedProvider, open]);
 
-  // Reasoning efforts support
-  const supportsEffort = Boolean(
-    activeModelObj?.supported_reasoning_efforts &&
-    activeModelObj.supported_reasoning_efforts.length > 1 &&
-    activeModelObj.reasoning_effort_configurable !== false
-  );
-  const currentEffort = supportsEffort
-    ? (selectedEffort ?? activeModelObj?.default_reasoning_effort)
-    : null;
-
-  // Filtered engines & models by search
-  const filteredEngines = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return engines;
-    return engines
-      .map((engine) => {
-        const matchesEngine = engine.label.toLowerCase().includes(q) || engine.id.toLowerCase().includes(q);
-        const matchedModels = engine.models.filter(
-          (m) => m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)
-        );
-        if (matchesEngine) return engine;
-        if (matchedModels.length > 0) return { ...engine, models: matchedModels };
-        return null;
-      })
-      .filter((e): e is Engine => e !== null);
-  }, [engines, search]);
+  const handleRefreshEngines = async () => {
+    setRefreshing(true);
+    try {
+      await api.getEngines(true);
+      fetchUsageLimits();
+    } catch {
+      // ignore
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Click outside to close
   useEffect(() => {
@@ -201,33 +185,113 @@ export function ModelPicker({
       setTimeout(() => searchInputRef.current?.focus(), 50);
     } else {
       setSearch("");
-      setThinkingOpen(false);
     }
   }, [open]);
 
-  // Display label for the pill
+  // Pill Title & Short Label for trigger button
+  const currentEffort = selectedEffort ?? activeModelObj?.default_reasoning_effort ?? null;
   const pillTitle = useMemo(() => {
     const engineName = activeEngine?.label ?? selectedProvider;
     const modelName = activeModelObj?.label ?? (selectedModel ? selectedModel : "Default");
-    const effortPart = currentEffort ? ` · ${currentEffort.charAt(0).toUpperCase() + currentEffort.slice(1)}` : "";
+    const effortPart = currentEffort ? ` · ${effortName(currentEffort)}` : "";
     return `${engineName} · ${modelName}${effortPart}`;
   }, [activeEngine, selectedProvider, activeModelObj, selectedModel, currentEffort]);
 
   const pillShortName = useMemo(() => {
     const modelName = activeModelObj?.label ?? (selectedModel ? selectedModel : activeEngine?.label ?? "Model");
-    const effortPart = currentEffort ? ` · ${currentEffort.charAt(0).toUpperCase() + currentEffort.slice(1)}` : "";
+    const effortPart = currentEffort ? ` · ${effortName(currentEffort)}` : "";
     return `${modelName}${effortPart}`;
   }, [activeModelObj, selectedModel, activeEngine, currentEffort]);
 
-  const toggleExpand = (providerId: string) => {
-    setExpandedProviders((prev) => ({ ...prev, [providerId]: !prev[providerId] }));
+  // Generate model variant choices (modelChoices architecture)
+  // Each model with reasoning efforts is expanded into separate rows e.g. "Gemini 4 Hydrogen · High"
+  type Choice = {
+    engineId: string;
+    modelId: string;
+    modelLabel: string;
+    variantId?: string;
+    displayLabel: string;
+    isCurrent: boolean;
   };
 
-  const handleSelectModel = (engineId: string, model: EngineModel) => {
-    const nextEffort = model.default_reasoning_effort ?? null;
-    onChange(engineId, model.id, nextEffort);
+  const choices: Choice[] = useMemo(() => {
+    if (!viewedEngine || !viewedEngine.models) return [];
+    const list: Choice[] = [];
+    const isThisEngineSelected = viewedEngine.id === selectedProvider;
+
+    for (const m of viewedEngine.models) {
+      const efforts = m.supported_reasoning_efforts;
+      if (efforts && efforts.length > 0 && m.reasoning_effort_configurable !== false) {
+        for (const eff of efforts) {
+          const isCurrent =
+            isThisEngineSelected &&
+            (selectedModel === m.id || (!selectedModel && m.id === viewedEngine.default_model)) &&
+            (currentEffort?.toLowerCase() === eff.toLowerCase() || (!currentEffort && eff === m.default_reasoning_effort));
+          list.push({
+            engineId: viewedEngine.id,
+            modelId: m.id,
+            modelLabel: m.label,
+            variantId: eff,
+            displayLabel: `${m.label} · ${effortName(eff)}`,
+            isCurrent,
+          });
+        }
+      } else {
+        const isCurrent =
+          isThisEngineSelected &&
+          (selectedModel === m.id || (!selectedModel && m.id === viewedEngine.default_model));
+        list.push({
+          engineId: viewedEngine.id,
+          modelId: m.id,
+          modelLabel: m.label,
+          displayLabel: m.label,
+          isCurrent,
+        });
+      }
+    }
+    return list;
+  }, [viewedEngine, selectedProvider, selectedModel, currentEffort]);
+
+  const filteredChoices = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return choices;
+    return choices.filter(
+      (c) =>
+        c.displayLabel.toLowerCase().includes(q) ||
+        c.modelId.toLowerCase().includes(q) ||
+        c.modelLabel.toLowerCase().includes(q)
+    );
+  }, [choices, search]);
+
+  // Currently selected model's available reasoning efforts for the bottom dropdown
+  const activeModelEfforts = useMemo(() => {
+    if (!activeModelObj?.supported_reasoning_efforts || activeModelObj.supported_reasoning_efforts.length <= 1) {
+      return [];
+    }
+    return activeModelObj.supported_reasoning_efforts;
+  }, [activeModelObj]);
+
+  const handleSelectChoice = (choice: Choice) => {
+    onChange(choice.engineId, choice.modelId, choice.variantId ?? null);
     setOpen(false);
   };
+
+  const handleEffortDropdownChange = (newEffort: string) => {
+    onChange(selectedProvider, selectedModel, newEffort);
+  };
+
+  // Rail engines categorized
+  const cloudEngines = useMemo(() => {
+    return engines.filter(
+      (e) =>
+        e.id === "openai_compat" ||
+        e.id === "claude" ||
+        e.id === "antigravity" ||
+        e.id === "gemini" ||
+        e.id === "codex" ||
+        e.id === "cursor"
+    );
+  }, [engines]);
 
   return (
     <div ref={popoverRef} className="relative inline-block text-left">
@@ -240,7 +304,7 @@ export function ModelPicker({
         aria-label={`Model: ${pillTitle}`}
         title={pillTitle}
         className={cn(
-          "group inline-flex h-8 max-w-[200px] sm:max-w-[280px] shrink-0 items-center gap-1.5 rounded-full border border-line bg-raised/70 px-2.5 text-[13px] font-medium text-ink transition-colors duration-150 hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 select-none shadow-xs cursor-pointer",
+          "group inline-flex h-8 max-w-[220px] sm:max-w-[300px] shrink-0 items-center gap-1.5 rounded-full border border-line bg-raised/70 px-2.5 text-[13px] font-medium text-ink transition-colors duration-150 hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 select-none shadow-xs cursor-pointer",
           open && "ring-1 ring-accent/60 bg-hover text-ink",
           className
         )}
@@ -269,17 +333,17 @@ export function ModelPicker({
         <div
           role="dialog"
           aria-label="Model picker"
-          className="absolute bottom-full left-0 mb-2 w-[324px] sm:w-[340px] max-h-[500px] origin-bottom-left rounded-2xl border border-line bg-raised/95 shadow-2xl backdrop-blur-md z-50 flex flex-col overflow-hidden text-xs text-ink transition-all duration-150 animate-in fade-in zoom-in-95"
+          className="absolute bottom-full left-0 mb-2 w-[340px] sm:w-[380px] max-h-[580px] origin-bottom-left rounded-2xl border border-line bg-raised shadow-2xl backdrop-blur-md z-50 flex flex-col overflow-hidden text-xs text-ink transition-all duration-150 animate-in fade-in zoom-in-95"
         >
-          {/* Real Usage Limits Card at top of dropdown (matches screenshot exactly) */}
+          {/* Top Section: Real Usage Limits Card */}
           {usageReport && usageReport.windows.length > 0 && (
-            <div className="border-b border-line/60 bg-inset/30 p-2.5 shrink-0">
+            <div className="border-b border-line/60 bg-inset/30 p-3 shrink-0">
               <div className="flex items-baseline justify-between gap-2 mb-2">
-                <span className="text-[12px] font-semibold text-ink">{usageReport.name} usage</span>
+                <span className="text-[13px] font-semibold text-ink">{usageReport.name} usage</span>
                 <span className="text-[11px] text-muted">checked just now</span>
               </div>
-              <div className="flex flex-col gap-2">
-                {usageReport.windows.map((win) => (
+              <div className="flex flex-col gap-2.5">
+                {usageReport.windows.slice(0, 2).map((win) => (
                   <div key={win.name} className="flex flex-col gap-1">
                     <div className="flex items-baseline justify-between text-[11px]">
                       <span className="text-muted font-medium">{win.name}</span>
@@ -288,7 +352,7 @@ export function ModelPicker({
                         {win.resets_at && ` · resets ${formatResetTime(win.resets_at)}`}
                       </span>
                     </div>
-                    <div className="h-1 w-full overflow-hidden rounded-full bg-ink/[0.08]">
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink/[0.08]">
                       <div
                         className={cn(
                           "h-full rounded-full transition-all duration-300",
@@ -307,243 +371,243 @@ export function ModelPicker({
             </div>
           )}
 
-          {/* Top Search Input */}
-          <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/60 bg-inset/20 px-3">
-            <Search size={15} className="shrink-0 text-muted" aria-hidden="true" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search models"
-              className="w-full bg-transparent text-[13px] text-ink placeholder:text-muted outline-none focus:outline-none"
-            />
-            {search && (
+          {/* Thread Scope Toggle */}
+          <div className="border-b border-line/60 bg-inset/15 px-3 py-2 shrink-0">
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={() => setSearch("")}
-                className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted hover:text-ink cursor-pointer"
-              >
-                <X size={13} />
-              </button>
-            )}
-          </div>
-
-          {/* Main Scrollable Model List */}
-          <div className="flex-1 overflow-y-auto overscroll-contain p-1.5 flex flex-col gap-0.5">
-            {/* Active / Current Model Pinned at Top (When no active search) */}
-            {!search && activeModelObj && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="group flex min-h-[34px] w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] text-ink bg-accent/10 transition-colors cursor-pointer"
-                >
-                  <span className="flex size-4 shrink-0 items-center justify-center">
-                    <EngineMark engineId={selectedProvider} size={14} />
-                  </span>
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate font-medium text-ink">{activeModelObj.label}</span>
-                    <span className="truncate text-[11px] text-muted">
-                      {activeEngine?.label ?? selectedProvider} · Active
-                    </span>
-                  </div>
-                  <Check size={14} className="shrink-0 text-accent" aria-hidden="true" />
-                </button>
-                <div role="separator" className="mx-2 my-1 h-[0.5px] shrink-0 bg-line/60" />
-              </>
-            )}
-
-            {/* Filtered Engine Groups */}
-            {filteredEngines.length === 0 ? (
-              <div className="py-6 text-center text-xs text-muted">No models match &ldquo;{search}&rdquo;</div>
-            ) : (
-              filteredEngines.map((engine, index) => {
-                const isSelectedEngine = engine.id === selectedProvider;
-                const isExpanded = Boolean(expandedProviders[engine.id]) || Boolean(search);
-                const hasManyModels = engine.models.length > SUGGESTIONS_LIMIT;
-                const visibleModels = isExpanded ? engine.models : engine.models.slice(0, SUGGESTIONS_LIMIT);
-
-                return (
-                  <div key={engine.id} className={cn("flex flex-col gap-0.5", index > 0 && "mt-1")}>
-                    {/* Provider Group Header */}
-                    <div className="flex h-6 shrink-0 items-center justify-between px-2 text-[11px] font-semibold text-muted uppercase tracking-wider">
-                      <div className="flex items-center gap-1.5 truncate">
-                        <span className="flex size-4 shrink-0 items-center justify-center">
-                          <EngineMark engineId={engine.id} size={14} />
-                        </span>
-                        <span className="truncate">{engine.label}</span>
-                      </div>
-                      {!engine.available && (
-                        <span className="text-[10px] text-warning bg-warning/10 px-1.5 py-0.2 rounded font-normal normal-case">
-                          Needs setup
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Engine Available: Model Rows */}
-                    {engine.available ? (
-                      <>
-                        {visibleModels.map((m) => {
-                          const isCurrent =
-                            isSelectedEngine &&
-                            (selectedModel === m.id || (!selectedModel && m.id === engine.default_model));
-
-                          return (
-                            <button
-                              key={m.id}
-                              type="button"
-                              onClick={() => handleSelectModel(engine.id, m)}
-                              className={cn(
-                                "group flex min-h-[32px] w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors cursor-pointer",
-                                isCurrent
-                                  ? "bg-accent/15 text-accent font-medium"
-                                  : "text-ink hover:bg-hover"
-                              )}
-                            >
-                              <span className="flex size-4 shrink-0 items-center justify-center text-muted">
-                                {isCurrent ? <span className="size-1.5 rounded-full bg-accent" /> : null}
-                              </span>
-                              <div className="flex min-w-0 flex-1 flex-col">
-                                <span className="truncate">{m.label}</span>
-                                {m.id !== m.label && (
-                                  <span className="truncate text-[11px] text-muted opacity-80">{m.id}</span>
-                                )}
-                              </div>
-                              {isCurrent && <Check size={14} className="shrink-0 text-accent" aria-hidden="true" />}
-                            </button>
-                          );
-                        })}
-
-                        {/* Show all / Show suggested toggle */}
-                        {hasManyModels && !search && (
-                          <button
-                            type="button"
-                            onClick={() => toggleExpand(engine.id)}
-                            className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-muted hover:text-ink hover:bg-hover cursor-pointer"
-                          >
-                            <span className="flex size-4 shrink-0 items-center justify-center" />
-                            <span className="min-w-0 flex-1 truncate">
-                              {isExpanded ? "Show suggested" : `Show all (${engine.models.length})`}
-                            </span>
-                            {isExpanded ? (
-                              <ChevronUp size={14} className="shrink-0 text-muted" aria-hidden="true" />
-                            ) : (
-                              <ChevronDown size={14} className="shrink-0 text-muted" aria-hidden="true" />
-                            )}
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      /* Engine Needs Setup: Clean Action Row */
-                      <Link
-                        href="/settings/engines"
-                        onClick={() => setOpen(false)}
-                        className="group flex min-h-[32px] w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-muted hover:text-ink hover:bg-hover transition-colors cursor-pointer"
-                      >
-                        <span className="flex size-4 shrink-0 items-center justify-center">
-                          {engine.installed ? (
-                            <LogIn size={15} className="text-muted group-hover:text-ink" aria-hidden="true" />
-                          ) : (
-                            <Download size={15} className="text-muted group-hover:text-ink" aria-hidden="true" />
-                          )}
-                        </span>
-                        <div className="flex min-w-0 flex-1 flex-col">
-                          <span className="truncate font-medium text-ink">
-                            {engine.installed ? `Sign in to ${engine.label}` : `Set up ${engine.label}`}
-                          </span>
-                          <span className="truncate text-[11px] text-muted">
-                            {engine.reason ?? "Configure in settings"}
-                          </span>
-                        </div>
-                        <ChevronRight size={14} className="shrink-0 text-muted" aria-hidden="true" />
-                      </Link>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          {/* Thinking / Reasoning Effort Band (Collapsible) */}
-          {supportsEffort && activeModelObj?.supported_reasoning_efforts && (
-            <div className="flex shrink-0 flex-col gap-0.5 p-1.5 pt-0">
-              <div role="separator" className="mx-2 my-1 h-[0.5px] bg-line/60" />
-              <button
-                type="button"
-                onClick={() => setThinkingOpen(!thinkingOpen)}
-                aria-expanded={thinkingOpen}
-                className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] text-ink hover:bg-hover transition-colors cursor-pointer"
-              >
-                <span className="flex size-4 shrink-0 items-center justify-center">
-                  <Lightbulb size={15} className="text-muted" aria-hidden="true" />
-                </span>
-                <span className="min-w-0 flex-1 truncate font-medium">Thinking</span>
-                <span className="shrink-0 text-xs text-muted capitalize">
-                  {currentEffort ?? "Auto"}
-                </span>
-                {thinkingOpen ? (
-                  <ChevronUp size={14} className="shrink-0 text-muted" aria-hidden="true" />
-                ) : (
-                  <ChevronDown size={14} className="shrink-0 text-muted" aria-hidden="true" />
+                onClick={() => setThreadScope("thread")}
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors cursor-pointer",
+                  threadScope === "thread"
+                    ? "bg-ink/[0.12] text-ink font-semibold"
+                    : "text-muted hover:text-ink"
                 )}
+              >
+                Only this thread
               </button>
+              <button
+                type="button"
+                onClick={() => setThreadScope("default")}
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors cursor-pointer",
+                  threadScope === "default"
+                    ? "bg-ink/[0.12] text-ink font-semibold"
+                    : "text-muted hover:text-ink"
+                )}
+              >
+                Thread + default
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] text-muted">
+              {threadScope === "thread"
+                ? "This thread only. It keeps this model when the default model changes."
+                : "Applies to this thread and becomes the default for new threads."}
+            </p>
+          </div>
 
-              {thinkingOpen && (
-                <div className="px-1.5 pb-1">
-                  <div className="my-1 flex rounded-full bg-inset/80 p-0.5 border border-line/40">
+          {/* Main 2-Column Split: Left Rail + Right Content */}
+          <div className="flex flex-1 min-h-[280px] max-h-[360px] overflow-hidden">
+            {/* Left Vertical Provider Rail */}
+            <div className="flex w-12 shrink-0 flex-col items-center gap-1.5 border-r border-line/60 bg-inset/20 p-1.5 overflow-y-auto">
+              <span className="text-[9px] uppercase tracking-wider text-muted font-semibold mt-1">Cloud</span>
+              {cloudEngines.map((eng) => {
+                const isViewed = eng.id === viewedEngine.id;
+                const hasDot = !eng.available || (eng.installed && !eng.available);
+                return (
+                  <button
+                    key={eng.id}
+                    type="button"
+                    onClick={() => setActiveRailEngineId(eng.id)}
+                    title={eng.label}
+                    className={cn(
+                      "relative flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors cursor-pointer",
+                      isViewed
+                        ? "bg-ink/[0.12] ring-1 ring-line text-ink"
+                        : "text-muted hover:bg-hover hover:text-ink"
+                    )}
+                  >
+                    <EngineMark engineId={eng.id} size={16} />
+                    {hasDot && (
+                      <span className="absolute bottom-1 right-1 size-1.5 rounded-full bg-amber-500 ring-1 ring-raised" />
+                    )}
+                  </button>
+                );
+              })}
+
+              <div role="separator" className="my-1 h-[0.5px] w-6 bg-line/60" />
+              <span className="text-[9px] uppercase tracking-wider text-muted font-semibold">API</span>
+
+              <Link
+                href="/settings/engines"
+                onClick={() => setOpen(false)}
+                title="Add API keys"
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink cursor-pointer"
+              >
+                <KeyRound size={15} />
+              </Link>
+              <Link
+                href="/settings/engines"
+                onClick={() => setOpen(false)}
+                title="Add new engine"
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-dashed border-line text-muted hover:bg-hover hover:text-ink cursor-pointer"
+              >
+                <Plus size={15} />
+              </Link>
+            </div>
+
+            {/* Right Content Panel for Viewed Engine */}
+            <div className="flex flex-1 flex-col overflow-hidden bg-raised">
+              {/* Provider Header with Status Badge & Account */}
+              <div className="flex flex-col gap-0.5 border-b border-line/60 px-3 py-2 shrink-0">
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="truncate text-[13px] font-semibold text-ink">{viewedEngine.label}</span>
                     <button
                       type="button"
-                      onClick={() => onChange(selectedProvider, selectedModel, null)}
-                      className={cn(
-                        "h-7 flex-1 rounded-full text-xs font-medium transition-colors cursor-pointer",
-                        !selectedEffort
-                          ? "bg-raised text-ink font-semibold shadow-xs ring-1 ring-line/50"
-                          : "text-muted hover:text-ink"
-                      )}
+                      onClick={() => void handleRefreshEngines()}
+                      disabled={refreshing}
+                      title="Refresh models and status"
+                      className="flex size-5 shrink-0 items-center justify-center rounded text-muted hover:text-ink cursor-pointer"
                     >
-                      Auto
+                      <RefreshCw size={12} className={cn(refreshing && "animate-spin")} />
                     </button>
-                    {activeModelObj.supported_reasoning_efforts.map((level) => {
-                      const isActive = selectedEffort?.toLowerCase() === level.toLowerCase();
-                      return (
-                        <button
-                          key={level}
-                          type="button"
-                          onClick={() => onChange(selectedProvider, selectedModel, level)}
-                          className={cn(
-                            "h-7 flex-1 rounded-full text-xs font-medium capitalize transition-colors cursor-pointer",
-                            isActive
-                              ? "bg-raised text-ink font-semibold shadow-xs ring-1 ring-line/50"
-                              : "text-muted hover:text-ink"
-                          )}
-                        >
-                          {level}
-                        </button>
-                      );
-                    })}
                   </div>
-                  <p className="px-2 pt-0.5 text-[11px] leading-4 text-muted">
-                    {EFFORT_DESCRIPTIONS[selectedEffort?.toLowerCase() ?? "auto"] ?? "Adjust reasoning effort depth."}
-                  </p>
+                  {viewedEngine.available && viewedEngine.version && (
+                    <span className="shrink-0 rounded-full bg-emerald-500/15 px-1.5 py-0.2 text-[10px] font-medium text-emerald-500">
+                      {viewedEngine.version}
+                    </span>
+                  )}
+                  {!viewedEngine.available && (
+                    <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.2 text-[10px] font-medium text-amber-500">
+                      Needs setup
+                    </span>
+                  )}
+                </div>
+
+                {/* Real User Email if reported */}
+                {viewedEngine.id === selectedProvider && usageReport?.user_email && (
+                  <span className="truncate text-[11px] text-muted">
+                    {usageReport.user_email}
+                  </span>
+                )}
+              </div>
+
+              {/* Search Models Input */}
+              <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line/60 px-3 bg-inset/10">
+                <Search size={14} className="shrink-0 text-muted" aria-hidden="true" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search models"
+                  className="w-full bg-transparent text-[12px] text-ink placeholder:text-muted outline-none focus:outline-none"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted hover:text-ink cursor-pointer"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              {/* Model Choice Rows */}
+              <div className="flex-1 overflow-y-auto overscroll-contain p-1.5 flex flex-col gap-0.5">
+                {!search && (
+                  <div className="px-2 pt-1 pb-0.5 text-[11px] font-semibold text-muted">
+                    Suggested
+                  </div>
+                )}
+
+                {viewedEngine.available ? (
+                  filteredChoices.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-muted">No models match &ldquo;{search}&rdquo;</div>
+                  ) : (
+                    filteredChoices.map((choice) => (
+                      <button
+                        key={`${choice.modelId}-${choice.variantId ?? "default"}`}
+                        type="button"
+                        onClick={() => handleSelectChoice(choice)}
+                        className={cn(
+                          "group flex min-h-[30px] w-full items-center justify-between gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors cursor-pointer",
+                          choice.isCurrent
+                            ? "bg-accent/15 text-accent font-medium"
+                            : "text-ink hover:bg-hover"
+                        )}
+                      >
+                        <span className="truncate">{choice.displayLabel}</span>
+                        {choice.isCurrent && (
+                          <Check size={14} className="shrink-0 text-accent" aria-hidden="true" />
+                        )}
+                      </button>
+                    ))
+                  )
+                ) : (
+                  /* Engine Needs Setup link */
+                  <Link
+                    href="/settings/engines"
+                    onClick={() => setOpen(false)}
+                    className="group flex flex-col gap-1 rounded-lg p-2.5 text-left text-muted hover:bg-hover transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+                      {viewedEngine.installed ? <LogIn size={14} /> : <Download size={14} />}
+                      <span>{viewedEngine.installed ? `Sign in to ${viewedEngine.label}` : `Set up ${viewedEngine.label}`}</span>
+                    </div>
+                    <span className="text-[11px] text-muted">
+                      {viewedEngine.reason ?? "Configure in settings"}
+                    </span>
+                  </Link>
+                )}
+              </div>
+
+              {/* Reasoning Effort Dropdown Selector (Matches Screenshot Bottom) */}
+              {activeModelEfforts.length > 0 && viewedEngine.id === selectedProvider && (
+                <div className="border-t border-line/60 bg-inset/20 px-3 py-1.5 shrink-0 flex items-center justify-between gap-2">
+                  <span className="text-[12px] text-ink font-medium">Reasoning</span>
+                  <div className="relative inline-block">
+                    <select
+                      value={currentEffort ?? activeModelObj?.default_reasoning_effort ?? ""}
+                      onChange={(e) => handleEffortDropdownChange(e.target.value)}
+                      aria-label="Reasoning effort"
+                      className="h-7 cursor-pointer rounded-md border border-line bg-raised px-2.5 pr-7 text-[12px] font-medium text-ink outline-none focus:ring-1 focus:ring-accent appearance-none"
+                    >
+                      {activeModelEfforts.map((eff) => (
+                        <option key={eff} value={eff}>
+                          {effortName(eff)}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown
+                      size={12}
+                      className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted"
+                      aria-hidden="true"
+                    />
+                  </div>
                 </div>
               )}
             </div>
-          )}
+          </div>
 
-          {/* Manage Engines Footer Link */}
-          <div className="flex shrink-0 flex-col gap-0.5 p-1.5 pt-0">
-            <div role="separator" className="mx-2 my-1 h-[0.5px] bg-line/60" />
+          {/* Footer Bar */}
+          <div className="border-t border-line/60 bg-inset/30 px-3 py-2 shrink-0 flex items-center justify-between text-[11px] text-muted">
             <Link
               href="/settings/engines"
               onClick={() => setOpen(false)}
-              className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] text-muted hover:text-ink hover:bg-hover transition-colors cursor-pointer"
+              className="hover:text-ink transition-colors"
             >
-              <span className="flex size-4 shrink-0 items-center justify-center">
-                <Settings size={15} className="text-muted" aria-hidden="true" />
-              </span>
-              <span className="min-w-0 flex-1 truncate">Manage engines</span>
-              <ChevronRight size={14} className="shrink-0 text-muted" aria-hidden="true" />
+              Model providers and accounts
+            </Link>
+            <Link
+              href="/settings/engines"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-1 hover:text-ink transition-colors font-medium text-ink"
+            >
+              <KeyRound size={12} />
+              <span>Add API keys</span>
             </Link>
           </div>
         </div>
