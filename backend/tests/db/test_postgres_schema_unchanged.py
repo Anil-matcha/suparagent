@@ -41,6 +41,9 @@ WORKFLOW_TABLES = {"workflow", "workflow_run"}
 PEOPLE_TABLES = {"person", "person_invite", "people_audit"}
 MUAPI_TABLES = {"muapi_tool_grant"}
 SHADOW_TABLES = {"shadow_prediction"}
+WORKER_LABEL_TABLES = {"worker_label", "worker_label_action"}
+APP_EVENT_TABLES = {"app_event_trigger", "app_event_receipt", "app_event_day"}
+SHADOW_FEEDBACK_TABLES = {"shadow_feedback"}
 
 
 def postgres_ddl(table_names: set[str]) -> str:
@@ -100,6 +103,9 @@ def test_every_table_is_covered_by_one_of_the_snapshots():
         | PEOPLE_TABLES
         | MUAPI_TABLES
         | SHADOW_TABLES
+        | WORKER_LABEL_TABLES
+        | APP_EVENT_TABLES
+        | SHADOW_FEEDBACK_TABLES
     )
     assert covered_tables == set(Base.metadata.tables)
     assert not original_tables() & F04_TABLES
@@ -189,3 +195,15 @@ def test_muapi_tool_grant_table_compiles_to_its_reviewed_postgres_schema():
 
 def test_shadow_prediction_table_compiles_to_its_reviewed_postgres_schema():
     assert postgres_ddl(SHADOW_TABLES) == snapshot_text(HERE / "postgres_schema_shadow.sql")
+
+
+def test_worker_label_tables_compile_to_their_reviewed_postgres_schema():
+    assert postgres_ddl(WORKER_LABEL_TABLES) == snapshot_text(HERE / "postgres_schema_worker_labels.sql")
+
+
+def test_app_event_tables_compile_to_their_reviewed_postgres_schema():
+    assert postgres_ddl(APP_EVENT_TABLES) == snapshot_text(HERE / "postgres_schema_app_events.sql")
+
+
+def test_shadow_feedback_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(SHADOW_FEEDBACK_TABLES) == snapshot_text(HERE / "postgres_schema_shadow_feedback.sql")

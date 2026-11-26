@@ -12,6 +12,7 @@ type Operation = {
   action: "install" | "update";
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   progress: string;
+  percent?: number | null;
   error: string | null;
   output: string;
 };
@@ -86,13 +87,52 @@ export function EngineInstall({ engine, installed, onChanged }: {
 
   return <section className="space-y-2">
     <div className="flex flex-wrap gap-2">
-      {!managedInstalled ? <Button type="button" disabled={busy || running} onClick={() => void start("install")}>{installed ? "Install app-managed copy" : "Install"}</Button>
-        : <Button type="button" disabled={busy || running} onClick={() => void start("update")}>Update</Button>}
+      {!installed && !managedInstalled && (
+        <Button type="button" disabled={busy || running} onClick={() => void start("install")}>
+          Install
+        </Button>
+      )}
+      {!installed && managedInstalled && (
+        <Button type="button" disabled={busy || running} onClick={() => void start("install")}>
+          Reinstall app-managed copy
+        </Button>
+      )}
+      {installed && (
+        <Button type="button" variant="secondary" disabled={busy || running} onClick={() => void start("update")}>
+          Update CLI
+        </Button>
+      )}
       {running && <Button type="button" disabled={busy} onClick={() => void cancel()}>Cancel</Button>}
       {operation?.status === "failed" && <Button type="button" disabled={busy} onClick={() => void start(managedInstalled ? "update" : "install")}>Retry</Button>}
     </div>
     {installed && !managedInstalled && <p className="text-xs text-muted">The app-managed copy is stored in its own runtime folder. Existing CLI installs outside the app data folder are left in place.</p>}
-    {operation && <p role="status" className="text-xs text-muted">{operation.progress}</p>}
+    {running && (
+      <div className="space-y-2 pt-1">
+        <div className="flex justify-between items-center text-xs">
+          <span className="text-muted flex items-center gap-1.5 font-medium">
+            <span className="inline-block w-2 h-2 rounded-full bg-accent animate-ping" />
+            {operation?.progress || "Downloading and installing packages from npm..."}
+          </span>
+          {operation?.percent != null && operation.percent > 0 && (
+            <span className="font-mono text-accent font-semibold">
+              {operation.percent}%
+            </span>
+          )}
+        </div>
+        <div className="w-full bg-line rounded-full h-2 overflow-hidden">
+          {operation?.percent != null && operation.percent > 0 ? (
+            <div
+              className="bg-accent h-2 rounded-full transition-all duration-300"
+              style={{ width: `${Math.max(6, Math.min(100, operation.percent))}%` }}
+            />
+          ) : (
+            <div className="bg-accent h-2 rounded-full animate-pulse w-full" />
+          )}
+        </div>
+      </div>
+    )}
+    {!running && operation && operation.status !== "succeeded" && <p role="status" className="text-xs text-muted">{operation.progress}</p>}
+    {operation?.status === "succeeded" && <Banner tone="success">Installation complete! The engine is ready.</Banner>}
     {operation?.error && <Banner tone="warning">{operation.error}</Banner>}
     {error && <Banner tone="warning">{error}</Banner>}
     {operation?.output && <details className="text-xs"><summary className="cursor-pointer">Installer output</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words text-muted">{operation.output}</pre></details>}

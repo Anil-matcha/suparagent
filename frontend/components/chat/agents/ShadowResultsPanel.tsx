@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { levelOf, type Scopes } from "@/lib/connected-apps";
+import { levelOf, type Scopes, type Shares } from "@/lib/connected-apps";
+import { parseShareSuggestion, type ShareSuggestion } from "@/lib/shadow-feedback";
+import { FeedbackRow, SuggestionCard } from "./ShadowFeedbackParts";
 import {
   disagreementText, isEmpty, parseShadowReport, percent, rateText, refreshMessage, sampleCaption,
   type ShadowReport,
@@ -14,7 +16,12 @@ const ROW = "flex items-baseline justify-between gap-3";
 // What a support worker in shadow mode would have done, set beside what the owner did (BL-173). Numbers and thread ids only:
 // the server never sends mail text, and nothing here sends or changes anything in Gmail. Shown only for a saved agent that
 // has Gmail turned on.
-export function ShadowResultsPanel({ agentId, connectorScopes }: { agentId: number | null; connectorScopes: Scopes | null | undefined }) {
+export function ShadowResultsPanel({ agentId, connectorScopes, onSharesChanged }: {
+  agentId: number | null;
+  connectorScopes: Scopes | null | undefined;
+  // Told the new shares when the owner accepts a suggested change, so the editor that holds this panel does not save the old ones back.
+  onSharesChanged?: (shares: Shares) => void;
+}) {
   const shown = agentId !== null && levelOf(connectorScopes, "gmail") !== "off";
   const [report, setReport] = useState<ShadowReport | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -22,6 +29,18 @@ export function ShadowResultsPanel({ agentId, connectorScopes }: { agentId: numb
   const live = useRef(true);
   const latest = useRef(0);
   useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
+
+  // The proposal to raise or lower the share (BL-175), read beside the report. It is only ever a proposal and is secondary: a
+  // failure to read it just hides the card. The newest request wins.
+  const [suggestion, setSuggestion] = useState<ShareSuggestion | null>(null);
+  const suggestionLatest = useRef(0);
+  const loadSuggestion = useCallback((id: number, refresh: boolean) => {
+    const mine = ++suggestionLatest.current;
+    api.getShareSuggestion(id, { refresh }).then(
+      (raw) => { if (live.current && mine === suggestionLatest.current) setSuggestion(parseShareSuggestion(raw)); },
+      () => { if (live.current && mine === suggestionLatest.current) setSuggestion(null); },
+    );
+  }, []);
 
   // What to do with an answer. The newest request wins, so a slow answer never replaces a later one.
   const accept = useCallback((mine: number, raw: unknown) => {
@@ -40,12 +59,14 @@ export function ShadowResultsPanel({ agentId, connectorScopes }: { agentId: numb
     if (!shown || agentId === null) return;
     const mine = ++latest.current;
     api.getShadowReport(agentId, { days: 28, refresh: false }).then((raw) => accept(mine, raw), (err) => reject(mine, err));
-  }, [shown, agentId, accept, reject]);
+    loadSuggestion(agentId, false);
+  }, [shown, agentId, accept, reject, loadSuggestion]);
 
   const refresh = async () => {
     if (agentId === null) return;
     const mine = ++latest.current;
     setRefreshing(true); setError(null);
+    loadSuggestion(agentId, true);
     try { accept(mine, await api.getShadowReport(agentId, { days: 28, refresh: true })); }
     catch (err) { reject(mine, err); }
     finally { if (live.current && mine === latest.current) setRefreshing(false); }
@@ -67,6 +88,15 @@ export function ShadowResultsPanel({ agentId, connectorScopes }: { agentId: numb
         The worker ranks your support mail and keeps its drafts in its notes; you reply as usual and this compares the two.
         Nothing is sent or changed in Gmail.
       </p>
+      {suggestion !== null && suggestion.agent_id === agentId && (
+        <SuggestionCard
+          key={`${suggestion.state}-${suggestion.suggested_percent}`}
+          agentId={agentId}
+          suggestion={suggestion}
+          onSharesChanged={onSharesChanged}
+          onChanged={() => loadSuggestion(agentId, true)}
+        />
+      )}
       {error && <p role="alert" className="text-danger">{error}</p>}
       {current && isEmpty(current) && (
         <p className="text-muted">No shadow results yet. Ask the worker to rank your threads; it records what it would do.</p>
@@ -121,6 +151,7 @@ function ReportBody({ report }: { report: ShadowReport }) {
               <li key={`${item.thread_id}-${item.kind}`}>
                 <p>{disagreementText(item)}</p>
                 <p className="break-all text-xs text-muted">Thread {item.thread_id}</p>
+                <FeedbackRow agentId={report.agent_id} threadId={item.thread_id} />
               </li>
             ))}
           </ul>

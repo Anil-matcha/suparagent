@@ -17,7 +17,7 @@ section 9.0): session create, link, account listing. Not verified live: the
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import httpx
@@ -46,10 +46,45 @@ class ComposioError(Exception):
     rate_limited, unavailable (network or Composio down), rejected (the
     request was refused), bad_response (an answer we will not trust)."""
 
-    def __init__(self, kind: str, message: str) -> None:
+    def __init__(self, kind: str, message: str, *, status: int | None = None) -> None:
         super().__init__(message)
         self.kind = kind
         self.message = message
+        self.status = status  # the HTTP status, when the failure was one (a 409 can mean "already in that state")
+
+
+# Trigger configuration the app may send for a Gmail new-message trigger: nothing else is passed on.
+TRIGGER_CONFIG_KEYS = ("labelIds", "query")
+MAX_TRIGGER_QUERY = 200
+MAX_WEBHOOK_URL = 2048
+TRIGGER_EVENT = "composio.trigger.message"
+_STATUS_EVENTS = ("composio.connected_account.expired", "composio.connected_account.activated")
+WEBHOOK_EVENTS = (TRIGGER_EVENT, "composio.trigger.disabled") + _STATUS_EVENTS  # what our single project subscription listens to
+
+
+@dataclass(frozen=True)
+class TriggerType:
+    slug: str
+    delivery: str                  # "poll" (Composio checks the app itself) or "webhook"
+    config_fields: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TriggerInstance:
+    id: str
+    account_id: str | None = None
+    config: dict | None = None
+    slug: str | None = None
+    disabled: bool = False
+    polling_interval: int | None = None
+
+
+@dataclass(frozen=True)
+class WebhookSubscription:
+    id: str
+    url: str
+    events: tuple[str, ...]
+    secret: str | None = field(default=None, repr=False)  # never printed or logged
 
 
 @dataclass(frozen=True)
@@ -278,7 +313,7 @@ class ComposioClient:
             return ComposioError("rate_limited", "Composio is rate limiting requests. Try again in a minute.")
         if status >= 500:
             return ComposioError("unavailable", "Composio had a problem. Try again shortly.")
-        return ComposioError("rejected", detail or "Composio refused the request.")
+        return ComposioError("rejected", detail or "Composio refused the request.", status=status)
 
     async def create_session(self, user_id: str) -> str:
         body = {
@@ -394,6 +429,147 @@ class ComposioClient:
         if found is None or found.slug != slug:
             raise ComposioError("not_found", "Composio could not find that action.")
         return found
+
+    # -- Triggers and the project's webhook (BL-177). Composio checks Gmail itself and pushes events to the webhook.
+
+    async def list_trigger_types(self, toolkit: str) -> list[TriggerType]:
+        if not TOOLKIT_SLUG.match(toolkit):
+            raise ComposioError("not_found", "Composio could not find that app.")
+        result = await self._request("GET", "/triggers_types", params={"toolkit_slugs": toolkit, "limit": 50})
+        found: list[TriggerType] = []
+        for item in (result.get("items") if isinstance(result, dict) else None) or []:
+            if not isinstance(item, dict) or not isinstance(item.get("slug"), str) or not _SLUG.match(item["slug"]):
+                continue
+            properties = (item.get("config") or {}).get("properties") if isinstance(item.get("config"), dict) else None
+            fields = tuple(sorted(str(k)[:60] for k in properties)) if isinstance(properties, dict) else ()
+            found.append(TriggerType(item["slug"], "webhook" if item.get("type") == "webhook" else "poll", fields))
+        return found
+
+    async def upsert_trigger(self, slug: str, account_id: str, config: dict) -> TriggerInstance:
+        """Create the trigger instance for one connected account, or return the identical existing one."""
+        if not _SLUG.match(slug) or not _ID.match(account_id):
+            raise ComposioError("not_found", "Composio could not find that trigger or account.")
+        clean: dict = {}
+        for key, value in (config or {}).items():
+            if key not in TRIGGER_CONFIG_KEYS or not isinstance(value, str) or len(value) > MAX_TRIGGER_QUERY:
+                raise ComposioError("rejected", "That trigger setting is not allowed.")
+            clean[key] = value
+        result = await self._request("POST", f"/trigger_instances/{slug}/upsert",
+                                     body={"connected_account_id": account_id, "trigger_config": clean})
+        trigger_id = (result or {}).get("trigger_id") or (result or {}).get("id") if isinstance(result, dict) else None
+        if not isinstance(trigger_id, str) or not _ID.match(trigger_id):
+            raise ComposioError("bad_response", "Composio did not give a trigger id.")
+        interval = result.get("polling_interval")
+        return TriggerInstance(trigger_id, account_id, clean, slug, False, interval if isinstance(interval, int) else None)
+
+    async def set_trigger_enabled(self, trigger_id: str, enabled: bool) -> None:
+        """Pause or resume one instance. A 409 means it is already in that state, which is the answer wanted."""
+        if not _ID.match(trigger_id):
+            raise ComposioError("not_found", "Composio could not find that trigger.")
+        try:
+            await self._request("PATCH", f"/trigger_instances/manage/{trigger_id}", body={"status": "enable" if enabled else "disable"})
+        except ComposioError as exc:
+            if exc.status != 409:
+                raise
+
+    async def delete_trigger(self, trigger_id: str) -> None:
+        if not _ID.match(trigger_id):
+            raise ComposioError("not_found", "Composio could not find that trigger.")
+        await self._request("DELETE", f"/trigger_instances/manage/{trigger_id}")
+
+    async def list_active_triggers(self, account_ids: list[str] | None = None, *, show_disabled: bool = True) -> list[TriggerInstance]:
+        found: list[TriggerInstance] = []
+        cursor = None
+        for _ in range(MAX_PAGES):
+            params: dict = {"limit": PAGE_LIMIT}
+            if account_ids:
+                if any(not _ID.match(a) for a in account_ids):
+                    raise ComposioError("not_found", "Composio could not find that account.")
+                params["connected_account_ids"] = ",".join(account_ids)
+            if show_disabled:
+                params["show_disabled"] = "true"
+            if cursor:
+                params["cursor"] = cursor
+            result = await self._request("GET", "/trigger_instances/active", params=params)
+            result = result if isinstance(result, dict) else {}
+            for item in result.get("items") or []:
+                if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not _ID.match(item["id"]):
+                    continue
+                config = item.get("trigger_config") if isinstance(item.get("trigger_config"), dict) else item.get("triggerConfig")
+                account = item.get("connected_account_id") or item.get("connectedAccountId")
+                interval = item.get("polling_interval")
+                found.append(TriggerInstance(
+                    item["id"], account if isinstance(account, str) else None, config if isinstance(config, dict) else None,
+                    item.get("triggerName") if isinstance(item.get("triggerName"), str) else None,
+                    bool(item.get("disabled_at") or item.get("disabledAt")), interval if isinstance(interval, int) else None))
+            cursor = result.get("next_cursor")
+            if not isinstance(cursor, str) or not cursor:
+                break
+        return found
+
+    @staticmethod
+    def _subscription(item: object) -> WebhookSubscription | None:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not _ID.match(item["id"]):
+            return None
+        url, events, secret = item.get("webhook_url"), item.get("enabled_events"), item.get("secret")
+        if not isinstance(url, str) or len(url) > MAX_WEBHOOK_URL:
+            return None
+        return WebhookSubscription(item["id"], url, tuple(e for e in events if isinstance(e, str)) if isinstance(events, list) else (),
+                                   secret if isinstance(secret, str) and secret else None)
+
+    async def list_webhook_subscriptions(self) -> list[WebhookSubscription]:
+        result = await self._request("GET", "/webhook_subscriptions")
+        items = (result.get("items") if isinstance(result, dict) else None) or []
+        return [sub for sub in (self._subscription(i) for i in items) if sub is not None]
+
+    async def create_webhook_subscription(self, url: str, events: tuple[str, ...] = WEBHOOK_EVENTS) -> WebhookSubscription:
+        """The answer carries the signing secret once; keep it, and never log or show it."""
+        if not isinstance(url, str) or not url.startswith("https://") or len(url) > MAX_WEBHOOK_URL:
+            raise ComposioError("rejected", "The webhook address must be an https address.")
+        result = await self._request("POST", "/webhook_subscriptions", body={"webhook_url": url, "enabled_events": list(events)})
+        created = self._subscription(result)
+        if created is None or not created.secret:
+            raise ComposioError("bad_response", "Composio did not give a webhook signing secret.")
+        return created
+
+    async def get_webhook_subscription(self, subscription_id: str) -> WebhookSubscription:
+        if not _ID.match(subscription_id):
+            raise ComposioError("not_found", "Composio could not find that webhook.")
+        found = self._subscription(await self._request("GET", f"/webhook_subscriptions/{subscription_id}"))
+        if found is None:
+            raise ComposioError("bad_response", "Composio sent a webhook this app cannot read.")
+        return found
+
+    async def update_webhook_subscription(self, saved: WebhookSubscription, events: tuple[str, ...]) -> WebhookSubscription:
+        """Add events to a subscription already identified by its saved ID and URL.
+
+        The saved URL is the ownership check. Keep unrecognized event names so
+        this app cannot remove events managed by another consumer of the project.
+        The signing secret is stored only in the existing app record; Composio
+        may omit it from a PATCH response.
+        """
+        if not isinstance(saved, WebhookSubscription) or not isinstance(saved.id, str) or not _ID.fullmatch(saved.id):
+            raise ComposioError("not_found", "Composio could not find that webhook.")
+        url = saved.url
+        if not isinstance(url, str) or not url.startswith("https://") or len(url) > MAX_WEBHOOK_URL:
+            raise ComposioError("rejected", "The webhook address must be an https address.")
+        if not isinstance(events, tuple) or any(not isinstance(event, str) or not event for event in events):
+            raise ComposioError("rejected", "The webhook events are invalid.")
+        merged_events = tuple(dict.fromkeys((*saved.events, *events)))
+        result = await self._request(
+            "PATCH", f"/webhook_subscriptions/{saved.id}",
+            body={"webhook_url": url, "enabled_events": list(merged_events)},
+        )
+        updated = self._subscription(result)
+        if (updated is None or updated.id != saved.id or updated.url != url
+                or not set(merged_events).issubset(updated.events)):
+            raise ComposioError("bad_response", "Composio did not confirm the webhook update.")
+        return WebhookSubscription(updated.id, updated.url, updated.events, saved.secret or updated.secret)
+
+    async def delete_webhook_subscription(self, subscription_id: str) -> None:
+        if not _ID.match(subscription_id):
+            raise ComposioError("not_found", "Composio could not find that webhook.")
+        await self._request("DELETE", f"/webhook_subscriptions/{subscription_id}")
 
     async def delete_account(self, account_id: str) -> None:
         if not _ID.match(account_id):

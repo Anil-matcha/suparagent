@@ -44,13 +44,15 @@ export function isSupportWorker(skills: readonly { source?: string }[] | null | 
   return Boolean(skills?.some((skill) => skill.source === SUPPORT_WORKER_SOURCE));
 }
 
-// What to save to let the agent read the app. Never raises a level (an app already at "write" stays) and keeps every
+// What to save to let the agent read the app. Never raises or lowers a level (an app already at "write" or "labels" stays;
+// this card never offers "labels", it only keeps it) and keeps every
 // other app and account the agent has. Account ids: the one just connected, else every active account of the app.
 // `startPercent` (Gmail only) can narrow the share of an account but never widen one the agent already has; when it
 // changes nothing, connector_shares is left out so the saved shares stay as they are.
 export function readGrant(agent: { provider: string; connector_scopes?: Scopes | null; connector_account_scopes?: AccountScopes; connector_shares?: Shares | null },
                           app: string, accounts: ComposioAccount[], connectedId?: string | null, startPercent = 100) {
-  const level = levelOf(agent.connector_scopes, app) === "write" ? "write" : "read";
+  const current = levelOf(agent.connector_scopes, app);
+  const level = current === "write" || current === "labels" ? current : "read";
   const ids = connectedId ? [connectedId] : accountsOf(accounts, app).filter((account) => account.status === "ACTIVE").map((account) => account.id);
   let accountScopes: AccountScopes = { ...(agent.connector_account_scopes ?? {}) };
   for (const id of ids) accountScopes = withAccount(accountScopes, app, id, true);

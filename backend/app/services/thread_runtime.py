@@ -1034,12 +1034,13 @@ class ThreadRuntime:
                 if not apps:
                     return unavailable("agent_app_or_account_scope_missing")
                 if getattr(run, "uninterrupted_access", False):
+                    from app import composio_tools
                     from app.services import routine_uninterrupted
                     current = await routine_uninterrupted.state(self, run, db)
                     if current is None:
                         return unavailable("uninterrupted_access_revoked")
                     ceiling = current[2]
-                    apps = {app: ("write" if level == "write" and ceiling.get("apps", {}).get(app) == "write" else "read")
+                    apps = {app: composio_tools.lower_level(level, ceiling.get("apps", {}).get(app))
                             for app, level in apps.items() if app in ceiling.get("apps", {})}
                     account_scopes = {app: [account for account in ids if account in ceiling.get("accounts", {}).get(app, [])]
                                       for app, ids in account_scopes.items() if app in apps}
@@ -1049,13 +1050,13 @@ class ThreadRuntime:
                     if not apps:
                         return unavailable("uninterrupted_agent_scope_missing")
                 elif turn is not None and turn.origin not in (None, "person"):
-                    from app.db.models.routine import Routine, RoutineRun
+                    from app.db.models.routine import SCHEDULED_TRIGGERS, Routine, RoutineRun
                     if turn.origin != "routine":
                         return unavailable("turn_origin_not_routine")
                     rr = await db.get(RoutineRun, run.routine_run_id) if run.routine_run_id else None
                     routine = await db.get(Routine, rr.routine_id) if rr else None
                     if (not routine or routine.owner_id != self.owner_id or routine.agent_id != run.agent_id
-                            or rr.trigger not in ("schedule", "manual") or rr.thread_id != run.thread_id):
+                            or rr.trigger not in SCHEDULED_TRIGGERS or rr.thread_id != run.thread_id):
                         return unavailable("run_not_eligible")
                     from app import composio_tools
                     run.routine_id = routine.id
@@ -1066,7 +1067,9 @@ class ThreadRuntime:
                         and composio_tools.allows(apps.get(composio_tools.BY_NAME[g["tool"]].app), composio_tools.BY_NAME[g["tool"]].kind)
                         and g.get("account_id") in account_scopes.get(composio_tools.BY_NAME[g["tool"]].app, [])
                     }
-                    apps = {app: ("write" if any(composio_tools.BY_NAME[t].app == app and composio_tools.BY_NAME[t].kind == "write" for t in run.routine_grants) else "read")
+                    apps = {app: ("write" if any(composio_tools.BY_NAME[t].app == app and composio_tools.BY_NAME[t].kind == "write" for t in run.routine_grants)
+                                  else "labels" if any(composio_tools.BY_NAME[t].app == app and composio_tools.BY_NAME[t].kind == "label" for t in run.routine_grants)
+                                  else "read")
                             for app in {composio_tools.BY_NAME[t].app for t in run.routine_grants}}
                     if not apps:
                         return unavailable("routine_grants_not_in_agent_scope")

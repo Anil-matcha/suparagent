@@ -77,13 +77,16 @@ export function ConnectedAppsSection({
         const options: { value: Level; label: string }[] = [
           { value: "off", label: "Off" },
           { value: "read", label: "Read only" },
+          ...(app.labels ? [{ value: "labels" as const, label: "Read and label mail under Worker/" }] : []),
           ...(app.write ? [{ value: "write" as const, label: "Read and change" }] : []),
         ];
         const helper = level === "off"
           ? "This agent cannot use this app."
           : level === "read"
             ? `${app.generic ? "Look up only." : "Read only."} ${app.read}`
-            : `${app.generic ? "Look up and run." : "Read and change."} ${app.write ?? ""}`;
+            : level === "labels"
+              ? `Read and label. ${app.labels ?? ""}`
+              : `${app.generic ? "Look up and run." : "Read and change."} ${app.write ?? ""}`;
 
         const accounts = appAccounts?.filter((account) => account.toolkit === app.slug && account.status === "ACTIVE") ?? [];
         const selected = connectorAccountScopes[app.slug] ?? [];
@@ -111,6 +114,7 @@ export function ConnectedAppsSection({
               ))}
             </div>
             <p className="text-xs leading-5 text-muted" aria-live="polite">{helper}</p>
+            {level === "labels" && <p className="text-xs leading-5 text-muted">If this is a shared inbox, everyone who can open it will see these labels.</p>}
 
             {level !== "off" && (
               <div className="space-y-1 border-l border-line pl-3">

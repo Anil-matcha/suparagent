@@ -17,6 +17,9 @@ from app.db.models.computer import Computer
 from app.db.models.spend_ledger import SpendLedger
 from app.db.models.routine import Routine, RoutineRun, RoutineAppAction, WebhookReceipt
 from app.db.models.shadow_prediction import ShadowPrediction
+from app.db.models.shadow_feedback import ShadowFeedback
+from app.db.models.worker_label import WorkerLabel, WorkerLabelAction
+from app.db.models.app_event import AppEventTrigger, AppEventReceipt, AppEventDay
 from app.db.models.notification import Notification
 from app.db.models.needs_you import NeedsYouState
 from app.db.models.auth import AuthSession, OwnerAccount, PairingCode
@@ -68,6 +71,12 @@ __all__ = [
     "RoutineRun",
     "RoutineAppAction",
     "ShadowPrediction",
+    "ShadowFeedback",
+    "WorkerLabel",
+    "WorkerLabelAction",
+    "AppEventTrigger",
+    "AppEventReceipt",
+    "AppEventDay",
     "WebhookReceipt",
     "SpendLedger",
     "NeedsYouState",

@@ -14,6 +14,7 @@ import shutil
 
 from app.schemas.engine import EngineConfigRequest, EnginePreference, EngineResponse
 from app.services import engine_config, engine_preference
+from app.services.engine_usage_limits import get_engine_usage_limits
 from app.services.local_access_policy import require_local_access
 from app.services.thread_runtime import ThreadRuntime
 from app.services.thread_runtime import runtime as default_runtime
@@ -68,6 +69,15 @@ async def get_engine(engine_id: str, refresh: bool = False, rt: ThreadRuntime = 
     if engine_id not in rt.adapters:
         raise HTTPException(status_code=404, detail="Engine not found")
     return (await rt.engines.describe(refresh=refresh, only=engine_id))[0]
+
+
+@router.get("/{engine_id}/usage-limits")
+async def get_engine_usage_limits_route(engine_id: str, rt: ThreadRuntime = Depends(get_runtime)):
+    """Return real account usage limits if the engine reports them (e.g. Antigravity/Gemini),
+    or null if the engine is unsupported or not signed in. Never returns dummy data."""
+    if engine_id not in rt.adapters:
+        raise HTTPException(status_code=404, detail="Engine not found")
+    return await get_engine_usage_limits(engine_id)
 
 
 @router.put("/{engine_id}/config", response_model=EngineResponse)

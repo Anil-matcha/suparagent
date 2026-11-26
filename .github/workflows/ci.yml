@@ -101,11 +101,21 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
       - name: Install audio validation runtime
+        # Bounded: a slow apt mirror used to hold this step for 13+ minutes. Each attempt is capped,
+        # a stalled attempt is retried on a fresh connection, and the whole step fails at 6 minutes.
+        timeout-minutes: 6
         run: |
-          # Skip apt when the runner already has it; otherwise fail fast on a mirror/DNS outage instead of hanging.
           if ! command -v ffprobe >/dev/null; then
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 install --yes ffmpeg
+            APT="-o Acquire::Retries=2 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o DPkg::Lock::Timeout=60"
+            ok=0
+            for attempt in 1 2 3; do
+              if sudo timeout 100 apt-get $APT update && \
+                 sudo timeout 150 apt-get $APT install --yes --no-install-recommends ffmpeg; then
+                ok=1; break
+              fi
+              echo "apt attempt $attempt did not finish; retrying" >&2
+            done
+            [ "$ok" = 1 ] || { echo "could not install ffmpeg" >&2; exit 1; }
           fi
           ffprobe -version
       - run: uv sync --frozen
@@ -223,11 +233,21 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
       - name: Install audio validation runtime
+        # Bounded: a slow apt mirror used to hold this step for 13+ minutes. Each attempt is capped,
+        # a stalled attempt is retried on a fresh connection, and the whole step fails at 6 minutes.
+        timeout-minutes: 6
         run: |
-          # Skip apt when the runner already has it; otherwise fail fast on a mirror/DNS outage instead of hanging.
           if ! command -v ffprobe >/dev/null; then
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 install --yes ffmpeg
+            APT="-o Acquire::Retries=2 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o DPkg::Lock::Timeout=60"
+            ok=0
+            for attempt in 1 2 3; do
+              if sudo timeout 100 apt-get $APT update && \
+                 sudo timeout 150 apt-get $APT install --yes --no-install-recommends ffmpeg; then
+                ok=1; break
+              fi
+              echo "apt attempt $attempt did not finish; retrying" >&2
+            done
+            [ "$ok" = 1 ] || { echo "could not install ffmpeg" >&2; exit 1; }
           fi
           ffprobe -version
       - run: uv sync --frozen

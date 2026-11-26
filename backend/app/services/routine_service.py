@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import re
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -21,12 +22,15 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, delete, exists, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app import gmail_share
 from app.db.models.agent import Agent
+from app.db.models.app_event import AppEventDay, AppEventReceipt, AppEventTrigger
 from app.db.models.approval import Approval
-from app.db.models.routine import ACTIVE_RUN_STATES, Routine, RoutineRun, RoutineAppAction, WebhookReceipt
+from app.db.models.routine import ACTIVE_RUN_STATES, SCHEDULED_TRIGGERS, Routine, RoutineRun, RoutineAppAction, WebhookReceipt
 from app.db.models.turn import Turn
 from app.db.models.thread import Thread
 from app.db.models.work_item import WorkItemRun
@@ -44,6 +48,16 @@ RESULT_CHARS = 4_000
 ERROR_CHARS = 2_000
 MAX_PENDING_WEBHOOK_RUNS = 3
 WEBHOOK_RECEIPT_DAYS = 7
+# New-mail wakes (BL-177). Events a trigger accepts in a UTC day, runs it may queue in a day by default, how long a
+# wake waits for more mail before starting, how many thread ids one wake lists, how long a dedupe receipt is kept, and
+# how often an event may fail to process before it is dropped.
+APP_EVENT_MAX_PER_DAY = 500
+APP_EVENT_DEFAULT_DEBOUNCE_MINUTES = 5
+APP_EVENT_DEFAULT_RUNS_PER_DAY = 12
+APP_EVENT_MAX_IDS = 20
+APP_EVENT_RECEIPT_DAYS = 7
+APP_EVENT_POISON_TRIES = 5
+_POISON: dict[str, int] = {}
 WEBHOOK_DELIVERY_ID_CHARS = 128
 # An occurrence this late still counts as on time (the poll interval and a
 # busy event loop add a little delay), on top of the routine's catch-up window.
@@ -136,6 +150,7 @@ def compose_prompt(
     timezone: str,
     payload: str | None = None,
     content_type: str | None = None,
+    mail: tuple[list[str], int] | None = None,
 ) -> str:
     """The text a run sends. A webhook payload goes in a delimited block marked
     as untrusted, escaped so it cannot close the block. That is formatting,
@@ -147,8 +162,11 @@ def compose_prompt(
         "schedule": f"[Scheduled routine {label}, due {local}. Do this now:]",
         "manual": f"[Routine {label}, started by hand at {local}. Do this now:]",
         "webhook": f"[Routine {label}, started by its webhook at {local}. Do this now:]",
+        "app_event": f"[Routine {label}, started because new mail arrived at {local}. Do this now:]",
     }[trigger]
     parts = [head, prompt.strip()]
+    if mail is not None:
+        parts.append(mail_paragraph(*mail))
     if payload is not None:
         kind = _escape((content_type or "unknown")[:100]).replace('"', "&quot;")
         parts.append(
@@ -161,6 +179,36 @@ def compose_prompt(
             f"{_escape(payload)}\n</webhook-payload>"
         )
     return "\n\n".join(parts)
+
+
+_MAIL_HEAD = ("You were started because new mail arrived. Gmail thread ids from an automatic notification "
+              "(ids only; the notification contains no message text): ")
+_MAIL_TAIL = ". Read them with your Gmail tools."
+_MAIL_PARAGRAPH = re.compile(re.escape(_MAIL_HEAD) + r"(.*?)" + re.escape(_MAIL_TAIL.rstrip(".")) + r"\.", re.S)
+_MAIL_IDS = re.compile(r"^([0-9a-f]+(?:, [0-9a-f]+)*)(?: and (\d+) more notifications?)?$")
+_MAIL_NONE = re.compile(r"^none \(the (\d+) notifications? named no thread\); check the inbox for recent mail$")
+
+
+def mail_paragraph(ids: list[str], more: int) -> str:
+    """The fixed paragraph that tells a new-mail run which threads woke it: ids only, never message text."""
+    if ids:
+        listed = ", ".join(ids) + (f" and {more} more notification{'s' if more != 1 else ''}" if more else "")
+    else:
+        listed = f"none (the {max(more, 1)} notification{'s' if max(more, 1) != 1 else ''} named no thread); check the inbox for recent mail"
+    return _MAIL_HEAD + listed + _MAIL_TAIL
+
+
+def parse_mail_paragraph(prompt: str | None) -> tuple[list[str], int] | None:
+    """(thread ids, further notifications) from a new-mail run's prompt, or None when it has no such paragraph."""
+    found = _MAIL_PARAGRAPH.search(prompt or "")
+    if found is None:
+        return None
+    text = found.group(1)
+    if (none := _MAIL_NONE.match(text)) is not None:
+        return [], int(none.group(1))
+    if (listed := _MAIL_IDS.match(text)) is not None:
+        return listed.group(1).split(", "), int(listed.group(2) or 0)
+    return None
 
 
 async def report_outcome(db, owner_id: str, active_run, outcome: str, reason: str | None = None) -> dict:
@@ -699,6 +747,232 @@ async def accept_webhook(
     return run
 
 
+# --- new mail (BL-177) -----------------------------------------------------------------------
+
+
+def _clock_time(value: object) -> tuple[int, int] | None:
+    if isinstance(value, str) and re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value):
+        return int(value[:2]), int(value[3:])
+    return None
+
+
+def after_quiet_hours(moment: datetime, quiet: object, timezone: str) -> datetime:
+    """`moment`, or the end of the quiet window it falls in (in the routine's time zone), so mail that arrives
+    overnight becomes one run in the morning."""
+    start = _clock_time(quiet.get("from")) if isinstance(quiet, dict) else None
+    end = _clock_time(quiet.get("to")) if isinstance(quiet, dict) else None
+    if start is None or end is None or start == end:
+        return moment
+    zone = schedules.zone(timezone)
+    local = moment.astimezone(zone)
+    here = (local.hour, local.minute)
+    inside = start <= here < end if start < end else here >= start or here < end
+    if not inside:
+        return moment
+    wake = datetime.combine(local.date(), datetime.min.time(), tzinfo=zone).replace(hour=end[0], minute=end[1])
+    if wake <= local:
+        wake = datetime.combine(local.date() + timedelta(days=1), datetime.min.time(), tzinfo=zone).replace(hour=end[0], minute=end[1])
+    return wake.astimezone(UTC)
+
+
+def _count(day: AppEventDay, name: str) -> None:
+    setattr(day, name, (getattr(day, name) or 0) + 1)
+
+
+async def _event_day(db: AsyncSession, trigger_id: int, today) -> AppEventDay:
+    row = await db.get(AppEventDay, (trigger_id, today))
+    if row is None:
+        row = AppEventDay(trigger_id=trigger_id, day=today, received=0, started=0, merged=0, duplicate=0,
+                          outside_share=0, rejected=0, unrouted=0, dropped_cap=0, dropped_quiet=0)
+        db.add(row)
+        await db.flush()
+    return row
+
+
+def _int_setting(config: dict, name: str, default: int, low: int, high: int) -> int:
+    value = config.get(name)
+    return value if type(value) is int and low <= value <= high else default
+
+
+async def accept_app_event(
+    db: AsyncSession, route_id: str, event: dict, now: datetime | None = None, *, owner_id: str | None = None
+) -> dict:
+    """One verified, id-only Composio event (app/composio_events.extract) becomes at most one queued run.
+
+    Independent of HTTP: the webhook route calls it, and so will the relay's stream. `route_id` names the
+    install's route (for logs); the trigger found by its Composio id decides everything, and when `owner_id`
+    is given the trigger must belong to that owner. Always returns, never raises for an event we deliberately
+    drop: `{"outcome": ..., "run_id": ...}` with outcome one of queued, merged, duplicate, outside_share,
+    rejected, unrouted, dropped_cap, status or dropped_poison. An event that raises is retried by its sender
+    and dropped (counted as rejected) after APP_EVENT_POISON_TRIES failures."""
+    now = now or utcnow()
+    try:
+        if event.get("kind") == "status":
+            return await _accept_status_event(db, event, owner_id)
+        return await _accept_mail_event(db, event, now, owner_id)
+    except Exception:
+        await db.rollback()
+        key = hashlib.sha256(f"{event.get('trigger_id')}:{event.get('event_id')}".encode()).hexdigest()
+        if len(_POISON) >= 1000:
+            _POISON.clear()
+        _POISON[key] = _POISON.get(key, 0) + 1
+        if _POISON[key] < APP_EVENT_POISON_TRIES:
+            raise
+        _POISON.pop(key, None)
+        logger.exception("a new-mail event kept failing and was dropped", route=route_id)
+        await _drop_poison(db, event, now, owner_id)
+        return {"outcome": "dropped_poison", "run_id": None}
+
+
+async def _drop_poison(db: AsyncSession, event: dict, now: datetime, owner_id: str | None) -> None:
+    await begin_write(db)
+    trigger = await _find_trigger(db, event, owner_id)
+    if trigger is not None:
+        _count(await _event_day(db, trigger.id, now.astimezone(UTC).date()), "rejected")
+        digest = hashlib.sha256(str(event.get("event_id")).encode()).hexdigest()
+        if await db.get(AppEventReceipt, (trigger.id, digest)) is None:
+            db.add(AppEventReceipt(trigger_id=trigger.id, event_hash=digest, received_at=now))
+    await db.commit()
+
+
+async def _find_trigger(db: AsyncSession, event: dict, owner_id: str | None) -> AppEventTrigger | None:
+    trigger_id = event.get("trigger_id")
+    if not isinstance(trigger_id, str):
+        return None
+    query = select(AppEventTrigger).where(AppEventTrigger.composio_trigger_id == trigger_id)
+    if owner_id is not None:
+        query = query.where(AppEventTrigger.owner_id == owner_id)
+    return (await db.execute(query.with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+
+
+async def _accept_mail_event(db: AsyncSession, event: dict, now: datetime, owner_id: str | None) -> dict:
+    await begin_write(db)
+
+    def done(outcome: str, run_id: int | None = None) -> dict:
+        return {"outcome": outcome, "run_id": run_id}
+
+    # 1. The trigger. An unknown or removed one has no row to count against: it is only dropped.
+    trigger = await _find_trigger(db, event, owner_id)
+    if trigger is None or trigger.state == "removed":
+        await db.rollback()
+        return done("unrouted")
+    today = now.astimezone(UTC).date()
+    day = await _event_day(db, trigger.id, today)
+    routine = await db.get(Routine, trigger.routine_id, with_for_update=True, populate_existing=True)
+    config = routine.app_event if routine is not None and isinstance(routine.app_event, dict) else None
+    agent = await db.get(Agent, routine.agent_id) if routine is not None else None
+    if (routine is None or config is None or routine.paused or trigger.state != "active" or agent is None
+            or agent.archived_at is not None or agent.owner_id != routine.owner_id):
+        _count(day, "unrouted")
+        await db.commit()
+        return done("unrouted")
+    _count(day, "received")
+    # 2. De-duplicate by the hash of the event id, remembered for a week. A dropped event is remembered too, so a
+    # retry of it is a duplicate and not a second chance.
+    await db.execute(delete(AppEventReceipt).where(
+        AppEventReceipt.trigger_id == trigger.id, AppEventReceipt.received_at <= now - timedelta(days=APP_EVENT_RECEIPT_DAYS)))
+    digest = hashlib.sha256(str(event.get("event_id")).encode()).hexdigest()
+    if await db.get(AppEventReceipt, (trigger.id, digest)) is not None:
+        _count(day, "duplicate")
+        await db.commit()
+        return done("duplicate")
+    db.add(AppEventReceipt(trigger_id=trigger.id, event_hash=digest, received_at=now))
+    # 3. Id hygiene: an id that is present but not shaped like a Gmail id refuses the event.
+    thread_id = event.get("thread_id") if isinstance(event.get("thread_id"), str) else None
+    if event.get("bad_ids"):
+        _count(day, "rejected")
+        await db.commit()
+        return done("rejected")
+    # 4. The share of the mailbox, with no Gmail call: a thread outside it, an unreadable rule, or no thread id while
+    # a rule applies, all stop the event here (fail closed). No rule means the whole mailbox.
+    try:
+        rule = gmail_share.rule_for(agent.connector_shares, gmail_share.APP, trigger.composio_account_id)
+    except gmail_share.ShareInvalid:
+        rule, thread_id = gmail_share.ShareRule(1, b"\0" * 16, frozenset()), None  # deny everything
+    if rule is not None and not gmail_share.in_share(rule, thread_id):
+        _count(day, "outside_share")
+        await db.commit()
+        return done("outside_share")
+    # 5. Caps: events a day, and runs a day. Past either, answer normally and only count.
+    if (day.received or 0) > APP_EVENT_MAX_PER_DAY:
+        _count(day, "dropped_cap")
+        await db.commit()
+        return done("dropped_cap")
+    trigger.last_event_at = now
+    # 6. At most one queued wake per routine: merge into it, else queue one after the debounce and the quiet hours.
+    queued = (await db.execute(
+        select(RoutineRun).where(RoutineRun.routine_id == routine.id, RoutineRun.trigger == "app_event", RoutineRun.state == "queued")
+        .order_by(RoutineRun.id.desc()).limit(1).with_for_update().execution_options(populate_existing=True)
+    )).scalars().first()
+    if queued is not None:
+        ids, more = parse_mail_paragraph(queued.prompt) or ([], 0)
+        if thread_id is None:
+            more += 1
+        elif thread_id not in ids:
+            if len(ids) < APP_EVENT_MAX_IDS:
+                ids = ids + [thread_id]
+            else:
+                more += 1
+        queued.prompt = _MAIL_PARAGRAPH.sub(lambda _m: mail_paragraph(ids, more), queued.prompt or "", count=1)
+        _count(day, "merged")
+        await db.commit()
+        return done("merged", queued.id)
+    limit = _int_setting(config, "max_runs_per_day", APP_EVENT_DEFAULT_RUNS_PER_DAY, 1, 200)
+    if (day.started or 0) >= limit:
+        _count(day, "dropped_cap")
+        await db.commit()
+        return done("dropped_cap")
+    debounce = _int_setting(config, "debounce_minutes", APP_EVENT_DEFAULT_DEBOUNCE_MINUTES, 1, 240)
+    wake = after_quiet_hours(now + timedelta(seconds=debounce * MINUTE_SECONDS), config.get("quiet"), routine.timezone)
+    taken = set((await db.execute(select(RoutineRun.scheduled_for).where(
+        RoutineRun.routine_id == routine.id, RoutineRun.trigger == "app_event"))).scalars().all())
+    def plain(moment: datetime) -> datetime:
+        return moment.astimezone(UTC).replace(tzinfo=None) if moment.tzinfo else moment
+
+    taken_plain = {plain(moment) for moment in taken if moment is not None}
+    while plain(wake) in taken_plain:
+        wake += timedelta(seconds=1)  # one wake per time slot (the unique index)
+    run = RoutineRun(
+        routine_id=routine.id, trigger="app_event", state="queued", scheduled_for=wake,
+        prompt=compose_prompt(name=routine.name, prompt=routine.prompt, trigger="app_event", when=now, timezone=routine.timezone,
+                              mail=([thread_id] if thread_id else [], 0 if thread_id else 1)),
+    )
+    db.add(run)
+    _count(day, "started")
+    await db.flush()
+    await db.commit()
+    return done("queued", run.id)
+
+
+async def _accept_status_event(db: AsyncSession, event: dict, owner_id: str | None) -> dict:
+    """A trigger Composio disabled, or an account whose sign-in expired: the trigger is marked as stopped and the
+    owner is told once. The routine keeps its schedule. Ids only; nothing else of the event is read."""
+    await begin_write(db)
+    if event.get("status") == "trigger_disabled":
+        where, reason = AppEventTrigger.composio_trigger_id == event.get("trigger_id"), "Composio switched this trigger off."
+    else:
+        where, reason = AppEventTrigger.composio_account_id == event.get("connected_account_id"), "The Gmail account needs to be signed in again."
+    query = select(AppEventTrigger).where(where, AppEventTrigger.state.in_(("active", "paused")))
+    if owner_id is not None:
+        query = query.where(AppEventTrigger.owner_id == owner_id)
+    staged, routine_ids = [], []
+    for trigger in (await db.execute(query.with_for_update().execution_options(populate_existing=True))).scalars().all():
+        routine = await db.get(Routine, trigger.routine_id)
+        trigger.state, trigger.last_error = "error", reason
+        routine_ids.append(trigger.routine_id)
+        if routine is not None:
+            staged.append(notification_feed.telegram_text(notification_feed.add(
+                db, owner_id=routine.owner_id, kind="routine_failed",
+                title=f"Routine “{routine.name}” will no longer start on new mail", body=f"{reason} It still runs on its schedule.",
+                routine_id=routine.id, run_id=None, thread_id=None)))
+    await db.commit()
+    try:
+        await notification_feed.deliver(staged)
+    except Exception:  # noqa: BLE001
+        logger.exception("could not send new-mail trigger notifications")
+    return {"outcome": "status", "run_id": None, "routine_ids": routine_ids}
+
+
 # --- running ---------------------------------------------------------------------------------
 
 
@@ -976,6 +1250,7 @@ class RoutineScheduler:
     # -- starting
 
     async def _start_queued(self) -> None:
+        other = aliased(RoutineRun)
         async with self.session() as db:
             busy_threads = select(Thread.agent_id).join(Turn, Turn.thread_id == Thread.id).where(
                 Thread.owner_id == self.owner_id, Thread.agent_id.is_not(None), Turn.status == "running"
@@ -994,8 +1269,13 @@ class RoutineScheduler:
                         # starve an available agent behind them in the queue.
                         or_(~exists().where(WorkItemRun.routine_id == Routine.id), and_(
                             Routine.agent_id.not_in(busy_threads), Routine.agent_id.not_in(busy_runs))),
-                        # A retry waits for its delay (scheduled_for).
-                        or_(RoutineRun.trigger != "retry", RoutineRun.scheduled_for <= self.clock()),
+                        # A retry waits for its delay, and a new-mail wake for its debounce (scheduled_for).
+                        or_(RoutineRun.trigger.not_in(("retry", "app_event")), RoutineRun.scheduled_for <= self.clock()),
+                        # A new-mail wake never starts beside a run of its own routine, and is not lost: it stays
+                        # queued and starts when that run ends.
+                        or_(RoutineRun.trigger != "app_event", ~exists().where(
+                            other.routine_id == RoutineRun.routine_id, other.id != RoutineRun.id,
+                            other.state.in_(("running", "needs_input")))),
                     )
                     .order_by(RoutineRun.id)
                     .limit(START_BATCH)
@@ -1121,6 +1401,10 @@ class RoutineScheduler:
             await self._set(run.id, state="skipped", finished_at=now,
                             error="Skipped: the routine was paused before this retry started.")
             return
+        if run.trigger == "app_event" and routine.paused:
+            await self._set(run.id, state="skipped", finished_at=now,
+                            error="Skipped: the routine was paused before this new-mail run started.")
+            return
         if not settings.LOCAL_EXECUTION_ENABLED:
             await self._fail(
                 run.id,
@@ -1146,11 +1430,11 @@ class RoutineScheduler:
             from app.services import routine_uninterrupted
             async with self.session() as db:
                 current = await db.get(Routine, routine.id)
-                uninterrupted = bool(current and current.uninterrupted_access and run.trigger in ("schedule", "manual"))
+                uninterrupted = bool(current and current.uninterrupted_access and run.trigger in SCHEDULED_TRIGGERS)
                 capabilities = await routine_uninterrupted.snapshot(db, self.owner_id, routine.agent_id) if uninterrupted else {}
             thread = await rt.create_thread(agent_id=agent.id, title=title)
             await self._set(run.id, thread_id=thread.id, prompt=prompt_text, connected_app_grants=(
-                routine.connected_app_grants if not uninterrupted and run.trigger in ("schedule", "manual") else []
+                routine.connected_app_grants if not uninterrupted and run.trigger in SCHEDULED_TRIGGERS else []
             ), uninterrupted_access=uninterrupted, capability_snapshot=capabilities)
             turn = await rt.send_turn(
                 thread.id,

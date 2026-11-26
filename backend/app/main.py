@@ -18,6 +18,7 @@ from app.auth.middleware import AuthMiddleware
 from app.desktop.launch_auth import LaunchAuthMiddleware
 from app.desktop.account_guard import DesktopAccountMiddleware, signed_in as desktop_signed_in
 from app.routers.router import router as app_router
+from app.routers.composio_hooks import router as composio_hooks_router
 from app.routers.hooks import router as hooks_router
 from app.services import routine_service, schedule_service, task_execution_service
 from app.services.thread_runtime import runtime as thread_runtime
@@ -152,9 +153,17 @@ async def _serving(app: FastAPI):
         await slack_service.start()
     except Exception:  # noqa: BLE001
         logger.exception("the slack channel could not be started")
+
+    event_stream_task = None
+    if profile.active():
+        from app.services import event_stream
+        event_stream_task = event_stream.start()
     yield
     # Stopping (SIGTERM, Ctrl+C, the desktop launcher going away). First the
     # background jobs, so no routine starts a new turn while we stop.
+    if event_stream_task is not None:
+        from app.services import event_stream
+        await event_stream.stop()
     for job in jobs:
         job.cancel()
     await asyncio.gather(*jobs, return_exceptions=True)
@@ -263,3 +272,5 @@ app.include_router(app_router)
 # Webhook deliveries for routines, outside /api/v1: authenticated by each
 # routine's own secret (also served alone by app/ingress.py).
 app.include_router(hooks_router)
+# Composio's signed trigger events (BL-177): authenticated by the signature, not by the local access check.
+app.include_router(composio_hooks_router)

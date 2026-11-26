@@ -89,7 +89,8 @@ export function accountsOf(accounts: ComposioAccount[], toolkit: string): Compos
 }
 
 // The apps and engines an agent can be allowed to use in this version.
-export const AGENT_APPS: { slug: string; label: string; read: string; write: string | null }[] = [
+// `labels` (Gmail only, BL-173) is the middle level: read, plus adding the app's own labels under Worker/.
+export const AGENT_APPS: { slug: string; label: string; read: string; write: string | null; labels?: string | null }[] = [
   {
     slug: "github", label: "GitHub",
     read: "Read your profile, repositories, issues, pull requests, commits and files, and search.",
@@ -98,6 +99,7 @@ export const AGENT_APPS: { slug: string; label: string; read: string; write: str
   {
     slug: "gmail", label: "Gmail",
     read: "Search messages, read message threads, and see the connected account profile.",
+    labels: "Read mail and add its own labels under Worker/. It cannot send, draft, remove, archive or delete anything.",
     write: "Also create a plain-text draft reply in an existing thread. You approve each draft; it is never sent.",
   },
   {
@@ -122,18 +124,24 @@ export function supportsConnectedApps(provider: string): boolean {
   return APPS_ENGINES.has(provider);
 }
 
-export type Level = "off" | "read" | "write";
+export type Level = "off" | "read" | "labels" | "write";
 export type Scopes = Record<string, string>;
 export type AccountScopes = Record<string, string[]>;
 
+// Only an app with curated labelling (Gmail today) has the "labels" level; for any other app it is never offered, read or kept.
+export const supportsLabels = (slug: string): boolean => Boolean(AGENT_APPS.find((app) => app.slug === slug)?.labels);
+
 export function levelOf(scopes: Scopes | null | undefined, slug: string): Level {
   const level = scopes?.[slug];
+  if (level === "labels") return supportsLabels(slug) ? "labels" : "off";
   return level === "read" || level === "write" ? level : "off";
 }
 
-// The scopes after setting one app's level. "off" removes it; the others are untouched.
+// The scopes after setting one app's level. "off" removes it; the others are untouched. Asking for "labels" on an app
+// that has none changes nothing.
 export function withApp(scopes: Scopes | null | undefined, slug: string, level: Level): Scopes {
   const next: Scopes = { ...(scopes ?? {}) };
+  if (level === "labels" && !supportsLabels(slug)) return next;
   if (level === "off") delete next[slug]; else next[slug] = level;
   return next;
 }
@@ -211,14 +219,15 @@ const APP_SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 export function scopesToSend(scopes: Scopes | null | undefined, provider: string): Scopes | null {
   if (!supportsConnectedApps(provider)) return null;
   const known = Object.fromEntries(Object.entries(scopes ?? {}).filter(([slug, level]) => {
-    if (!APP_SLUG.test(slug) || (level !== "read" && level !== "write")) return false;
+    if (!APP_SLUG.test(slug) || (level !== "read" && level !== "write" && level !== "labels")) return false;
     const curated = AGENT_APPS.find((candidate) => candidate.slug === slug);
+    if (level === "labels") return Boolean(curated?.labels);
     return curated ? level === "read" || Boolean(curated.write) : true;
   }));
   return Object.keys(known).length ? known : null;
 }
 
-export type AgentAppOption = { slug: string; label: string; read: string; write: string | null; generic: boolean };
+export type AgentAppOption = { slug: string; label: string; read: string; write: string | null; labels: string | null; generic: boolean };
 
 export const GENERIC_READ = "Look up which actions the app has. Nothing runs and nothing changes.";
 export const GENERIC_WRITE = "Also run any action of the app. You approve every call first, and each card shows the call in full.";
@@ -232,13 +241,13 @@ export function appLabel(slug: string): string {
 // The apps an agent can be given: the ones with curated tools, then every other app that has an account here or is
 // already allowed for the agent (so one that was disconnected stays visible and can be turned off).
 export function agentAppOptions(accounts: ComposioAccount[] | null | undefined, scopes: Scopes | null | undefined, labels: Record<string, string> = {}): AgentAppOption[] {
-  const curated: AgentAppOption[] = AGENT_APPS.map((app) => ({ ...app, generic: false }));
+  const curated: AgentAppOption[] = AGENT_APPS.map((app) => ({ ...app, labels: app.labels ?? null, generic: false }));
   const known = new Set(curated.map((app) => app.slug));
   const others = new Set<string>();
   for (const account of accounts ?? []) if (APP_SLUG.test(account.toolkit) && !known.has(account.toolkit)) others.add(account.toolkit);
   for (const slug of Object.keys(scopes ?? {})) if (APP_SLUG.test(slug) && !known.has(slug)) others.add(slug);
   const generic: AgentAppOption[] = [...others].sort().map((slug) => ({
-    slug, label: labels[slug] ?? appLabel(slug), read: GENERIC_READ, write: GENERIC_WRITE, generic: true,
+    slug, label: labels[slug] ?? appLabel(slug), read: GENERIC_READ, write: GENERIC_WRITE, labels: null, generic: true,
   }));
   return [...curated, ...generic];
 }

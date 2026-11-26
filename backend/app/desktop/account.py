@@ -104,6 +104,7 @@ class AccountManager:
             pass
         self._cached_user = None
         self._cache_until = 0
+        _wake_event_stream()
 
     def _token(self) -> str | None:
         stored = self._read_secret(self._session_path)
@@ -139,6 +140,20 @@ class AccountManager:
         if response.status_code in (400, 401, 403, 409, 422):
             return DesktopAccountError(response.status_code, "account_request_rejected")
         return DesktopAccountError(503, "account_service_unavailable")
+
+    def relay_credentials(self) -> tuple[str, str] | None:
+        """(the event relay's address in the account service, the session token) for the new-mail relay, or None when
+        nobody is signed in or the session has run out. Reads the encrypted session only: no network call, so the
+        caller can ask as often as it likes. The token never leaves the backend."""
+        try:
+            stored = self._read_secret(self._session_path)
+            token = stored.get("token") if stored else None
+            if not (isinstance(token, str) and token) or self._expiry_epoch(stored["expires_at"]) <= time.time():
+                return None
+        except DesktopAccountError:
+            return None
+        base = self._base_url.rstrip("/")
+        return (base.rsplit("/desktop", 1)[0] if base.endswith("/desktop") else base) + "/relay", token
 
     def profile_bound(self) -> bool:
         binding = self._read_secret(self._binding_path)
@@ -253,6 +268,7 @@ class AccountManager:
         if not binding:
             self._write_secret(self._binding_path, {"tenant_id": tenant_id, "email": email_value})
         self._write_secret(self._session_path, {"token": token, "expires_at": expires_at})
+        _wake_event_stream()
         user_name = user.get("name") if isinstance(user.get("name"), str) else None
         user_avatar = (
             user.get("avatarUrl")
@@ -431,6 +447,15 @@ class AccountManager:
         if not state["signed_in"]:
             raise DesktopAccountError(401, "account_sign_in_required")
         return {"email": state["email"], "tenantId": state["tenantId"]}
+
+
+def _wake_event_stream() -> None:
+    """A new sign-in may let the new-mail relay connect (services/event_stream.py). Never lets that fail a sign-in."""
+    try:
+        from app.services import event_stream
+        event_stream.poke()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 _manager: AccountManager | None = None

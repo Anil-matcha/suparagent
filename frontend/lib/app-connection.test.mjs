@@ -84,3 +84,12 @@ test('the first grant can start narrow, never widens a share, and leaves shares 
   assert.deepEqual([...START_PRESETS], [100, 25, 10, 5]);
   assert.equal(RECOMMENDED_START, 10);
 });
+
+
+test('the connect card keeps the labels level and never offers it', () => {
+  const agent = { provider: 'claude', connector_scopes: { gmail: 'labels' }, connector_account_scopes: {} };
+  assert.equal(readGrant(agent, 'gmail', [acct('gmail')]).connector_scopes.gmail, 'labels'); // not lowered to read
+  assert.equal(readGrant({ ...agent, connector_scopes: {} }, 'gmail', [acct('gmail')]).connector_scopes.gmail, 'read'); // a fresh grant is read
+  assert.equal(readGrant({ ...agent, connector_scopes: { gmail: 'read' } }, 'gmail', [acct('gmail')]).connector_scopes.gmail, 'read');
+  assert.equal(readGrant({ ...agent, connector_scopes: { github: 'labels' } }, 'github', [acct('github')]).connector_scopes.github, 'read'); // only Gmail has it
+});
