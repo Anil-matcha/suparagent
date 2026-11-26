@@ -221,7 +221,7 @@ def _agent_error(exc: ComposioError) -> dict:
 
 def _choose(active: list[Account], alias: str | None, app: str) -> tuple[Account | None, dict | None]:
     if not active:
-        return None, {"error": f"No {app} account is connected. The person can connect one in Settings.", "code": "not_connected"}
+        return None, {"error": f"No {app} account is connected. Call request_app_connection for {app} to show the person a card, then end your turn; do not retry.", "code": "not_connected"}
     names = sorted(a.alias or a.id for a in active)
     if alias is not None:
         match = [a for a in active if (a.alias or "").lower() == alias.lower()]
@@ -308,16 +308,69 @@ async def _edited_commit(client, session_id, account_id, arguments: dict) -> dic
     return sent
 
 
+MAX_SHARE_PAGES = 5  # pages of 30 scanned per search call while a share of the mailbox is set
+
+
+async def _shared_result(client, session_id: str, tool, arguments: dict, account_id: str, done, rule, want: int) -> dict:
+    """What the agent may see of a Gmail answer under a share of the mailbox (app/gmail_share.py).
+
+    Rows outside the share are dropped from the raw answer before it is cut down, so `count`,
+    `truncated` and the profile totals never say how much was hidden."""
+    from app import composio_tools, gmail_share
+
+    if tool.name == "gmail_fetch_emails":
+        collected: list = []
+        data, pages = done.data, 0
+        while True:
+            kept, _, token = gmail_share.split_rows(tool, data, rule)
+            collected.extend(kept)
+            pages += 1
+            if len(collected) >= want or not token or pages >= MAX_SHARE_PAGES:
+                break
+            try:
+                more = await _execute(client, session_id, tool.slug, {**arguments, "page_token": token}, account_id)
+            except ComposioError:
+                token = None  # what was found is shown; the agent can search again
+                break
+            if more.result_type != "completed":
+                token = None
+                break
+            data = more.data
+        trimmed = len(collected) > want
+        if trimmed:  # rows past `want` were read, so a token for the next page would skip them: do not give one
+            collected, token = collected[:want], None
+        shaped = {tool.list_key: collected}
+        if token:
+            shaped[tool.cursor_key] = token
+        result = composio_tools.project(tool, shaped)
+        if trimmed:
+            result["truncated"] = True
+        return result
+    result = composio_tools.project(tool, done.data)
+    if tool.name == "gmail_fetch_message" and not gmail_share.message_in_share(result, rule):
+        return dict(gmail_share.OUTSIDE)  # the content is dropped here and never returned
+    if tool.name == "gmail_get_profile":
+        return gmail_share.strip_profile(result, rule)
+    return result
+
+
 async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments: dict, alias: str | None, *,
                    account_id: str | None = None, allowed_account_ids: list[str] | None = None,
-                   before_execute=None) -> dict:
+                   before_execute=None, shares: dict | None = None, mark_context: dict | None = None) -> dict:
     """Run one allowed tool as one connected account and return what the agent may see.
     Never raises for a Composio problem: the agent gets a short error instead.
 
     A read may be retried once on a forgotten session. A change never is: it is sent
     once, and a failure that leaves it unknown is reported as unknown, so the agent is
-    told not to repeat it. A change that went through is never reported as a failure."""
-    from app import composio_tools
+    told not to repeat it. A change that went through is never reported as a failure.
+
+    `shares` is the agent's `connector_shares` (app/gmail_share.py): the share of a Gmail
+    mailbox it may see. Every caller that acts for an agent must pass it; None means no rule
+    (tests/services/test_run_tool_callers.py checks that no caller forgets).
+
+    `mark_context` ({"agent_id", "turn_id"}) is only for gmail_triage_mark, which records in this
+    app's database and never reaches Composio (services/shadow_marks.py)."""
+    from app import composio_tools, gmail_share
 
     write = tool.kind == "write"
     record = await load(db, owner_id)
@@ -341,10 +394,27 @@ async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments
             account, problem = _choose(active, alias, tool.app)
         if problem:
             return problem
+        rule, want = None, 0
+        if tool.app == gmail_share.APP and shares:
+            # The rule of the account actually used. A damaged rule denies; it never grants.
+            try:
+                rule = gmail_share.rule_for(shares, tool.app, account.id)
+            except gmail_share.ShareInvalid:
+                return dict(gmail_share.INVALID)
+            refusal = gmail_share.precheck(tool.name, arguments, rule)
+            if refusal is not None:
+                return refusal
+            if rule is not None and tool.name == "gmail_fetch_emails":
+                want = int(arguments.get("max_results") or 10)
+                arguments = {**arguments, "max_results": 30}  # scan whole pages so a small share still finds rows
         if before_execute is not None:
             refusal = await before_execute(account.id)
             if refusal is not None:
                 return refusal
+        if tool.special == "triage_mark":
+            # After the account rules, the share rule and the routine's receipt: no session and no Composio call.
+            from app.services import shadow_marks
+            return await shadow_marks.record(db, owner_id, arguments, account.id, rule, mark_context)
         session_id, record = await _session(db, owner_id, client, record)
     except ComposioError as exc:  # nothing was sent for the tool yet
         return _agent_error(exc)
@@ -372,6 +442,8 @@ async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments
             return _agent_error(again)
     if done.result_type == "completed":
         try:
+            if rule is not None:
+                return await _shared_result(client, session_id, tool, arguments, account.id, done, rule, want)
             return composio_tools.project(tool, done.data)
         except composio_tools.BadArguments as exc:
             return dict(DONE_UNREADABLE) if write else {"error": str(exc), "code": "unreadable_answer"}

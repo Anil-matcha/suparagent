@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app import agent_shares
 from app.schemas.computer import ComputerSummary
 
 ApprovalMode = Literal["ask", "accept_edits", "approve_for_me", "plan", "full_access"]
@@ -32,6 +33,23 @@ def _optional_line(value: str | None) -> str | None:
     if value is None or not value.strip():
         return None
     return _one_line(value, "title")
+
+
+class ShareEntry(BaseModel):
+    """One account's share of a mailbox in an update request (checked again in routers/agents.py)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    percent: int = Field(ge=1, le=100, strict=True)
+    pins: list[str] | None = Field(default=None, max_length=agent_shares.MAX_PINS)
+    reshuffle: bool = False
+
+    @field_validator("pins")
+    @classmethod
+    def _pins(cls, value):
+        if value is not None and any(not pin or len(pin) > agent_shares.MAX_PIN_LENGTH for pin in value):
+            raise ValueError("a pin is a thread id of at most 200 characters")
+        return value
 
 
 class AgentCreateRequest(BaseModel):
@@ -114,6 +132,9 @@ class AgentUpdateRequest(BaseModel):
     connector_scopes: dict[str, str] | None = None
     # Exact Composio account IDs the agent may use, keyed by app. Empty denies all accounts.
     connector_account_scopes: dict[str, list[str]] | None = None
+    # The share of a mailbox the agent may see, {"gmail": {account id: {percent, pins?, reshuffle?}}}. Omitted keeps it,
+    # {} or null clears it (the whole mailbox). The server keeps each account's seed; `reshuffle` picks a new share.
+    connector_shares: dict[str, dict[str, ShareEntry]] | None = None
     # An explicit null removes the fallback engine (and its model).
     fallback_provider: str | None = Field(default=None, min_length=1, max_length=64)
     fallback_model: str | None = Field(default=None, max_length=200)
@@ -172,6 +193,8 @@ class AgentResponse(BaseModel):
     claude_account: str | None = None
     connector_scopes: dict | None = None
     connector_account_scopes: dict[str, list[str]] = Field(default_factory=dict)
+    # {"gmail": {account id: {"percent": 1-100, "pins": [...]}}}; never the seed. No entry means the whole mailbox.
+    connector_shares: dict = Field(default_factory=dict)
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -183,6 +206,12 @@ class AgentResponse(BaseModel):
     instructions_reviewed_at: datetime | None = None
     computer_id: int | None = None
     computer: ComputerSummary | None = None
+
+    @field_validator("connector_shares", mode="before")
+    @classmethod
+    def _no_seed(cls, value):
+        # The seed decides which threads are in a share, so no response carries it, whatever builds one.
+        return agent_shares.public(value)
 
 
 class AgentMemoryResponse(BaseModel):

@@ -30,6 +30,7 @@ const FIELD_LABELS: Record<string, string> = {
   fallback_model: "fallback model",
   connector_scopes: "connected apps",
   connector_account_scopes: "connected accounts",
+  connector_shares: "share of mail",
 };
 
 export function fieldLabel(field: string): string {
@@ -41,7 +42,9 @@ export function describeRevision(revision: AgentRevision): string {
   if (revision.source === "baseline") return "Profile before the first recorded change";
   const names = revision.changed_fields.map(fieldLabel);
   const list = names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-  const base = `${revision.source === "restore" ? "Restored" : "Changed"} ${list || "profile"}`;
+  const verb = revision.source === "restore" ? "Restored" : "Changed";
+  const via = revision.source === "chat" ? " in chat" : revision.source === "chat_undo" ? " (chat change undone)" : "";
+  const base = `${verb} ${list || "profile"}${via}`;
   return revision.source === "restore" && revision.restored_from ? `${base} (from version ${revision.restored_from})` : base;
 }
 

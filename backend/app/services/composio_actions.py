@@ -84,7 +84,7 @@ async def search(db: AsyncSession, owner_id: str, make_client, *, app: str, quer
     try:
         if not any(a.status == "ACTIVE" and (allowed_account_ids is None or a.id in allowed_account_ids)
                    for a in await client.accounts(record["user_id"], app)):
-            return {"error": f"No {app} account is connected. The person can connect one on the Apps page.", "code": "not_connected"}
+            return {"error": f"No {app} account is connected. Call request_app_connection for {app} to show the person a card, then end your turn; do not retry.", "code": "not_connected"}
         page = await client.tools(app, query, cursor, limit=generic.MAX_SEARCH_RESULTS + 4)
     except ComposioError as exc:
         return service._agent_error(exc)

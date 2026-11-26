@@ -20,6 +20,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
+from app import agent_shares
 from app.auth.middleware import principal_of
 from app.core.config import settings
 from app.db.transactions import begin_write
@@ -113,7 +114,7 @@ def _guard_update(request: Request, payload: AgentUpdateRequest, agent) -> None:
     """The same for an edit. Leaving "accept_edits" alone, or moving to "ask" or "plan", is fine."""
     if not _restricted(request):
         return
-    for field in ("workspace_path", "connector_scopes", "connector_account_scopes", "claude_account"):
+    for field in ("workspace_path", "connector_scopes", "connector_account_scopes", "connector_shares", "claude_account"):
         if field in payload.model_fields_set:
             raise _admin_only(field)
     if payload.make_lead is not None:
@@ -364,6 +365,28 @@ async def _check_connector_account_scopes(rt: ThreadRuntime, account_scopes: dic
     return dict(sorted(requested.items()))
 
 
+def _settle_connector_shares(agent, changes: dict, seeds: dict | None = None) -> dict:
+    """The changes with the stored `connector_shares` in place of a submitted one, checked against the
+    app levels and accounts the agent will have afterwards; or, when only those change, with the shares
+    of accounts that are no longer allowed dropped. 422 `invalid_connector_shares` for a bad submission."""
+    if "connector_shares" not in changes and "connector_scopes" not in changes and "connector_account_scopes" not in changes:
+        return changes
+    levels = changes.get("connector_scopes", agent.connector_scopes)
+    accounts = changes.get("connector_account_scopes", agent.connector_account_scopes)
+    current = agent.connector_shares if isinstance(agent.connector_shares, dict) else {}
+    if "connector_shares" in changes:
+        submitted = {
+            app: {account_id: (entry.model_dump() if hasattr(entry, "model_dump") else entry) for account_id, entry in by_account.items()}
+            for app, by_account in (changes["connector_shares"] or {}).items()
+        }
+        why = agent_shares.check(submitted, levels, accounts)
+        if why is not None:
+            raise _error(422, "invalid_connector_shares", why)
+        return {**changes, "connector_shares": agent_shares.merge(submitted, current, seeds)}
+    kept = agent_shares.clean(current, levels, accounts)
+    return {**changes, "connector_shares": kept} if kept != current else changes
+
+
 @router.post("", response_model=AgentResponse, status_code=201)
 async def create_agent(payload: AgentCreateRequest, request: Request, rt: ThreadRuntime = Depends(get_runtime)):
     _guard_create(request, payload)
@@ -438,7 +461,7 @@ async def update_agent(
 
 async def _apply_update(
     agent_id: int, payload: AgentUpdateRequest, request: Request, rt: ThreadRuntime,
-    *, revision_source: str = "edit", restored_from: int | None = None,
+    *, revision_source: str = "edit", restored_from: int | None = None, share_seeds: dict | None = None,
 ):
     agent = await _agent_or_404(rt, agent_id)
     _guard_update(request, payload, agent)
@@ -465,6 +488,7 @@ async def _apply_update(
             "claude_account",
             "connector_scopes",
             "connector_account_scopes",
+            "connector_shares",
         )
         if field in payload.model_fields_set
     }
@@ -485,6 +509,7 @@ async def _apply_update(
     if account_scopes_submitted:
         changes["connector_account_scopes"] = await _check_connector_account_scopes(
             rt, changes["connector_account_scopes"], changes.get("connector_scopes", agent.connector_scopes))
+    changes = _settle_connector_shares(agent, changes, share_seeds)
     if "fallback_provider" in changes and changes["fallback_provider"] != agent.fallback_provider:
         changes.setdefault("fallback_model", None)  # the old fallback's model means nothing to the new one
     provider = changes.get("provider", agent.provider)
@@ -529,7 +554,7 @@ async def _apply_update(
                 db, agent_id, archived=payload.archived, make_lead=payload.make_lead,
                 revision_source=revision_source, restored_from=restored_from, **changes
             )
-        if "connector_scopes" in changes or "connector_account_scopes" in changes or payload.archived:
+        if "connector_scopes" in changes or "connector_account_scopes" in changes or "connector_shares" in changes or payload.archived:
             # What an agent has already run once (generic connected-app actions) is not carried over to new access.
             from app.services import composio_actions
             async with rt.session() as db:
@@ -574,9 +599,12 @@ async def read_revision(agent_id: int, number: int, rt: ThreadRuntime = Depends(
     await _agent_or_404(rt, agent_id)
     try:
         async with rt.session() as db:
-            return await agent_history.get_revision(db, agent_id, number)
+            row = await agent_history.get_revision(db, agent_id, number)
     except agent_history.RevisionNotFound:
         raise _error(404, "revision_not_found", "That version no longer exists.") from None
+    return AgentRevisionDetail(
+        number=row.number, source=row.source, actor=row.actor, changed_fields=row.changed_fields, redacted=row.redacted,
+        restored_from=row.restored_from, created_at=row.created_at, snapshot=agent_history.public_snapshot(row.snapshot))
 
 
 @router.post("/{agent_id}/revisions/{number}/restore", response_model=AgentResponse)
@@ -601,11 +629,15 @@ async def restore_revision(
     fields = agent_history.restorable(revision, agent)
     if not fields:
         return (await _with_computers(rt, [agent]))[0]
+    # The stored seed is not part of an update request; it goes alongside so the restored share is the same sample.
+    seeds = agent_shares.seeds_of(fields.get("connector_shares"))
+    if "connector_shares" in fields:
+        fields["connector_shares"] = agent_shares.public(fields["connector_shares"])
     try:
         update = AgentUpdateRequest(**fields)
     except ValueError:
         raise _error(422, "revision_invalid", "That version can no longer be applied.") from None
-    return await _apply_update(agent_id, update, request, rt, revision_source="restore", restored_from=number)
+    return await _apply_update(agent_id, update, request, rt, revision_source="restore", restored_from=number, share_seeds=seeds)
 
 
 @router.post("/{agent_id}/duplicate", response_model=AgentResponse, status_code=201)

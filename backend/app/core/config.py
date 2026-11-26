@@ -98,6 +98,8 @@ class Settings(BaseSettings):
     TURN_SANDBOX_WRITABLE_PATHS: str = ""
     TEAM_ENABLED: bool = True
     TEAM_LEAD_AUTO: bool = True
+    # An agent may change its own name, title, description and instructions at the person's request without a permission prompt (Undo stays). Off by default.
+    TEAM_PROFILE_AUTO: bool = False
     # Teammates may flag a gate only the person can lift (app/team/notices.py). Off by default.
     TEAM_ESCALATIONS: bool = False
     TEAM_MAX_CREATED_PER_TURN: int = 4

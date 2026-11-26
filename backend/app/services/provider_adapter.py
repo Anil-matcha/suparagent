@@ -219,6 +219,8 @@ class TurnContext:
     composio_exact_tools: list[str] | None = None
     routine_uninterrupted: bool = False
     composio_apps: dict | None = None  # {app: "read" | "write"}
+    # The connected-apps server also offers request_app_connection (a person-started turn).
+    composio_connect: bool = False
     # Generic connected-app actions (composio_generic.py): whether the call being decided has a first use on
     # record, and the calls decided without a card (the bridge checks those again before it runs them).
     composio_first_use_hit: bool = False

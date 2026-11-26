@@ -257,6 +257,17 @@ The local proxy contacts the account service over HTTPS, keeps its device token
 encrypted using the profile key, and returns account status without the token.
 A profile is bound to its first verified account after explicit confirmation;
 a different account cannot open that profile's agents and conversations.
+
+**Sign in with Google.** `POST /desktop-account/google` opens the person's own browser (Google refuses
+embedded windows) at the account service, and waits up to 10 minutes. Before it opens the browser the
+proxy starts a one-shot listener on `127.0.0.1` (random port; `Host` must name that address, `GET` only,
+one path, a fixed page that never repeats the request) and sends the port, a PKCE challenge and a random
+nonce. After Google, the service redirects the browser to that listener with a signed grant that is valid
+for 2 minutes and works once. The proxy trades the grant plus its secret verifier, which never leaves the
+process, for the same device session an email code gives, so a link sent to someone else cannot hand its
+session to the sender. The same profile-binding and local-data confirmation rules apply.
+`POST /desktop-account/google/cancel` ends a wait. If the account service has Google turned off, the
+button reports that and the email code remains.
 Returning to the same account preserves those local files. "Reset this profile" and "Delete my account" (typed confirmation, refused while a task runs) are the only paths that erase them: local data first, then the account binding; deletion first deletes the cloud account via `DELETE /accounts/desktop/account` and fails closed. Engine CLI credentials outside the profile are not touched. Sign-out clears the
 local session and attempts remote revocation; existing agents and engine
 credentials are retained. Active turns must be stopped before sign-out. Scheduled

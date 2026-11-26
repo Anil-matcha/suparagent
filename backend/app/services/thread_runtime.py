@@ -953,7 +953,7 @@ class ThreadRuntime:
                 ctx.team = TurnTeam(team.id, agent.id, team.lead_agent_id == agent.id,
                                     app_settings.get("TEAM_LEAD_AUTO"), origin=team_origin,
                                     delegation_enabled=agent.delegation_enabled, configuration_allowed=configuration_allowed,
-                                    setup_allowed=setup_allowed)
+                                    setup_allowed=setup_allowed, profile_auto=bool(app_settings.get("TEAM_PROFILE_AUTO")))
                 from app.team import prompt as team_prompt
                 async with self.session() as db:
                     intro = await team_prompt.build(db, team=team, agent=agent, owner_id=self.owner_id)
@@ -971,6 +971,26 @@ class ThreadRuntime:
         run.task = asyncio.create_task(self._run(run, adapter, capabilities_of(adapter).computers))
         self.hub.notify(thread_id)
         return turn
+
+    async def _may_ask_for_apps(self, run, adapter) -> bool:
+        """Whether this turn may call request_app_connection (app_connection.py): a person-started chat of a live agent
+        on an engine that mounts connected apps. Never a routine, an unattended or computer-backed turn, where no one
+        could answer the card or the mount is kept apart."""
+        if (run.agent_id is None or not capabilities_of(adapter).connected_apps or run.ctx.computer is not None
+                or getattr(run, "routine_run_id", None) is not None or getattr(run, "uninterrupted_access", False)
+                or getattr(run.ctx, "draft_only", False) or getattr(run.ctx, "media_review_only", False)
+                or getattr(run.ctx, "approval_mode", None) == "plan"):
+            return False
+        try:
+            from app.db.models import Agent, Turn
+            async with self.session() as db:
+                agent = await db.get(Agent, run.agent_id)
+                turn = await db.get(Turn, run.turn_id)
+            return (agent is not None and agent.archived_at is None and agent.owner_id == self.owner_id
+                    and turn is not None and turn.origin in (None, "person"))
+        except Exception:  # noqa: BLE001
+            logger.exception("could not decide whether the agent may ask for an app", thread_id=run.thread_id)
+            return False
 
     async def _composio_apps(self, run, adapter) -> dict:
         """Connected apps within current agent scopes and the routine's saved grant.
@@ -1295,10 +1315,13 @@ class ThreadRuntime:
                     run.ctx.memory_launch = memory_bridge.launch
                     memory_bridge.start()
                 composio_apps = await self._composio_apps(run, adapter)
-                if composio_apps:
+                connect = await self._may_ask_for_apps(run, adapter)
+                if composio_apps or connect:
                     composio_bridge = ComposioBridge(self, run, composio_apps,
-                                                      account_scopes=getattr(run.ctx, "composio_account_scopes", {}))
+                                                      account_scopes=getattr(run.ctx, "composio_account_scopes", {}),
+                                                      connect=connect)
                     run.ctx.composio_launch, run.ctx.composio_apps = composio_bridge.launch, composio_apps
+                    run.ctx.composio_connect = connect
                     run.ctx.composio_exact_tools = list(run.routine_grants) if run.routine_grants is not None else None
                     composio_bridge.start()
                 community_snapshot = await CommunityMcpBridge.for_turn(self, run, adapter)

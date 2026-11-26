@@ -4,7 +4,7 @@ import { Loader2, Square, Volume2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { spokenNote } from "@/lib/speech";
+import { spokenNote } from "@/lib/speechReplies";
 
 // Only one reply speaks at a time: starting another stops the one in progress.
 let stopCurrent: (() => void) | null = null;

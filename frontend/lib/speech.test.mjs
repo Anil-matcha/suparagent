@@ -1,41 +1,126 @@
+import test from "node:test";
 import assert from "node:assert/strict";
-import { test } from "node:test";
-import { costText, formatBytes, savedAudioText, spokenNote } from "./speech.ts";
+import { normalizeTextForSpeech, speakText, DEFAULT_VOICE_PROFILE } from "./speech.ts";
 
-test("the cost is shown in plain words and never as a bare number", () => {
-  assert.equal(costText(0.05), "about $0.05");
-  assert.equal(costText(0.0449), "about $0.04");
-  assert.equal(costText(0.004), "under $0.01");
-  assert.equal(costText(0), "no charge");
-  assert.equal(costText(null), null);
-  assert.equal(costText(Number.NaN), null);
-  assert.equal(costText(-1), null);
+test("DEFAULT_VOICE_PROFILE has safe defaults", () => {
+  assert.equal(DEFAULT_VOICE_PROFILE.rate, 1.0);
+  assert.equal(DEFAULT_VOICE_PROFILE.pitch, 1.0);
+  assert.equal(DEFAULT_VOICE_PROFILE.autoSpeak, false);
+  assert.equal(DEFAULT_VOICE_PROFILE.localService, true);
 });
 
-test("the note says when a reply was cut, and what it cost", () => {
-  assert.equal(spokenNote({ truncated: false, costUsd: 0.05, cached: false }), "Cost about $0.05.");
-  assert.equal(
-    spokenNote({ truncated: true, costUsd: 0.04, cached: false }),
-    "Read the first part only, cut at a sentence end. Cost about $0.04.",
+test("normalizeTextForSpeech strips markdown formatting, code blocks, links, and headers", () => {
+  const input = `
+# Summary Header
+
+Here is some **bold text** and *italic words*.
+Check this [Open Duet Documentation](https://example.com/docs) for info.
+
+\`\`\`python
+def secret_logic():
+    return 42
+\`\`\`
+
+Also run \`npm test\` to check.
+- First bullet item
+- Second bullet item
+
+> Important note in blockquote.
+`;
+
+  const output = normalizeTextForSpeech(input);
+  assert.ok(!output.includes("# Summary Header"));
+  assert.ok(output.includes("Summary Header"));
+  assert.ok(output.includes("Here is some bold text and italic words."));
+  assert.ok(output.includes("Check this Open Duet Documentation for info."));
+  assert.ok(!output.includes("https://example.com/docs"));
+  assert.ok(!output.includes("def secret_logic"));
+  assert.ok(output.includes("[code omitted]"));
+  assert.ok(output.includes("Also run npm test to check."));
+  assert.ok(output.includes("First bullet item"));
+  assert.ok(output.includes("Important note in blockquote."));
+});
+
+test("normalizeTextForSpeech handles empty or whitespace input gracefully", () => {
+  assert.equal(normalizeTextForSpeech(""), "");
+  assert.equal(normalizeTextForSpeech("   \n\t  "), "");
+});
+
+test("speakText invokes onError when speech synthesis is unsupported", () => {
+  let errorCaught = false;
+  const ctrl = speakText(
+    "Hello agent",
+    {
+      onError: (err) => {
+        errorCaught = true;
+        assert.ok(err.message.includes("not supported"));
+      },
+    },
+    null
   );
-  assert.equal(spokenNote({ truncated: true, costUsd: null, cached: false }), "Read the first part only, cut at a sentence end.");
-  assert.equal(spokenNote({ truncated: false, costUsd: null, cached: false }), "");
+
+  assert.equal(errorCaught, true);
+  assert.equal(ctrl.speaking, false);
 });
 
-test("a reply played from saved audio says so and shows no cost", () => {
-  assert.equal(spokenNote({ truncated: false, costUsd: null, cached: true }), "Played from saved audio. No charge.");
-  assert.equal(
-    spokenNote({ truncated: true, costUsd: 0.04, cached: true }),
-    "Read the first part only, cut at a sentence end. Played from saved audio. No charge.",
+test("speakText manages utterance lifecycle with fake synthesis engine", () => {
+  let spoken = null;
+  let cancelled = false;
+
+  const fakeSynth = {
+    speaking: false,
+    cancel() {
+      cancelled = true;
+      this.speaking = false;
+    },
+    speak(utterance) {
+      spoken = utterance;
+      this.speaking = true;
+      utterance.onstart?.();
+    },
+    getVoices() {
+      return [
+        { voiceURI: "test-voice-1", name: "Voice 1", lang: "en-US" },
+        { voiceURI: "test-voice-2", name: "Voice 2", lang: "en-GB" },
+      ];
+    },
+  };
+
+  // Mock global SpeechSynthesisUtterance
+  globalThis.SpeechSynthesisUtterance = class {
+    constructor(text) {
+      this.text = text;
+      this.rate = 1.0;
+      this.pitch = 1.0;
+      this.voice = null;
+      this.onstart = null;
+      this.onend = null;
+      this.onerror = null;
+    }
+  };
+
+  let started = false;
+  const ctrl = speakText(
+    "Hello world! Check out `code`.",
+    {
+      voiceUri: "test-voice-2",
+      rate: 1.2,
+      pitch: 0.9,
+      onStart: () => {
+        started = true;
+      },
+    },
+    fakeSynth
   );
-});
 
-test("sizes and the saved-audio line read naturally", () => {
-  assert.equal(formatBytes(0), "0 KB");
-  assert.equal(formatBytes(500), "1 KB");
-  assert.equal(formatBytes(150 * 1024), "150 KB");
-  assert.equal(formatBytes(3.14 * 1024 * 1024), "3.1 MB");
-  assert.equal(savedAudioText({ clips: 0, bytes: 0 }), "No saved replies.");
-  assert.equal(savedAudioText({ clips: 1, bytes: 40 * 1024 }), "1 saved reply (40 KB).");
-  assert.equal(savedAudioText({ clips: 12, bytes: 3 * 1024 * 1024 }), "12 saved replies (3.0 MB).");
+  assert.equal(cancelled, true);
+  assert.equal(started, true);
+  assert.equal(spoken.text, "Hello world! Check out code.");
+  assert.equal(spoken.voice.voiceURI, "test-voice-2");
+  assert.equal(spoken.rate, 1.2);
+  assert.equal(spoken.pitch, 0.9);
+  assert.equal(ctrl.speaking, true);
+
+  ctrl.stop();
+  assert.equal(ctrl.speaking, false);
 });

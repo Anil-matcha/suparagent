@@ -275,9 +275,17 @@ def main() -> int:
         @check("an older database is upgraded on start, with the SQLite file copied aside first")
         def upgrades():
             stack.compose("stop", "-t", "30")
-            run(["docker", "run", "--rm", "--env-file", str(stack.env_file), "-e", "TRUSTED_PROXIES=",
-                 "-v", f"{PROJECT}_data:/data", "--entrypoint", "python", IMAGE,
-                 "-m", "alembic", "-c", "/app/backend/alembic.ini", "downgrade", "-1"])
+            docker = ["docker", "run", "--rm", "--env-file", str(stack.env_file), "-e", "TRUSTED_PROXIES=",
+                      "-v", f"{PROJECT}_data:/data", "--entrypoint", "python", IMAGE]
+            # One step older. `downgrade -1` is ambiguous when the newest migration joins several branches
+            # ("Ambiguous walk"), so go back to the newest migration's first parent instead; for a plain
+            # migration that is the same revision `-1` names.
+            parent = run(docker + ["-c", (
+                "from alembic.config import Config; from alembic.script import ScriptDirectory; "
+                "s = ScriptDirectory.from_config(Config('/app/backend/alembic.ini')); "
+                "d = s.get_revision(s.get_current_head()).down_revision; "
+                "print(d if isinstance(d, str) else d[0])")]).stdout.split()[-1]
+            run(docker + ["-m", "alembic", "-c", "/app/backend/alembic.ini", "downgrade", parent])
             stack.compose("up", "-d", "--no-build")
             stack.wait_healthy()
             logs = stack.logs()

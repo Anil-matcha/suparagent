@@ -6,9 +6,9 @@ from app.db.models import Agent, TeamSetupRequest, Routine
 from app.db.transactions import begin_write
 from app.schemas.agent import AgentUpdateRequest
 from app.schemas.routine import RoutineCreateRequest, RoutineUpdateRequest
-from app.services import agent_memory, agent_skills, routine_schedule, routine_service
+from app.services import agent_history, agent_memory, agent_skills, routine_schedule, routine_service
 from app.services.workspaces import require_workspace
-from app.team import fence, policy, service, setup, routine_changes
+from app.team import fence, policy, service, setup, routine_changes, skill_changes
 
 READS = ('routine_report_outcome', 'list_management_capabilities', 'list_routines', 'preview_schedule', 'skills_list')
 WRITES = ('propose_profile', 'propose_model', 'create_routine', 'manage_routine', 'skill_manage')
@@ -47,7 +47,7 @@ def routine_info(row):
 def capabilities():
     return {'available': ['create and edit team agents', 'profile and default model changes', 'delegation and follow-up',
                           'rooms and job-thread housekeeping', 'routine schedules, pause, resume and run now', 'saved skill authoring', 'conversation search'],
-            'requires_settings': {'connections': 'App connections need a separate integration; chat cannot provision credentials or app-event subscriptions.',
+            'requires_settings': {'connections': 'An agent can ask for an app with request_app_connection, which shows a connect card; the person signs in and allows access themselves. Chat never takes credentials and cannot set up app-event subscriptions.',
                                   'computers': 'Allocate or remove a computer in Agent settings. Computer actions use existing approved tools.',
                                   'lead_role': 'Only the person chooses the team lead and coordinated agents in Agent settings.'},
             'unavailable': ['app-event and limit-reset triggers', 'voice settings and voice notes', 'shared team memory catalog', 'arbitrary MCP server installation'],
@@ -124,6 +124,8 @@ async def _call(rt, run, name, args):
                 await run.recorder.emit('team.setup.applied', {**result, 'undo_available': undo_available})
             if previous.kind == 'routine' and result['state'] == 'applied':
                 await run.recorder.emit('routine.change.applied', {**result, 'undo_available': undo_available})
+            if previous.kind == 'skill' and result['state'] == 'applied':
+                await run.recorder.emit('skill.change.applied', {**result, 'undo_available': undo_available})
             return result
         if await setup.busy(db, agent.id, except_thread=run.thread_id):
             raise service.TeamError('agent_busy', 'That agent is working. Try again when it is idle.')
@@ -161,10 +163,12 @@ async def _call(rt, run, name, args):
                     raise service.TeamError('lead_engine', 'The lead must keep an engine with team tools.')
                 if not caps.computers and await rt.computers.for_agent(agent.id) is not None:
                     raise service.TeamError('engine_without_computers', 'Remove the agent\'s computer in settings before choosing this engine.')
+            history_before = agent_history.profile_of(agent)
             for field, value in fields.items():
                 setattr(agent, field, value)
             agent.updated_at = service.now()
             await db.flush()
+            await agent_history.record(db, agent, history_before, source='chat')
             result = {'results': [{'action': 'updated', 'agent_id': agent.id, 'name': agent.name, 'changes': setup.changes(before, fields)}],
                       'model_note': 'Existing conversations retain their model and working folder. Saved defaults apply to new conversations.'}
             undo = {'created': [], 'updated': [{'agent_id': agent.id, 'before': before, 'hash': setup.full_hash(agent)}]}
@@ -227,8 +231,13 @@ async def _call(rt, run, name, args):
                 raise service.TeamError('invalid_input', 'Choose create or update.')
             await setup._authorizer(rt, run)(db)
             item = agent_skills.write_skill(agent.id, skill_name, args.get('description', ''), args.get('body', ''), enabled=False, source='agent')
-            result = {'skill': {'name': item.name, 'description': item.description, 'enabled': False, 'warnings': item.warnings},
-                      'note': 'Saved disabled. Review and enable in Agent settings; skill text grants no permissions.'}
+            result = {'skill': {'name': item.name, 'description': item.description, 'enabled': False, 'warnings': item.warnings,
+                                'before': None if found is None else {'description': found.description, 'enabled': found.enabled}},
+                      'action': args['action'],
+                      'note': 'Saved disabled. Review and enable in Agent settings; skill text grants no permissions.',
+                      'undo_note': skill_changes.UNDO_NOTE}
+            undo = skill_changes.entry(agent.id, skill_name, args['action'], found, item)
+            receipt_kind = 'skill'
         else:
             raise service.TeamError('unknown_tool', 'Unknown configuration tool.')
         if receipt_kind == 'routine':
@@ -250,4 +259,6 @@ async def _call(rt, run, name, args):
         await run.recorder.emit('team.setup.applied', {**response, 'undo_available': True})
     if receipt_kind == 'routine':
         await run.recorder.emit('routine.change.applied', response)
+    if receipt_kind == 'skill':
+        await run.recorder.emit('skill.change.applied', {**response, 'undo_available': True})
     return response

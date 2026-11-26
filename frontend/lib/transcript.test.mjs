@@ -25,6 +25,17 @@ test('routine receipts fold retries into one actionable result card', () => {
   assert.equal(t.items[0].requestId, 'receipt');
 });
 
+test('skill receipts fold retries into one card and ignore malformed events', () => {
+  reset();
+  const data = { request_id: 'sk', action: 'update', skill: { name: 'brief', description: 'Second', warnings: ['x'], before: { description: 'First' } }, undo_note: 'Undo restores.' };
+  const t = run([ev('skill.change.applied', data), ev('skill.change.applied', data), ev('skill.change.applied', { request_id: 'bad' })]);
+  assert.equal(t.items.length, 1);
+  assert.equal(t.items[0].kind, 'skill_change');
+  assert.equal(t.items[0].name, 'brief');
+  assert.equal(t.items[0].previousDescription, 'First');
+  assert.deepEqual(t.items[0].warnings, ['x']);
+});
+
 test('a plain turn reads in order and ends with nothing running', () => {
   reset();
   const t = run([

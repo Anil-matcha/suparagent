@@ -137,7 +137,8 @@ async def test_switched_off_notes_stay_out_of_the_turn(api, rt, sessions, launch
     agent = await make(api, starter_notes="- hidden fact", memory_enabled=False)
     thread = (await thread_from(api, agent)).json()
     await send(api, rt, sessions, thread["id"], 1)
-    assert launches[-1]["system_prompt"] is None
+    # Only the note about asking for a connected app may be there; the switched-off notes must not.
+    assert "hidden fact" not in (launches[-1]["system_prompt"] or "")
 
 
 # --- export and import ----------------------------------------------------------------

@@ -147,6 +147,48 @@ export function withAccount(scopes: AccountScopes | null | undefined, slug: stri
   return next;
 }
 
+// The share of a mailbox an agent may see (BL-172), per app and connected account. No entry means the whole mailbox.
+// Only Gmail has one. The server keeps the sampling seed; the page never sees or sends it.
+export type Share = { percent: number; pins?: string[] };
+export type Shares = Record<string, Record<string, Share>>;
+export const SHARE_PRESETS: readonly number[] = [100, 50, 25, 10, 5];
+export const supportsShare = (app: string): boolean => app === "gmail";
+export const validPercent = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 100;
+
+// The percent for one account: 100 (all mail) when it has no valid entry.
+export function shareOf(shares: Shares | null | undefined, app: string, accountId: string): number {
+  const percent = shares?.[app]?.[accountId]?.percent;
+  return validPercent(percent) ? percent : 100;
+}
+
+// The shares after setting one account's percent. Pins stay. All mail on an account with no entry adds none, since
+// that is already what no entry means; an invalid percent changes nothing.
+export function withShare(shares: Shares | null | undefined, app: string, accountId: string, percent: number): Shares {
+  if (!validPercent(percent) || !supportsShare(app)) return { ...(shares ?? {}) };
+  const current = shares?.[app]?.[accountId];
+  if (!current && percent === 100) return { ...(shares ?? {}) };
+  const entry: Share = { ...(current ?? {}), percent };
+  return { ...(shares ?? {}), [app]: { ...(shares?.[app] ?? {}), [accountId]: entry } };
+}
+
+// What to send when saving: the shares that still mean something. An account that is no longer selected, an app whose
+// level is Off, and an engine that cannot use apps send none; an invalid entry is dropped, never repaired.
+export function sharesToSend(shares: Shares | null | undefined, accountScopes: AccountScopes | null | undefined,
+                             appScopes: Scopes | null | undefined, provider: string): Shares {
+  if (!supportsConnectedApps(provider)) return {};
+  const out: Shares = {};
+  for (const [app, byAccount] of Object.entries(shares ?? {})) {
+    if (!supportsShare(app) || levelOf(appScopes, app) === "off" || typeof byAccount !== "object" || byAccount === null) continue;
+    const selected = new Set(accountScopes?.[app] ?? []);
+    for (const [accountId, entry] of Object.entries(byAccount)) {
+      if (!selected.has(accountId) || !entry || !validPercent(entry.percent)) continue;
+      const pins = Array.isArray(entry.pins) ? entry.pins.filter((pin) => typeof pin === "string" && pin.length > 0 && pin.length <= 300).slice(0, 200) : [];
+      (out[app] ??= {})[accountId] = pins.length ? { percent: entry.percent, pins } : { percent: entry.percent };
+    }
+  }
+  return out;
+}
+
 export function accountScopesToSend(accountScopes: AccountScopes | null | undefined,
                                     appScopes: Scopes | null | undefined,
                                     provider: string): AccountScopes {
