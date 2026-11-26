@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   Check,
   ChevronDown,
@@ -564,29 +565,48 @@ export function ModelPicker({
                 )}
               </div>
 
-              {/* Reasoning Effort Dropdown Selector (Matches Screenshot Bottom) */}
+              {/* Reasoning Effort Dropdown Selector (Custom Radix Component) */}
               {activeModelEfforts.length > 0 && viewedEngine.id === selectedProvider && (
                 <div className="border-t border-line/60 bg-inset/20 px-3 py-1.5 shrink-0 flex items-center justify-between gap-2">
                   <span className="text-[12px] text-ink font-medium">Reasoning</span>
-                  <div className="relative inline-block">
-                    <select
-                      value={currentEffort ?? activeModelObj?.default_reasoning_effort ?? ""}
-                      onChange={(e) => handleEffortDropdownChange(e.target.value)}
-                      aria-label="Reasoning effort"
-                      className="h-7 cursor-pointer rounded-md border border-line bg-raised px-2.5 pr-7 text-[12px] font-medium text-ink outline-none focus:ring-1 focus:ring-accent appearance-none"
-                    >
-                      {activeModelEfforts.map((eff) => (
-                        <option key={eff} value={eff}>
-                          {effortName(eff)}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown
-                      size={12}
-                      className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted"
-                      aria-hidden="true"
-                    />
-                  </div>
+                  <DropdownMenu.Root>
+                    <DropdownMenu.Trigger asChild>
+                      <button
+                        type="button"
+                        aria-label="Reasoning effort"
+                        className="inline-flex h-7 min-w-[84px] items-center justify-between gap-2 rounded-md border border-line bg-raised px-2.5 text-[12px] font-medium text-ink hover:bg-hover transition-colors cursor-pointer outline-none focus:ring-1 focus:ring-accent"
+                      >
+                        <span className="truncate">{effortName(currentEffort ?? activeModelObj?.default_reasoning_effort)}</span>
+                        <ChevronDown size={12} className="shrink-0 text-muted" aria-hidden="true" />
+                      </button>
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content
+                        align="end"
+                        sideOffset={4}
+                        className="z-50 min-w-[120px] rounded-xl border border-line bg-raised p-1 text-xs text-ink shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 focus:outline-none"
+                      >
+                        {activeModelEfforts.map((eff) => {
+                          const isCurrent =
+                            (currentEffort ?? activeModelObj?.default_reasoning_effort)?.toLowerCase() ===
+                            eff.toLowerCase();
+                          return (
+                            <DropdownMenu.Item
+                              key={eff}
+                              onSelect={() => handleEffortDropdownChange(eff)}
+                              className={cn(
+                                "flex cursor-pointer items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-[12px] outline-none transition-colors data-[highlighted]:bg-hover",
+                                isCurrent ? "font-semibold text-accent bg-accent/10" : "text-ink"
+                              )}
+                            >
+                              <span>{effortName(eff)}</span>
+                              {isCurrent && <Check size={13} className="shrink-0 text-accent" />}
+                            </DropdownMenu.Item>
+                          );
+                        })}
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Root>
                 </div>
               )}
             </div>
