@@ -21,6 +21,9 @@ test("first run detects an engine and preserves a person's working selection", (
   assert.equal(firstReadyEngine([{ id: "cursor", available: true }]), "cursor");
   assert.equal(firstReadyEngine([{ id: "claude", available: false }]), null);
   assert.equal(firstReadyEngine([{ id: "custom", available: true }]), "custom");
+  const hosted = [{ id: "openai_compat", available: true }, { id: "aimlapi", available: true }];
+  assert.equal(firstReadyEngine(hosted), "aimlapi");
+  assert.equal(firstReadyEngine([...hosted, { id: "openrouter", available: true }]), "openrouter");
 });
 
 test("generated forms never prefill a secret or submit fields the engine does not own", () => {
