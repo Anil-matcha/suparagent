@@ -228,6 +228,20 @@ async def test_our_webhook_changed_outside_the_app_is_not_overwritten(world, fak
     assert caught.value.code == "webhook_changed" and next(iter(fake.subs.values()))["webhook_url"] == "https://someone-else.example.com/x"
 
 
+async def test_saved_webhook_gains_new_status_events_without_losing_extra_events(world, fake, make_client, sessions, owner):
+    _, routine_id = world
+    await enable(sessions, owner, make_client, routine_id)
+    (sub,) = fake.subs.values()
+    sub["enabled_events"] = ["composio.trigger.message", "vendor.custom.event"]
+
+    await enable(sessions, owner, make_client, routine_id)
+
+    assert "composio.trigger.disabled" in sub["enabled_events"]
+    assert "composio.connected_account.expired" in sub["enabled_events"]
+    assert "vendor.custom.event" in sub["enabled_events"]
+    assert [method for method, path in fake.calls if method == "PATCH" and path.endswith(sub["id"])]
+
+
 async def test_our_own_webhook_is_adopted_again_when_the_local_record_was_lost(world, fake, make_client, sessions, owner):
     _, routine_id = world
     await enable(sessions, owner, make_client, routine_id)

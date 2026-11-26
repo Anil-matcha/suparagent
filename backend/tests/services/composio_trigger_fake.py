@@ -90,5 +90,8 @@ class TriggerFake:
             if method == "DELETE":
                 del self.subs[sub_id]
                 return httpx.Response(200, json={"status": "success"})
+            if method == "PATCH":
+                self.subs[sub_id]["webhook_url"] = body.get("webhook_url", self.subs[sub_id]["webhook_url"])
+                self.subs[sub_id]["enabled_events"] = body.get("enabled_events", self.subs[sub_id]["enabled_events"])
             return httpx.Response(200, json=self.subs[sub_id])
         return httpx.Response(404, json={"error": {"message": f"unrouted {method} {path}"}})

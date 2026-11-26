@@ -4,6 +4,7 @@
 
 ### Added
 
+- Let routines add a Gmail new-mail trigger alongside their schedule. Composio filters at the source; the app keeps event identifiers only, follows the routine's existing account grants and mailbox share, and applies debounce, daily caps and quiet hours. A signed-in desktop receives events through the hosted relay. The backend is deployed on staging; a real Composio delivery and installed-desktop qualification remain.
 - Changes an agent makes to itself or a teammate in chat (profile, instructions, engine and model, team setup) and their Undo now appear in the agent's version history, so they can be viewed and restored like edits made in settings.
 - Skill changes made in chat now show a result card with what changed and an Undo that restores the earlier text or removes a new skill, and refuses if the skill was edited since.
 - Optional setting `TEAM_PROFILE_AUTO` (off by default): an agent can change its own name, title, description and standing instructions at your request without a permission prompt, with the usual Undo card. Folder, engine and other agents still ask.

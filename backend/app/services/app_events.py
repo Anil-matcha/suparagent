@@ -14,6 +14,11 @@ Remote objects, both in the owner's project and both created with the owner's ow
 The webhook's route id and signing secret live in the encrypted Composio record (composio_service.load/_save) under
 `webhook`, beside the key. `webhook_route_for` and `webhook_secret_for` are what the receiver asks for.
 
+A desktop has no public address, so when `SUPARAGENT_PUBLIC_URL` is empty but the owner is signed in to their Suparagent
+account the webhook points at the event relay in the hosted service instead ("relay mode", `webhook.mode == "relay"`):
+the relay checks Composio's signature, keeps ids only, and pushes them to this app over one connection that the app opens
+itself (services/event_stream.py). Nothing polls. Without either, the routine simply keeps its schedule.
+
 Clean-up is conservative on purpose. A remote trigger instance is only ever deleted when this app created it: when a
 delete cannot be completed (Composio down) its id is kept in the record under `pending_trigger_deletes` and retried by
 `reconcile`. Instances that exist in the project but that this app never made are counted and left alone.
@@ -23,6 +28,7 @@ import re
 import secrets
 from datetime import UTC, datetime
 
+import httpx
 from sqlalchemy import select
 
 from app import composio_tools
@@ -30,7 +36,8 @@ from app.core.config import settings
 from app.db import tenant_schema
 from app.db.models import Agent, AppEventDay, AppEventTrigger, Routine
 from app.services import composio_service
-from app.services.composio_client import TRIGGER_EVENT, WEBHOOK_EVENTS, ComposioError
+from app.services import relay_client
+from app.services.composio_client import TRIGGER_EVENT, WEBHOOK_EVENTS, ComposioError, WebhookSubscription
 
 APP = "gmail"
 SLUG = "GMAIL_NEW_GMAIL_MESSAGE"
@@ -80,14 +87,24 @@ def webhook_url(route_id: str) -> str | None:
     return origin + (f"/hooks/t/{tenant[2:]}/composio/{route_id}" if tenant else f"/hooks/composio/{route_id}")
 
 
+def delivery_mode() -> str | None:
+    """How new-mail events would reach this install: "direct" (a public address of its own), "relay" (a desktop signed in to
+    its Suparagent account, which relays them), or None."""
+    if public_origin():
+        return "direct"
+    return "relay" if relay_client.get_client().available() else None
+
+
 def endpoint_problem() -> tuple[str, str] | None:
     """(code, plain words) when this install cannot receive Composio's events, else None."""
     origin = public_origin()
     if not origin:
+        if relay_client.get_client().available():
+            return None  # a signed-in desktop receives them through the relay
         return ("no_public_endpoint",
-                "Composio sends new-mail events to a public web address, and this install has none. A hosted workspace or a "
-                "server with a public address can use new-mail wakes; a desktop app will need the relay, which is not ready "
-                "yet. The routine keeps running on its schedule.")
+                "Composio sends new-mail events to a public web address, and this computer has none. Sign in to your Suparagent "
+                "account in this app and the events can be delivered through the Suparagent relay; a server with a public address can also receive "
+                "them directly. The routine keeps running on its schedule until then.")
     if not origin.startswith("https://"):
         return ("https_required", "Composio only sends events to an https address. Give this server an https public address first.")
     return None
@@ -137,12 +154,15 @@ async def _ensure_subscription(db, owner_id: str, client) -> dict:
         record = await composio_service.load(db, owner_id)
         hook = _hook_of(record)
         remote = await client.list_webhook_subscriptions()
+        if (hook and hook.get("mode") == "relay") or (hook is None and not public_origin()):
+            return await _ensure_relay_subscription(db, owner_id, client, hook, remote)
         if hook:
             match = next((s for s in remote if s.id == hook["subscription_id"]), None)
             if match is not None:
                 if match.url != hook["url"] or TRIGGER_EVENT not in match.events:
                     raise AppEventError("webhook_changed", "The event webhook in your Composio project was changed outside this "
                                                            "app. This app will not overwrite it. Remove it in Composio and try again.", 409)
+                await _ensure_status_events(client, match, hook["secret"])
                 return hook
             route_id, url = hook["route_id"], hook["url"]  # it was deleted in Composio: recreate it at the same address
         else:
@@ -158,21 +178,183 @@ async def _ensure_subscription(db, owner_id: str, client) -> dict:
                 return adopted
             route_id = secrets.token_urlsafe(24)
             url = webhook_url(route_id)
-        try:
-            created = await client.create_webhook_subscription(url, WEBHOOK_EVENTS)
-        except ComposioError as exc:
-            if exc.kind == "rejected":
-                detail = exc.message or ""
-                if "SSRF" in detail or "InvalidWebhookURL" in detail or "resolve" in detail:
-                    raise AppEventError("webhook_rejected", "Composio could not reach this server's public address. It must be an https "
-                                                            "address that resolves on the internet.", 409) from None
-                if remote:
-                    raise AppEventError("webhook_in_use", "This Composio project already sends events to another address. This app never "
-                                                          "replaces it. Use a separate Composio project, or remove that webhook yourself first.", 409) from None
-            raise _mapped(exc) from None
+        created = await _create_subscription(client, url, remote)
         hook = {"route_id": route_id, "subscription_id": created.id, "url": created.url, "secret": created.secret}
         await _update_record(db, owner_id, lambda r: r.__setitem__("webhook", hook))
         return hook
+
+
+async def _create_subscription(client, url: str, remote: list):
+    """Our one webhook in the owner's project, with Composio's refusals put into plain words."""
+    try:
+        return await client.create_webhook_subscription(url, WEBHOOK_EVENTS)
+    except ComposioError as exc:
+        if exc.kind == "rejected":
+            detail = exc.message or ""
+            if "SSRF" in detail or "InvalidWebhookURL" in detail or "resolve" in detail:
+                raise AppEventError("webhook_rejected", "Composio could not reach this server's public address. It must be an https "
+                                                        "address that resolves on the internet.", 409) from None
+            if remote:
+                raise AppEventError("webhook_in_use", "This Composio project already sends events to another address. This app never "
+                                                      "replaces it. Use a separate Composio project, or remove that webhook yourself first.", 409) from None
+        raise _mapped(exc) from None
+
+
+async def _ensure_status_events(client, subscription, secret: str) -> None:
+    """Add supported status events to a saved subscription this app owns, preserving every existing event."""
+    missing = tuple(event for event in WEBHOOK_EVENTS if event != TRIGGER_EVENT and event not in subscription.events)
+    if missing:
+        saved = WebhookSubscription(subscription.id, subscription.url, subscription.events, secret)
+        await client.update_webhook_subscription(saved, WEBHOOK_EVENTS)
+
+
+# -- Relay mode (a desktop: the webhook points at the relay in the hosted service) -------------------------------------------
+
+def _relay_unavailable(exc: Exception) -> AppEventError:
+    if isinstance(exc, relay_client.RelayError) and exc.code == "no_session":
+        return AppEventError("no_public_endpoint", "Sign in to your Suparagent account in this app first: new-mail events are delivered "
+                                                   "through it. The routine keeps running on its schedule.", 409)
+    return AppEventError("relay_unavailable", "The Suparagent event relay could not be reached right now, so new-mail wakes are not set up "
+                                              "yet. Try again in a moment; the routine keeps running on its schedule.", 503)
+
+
+async def _register_route(relay, secret: str, expect: str | None = None) -> tuple[str, str]:
+    """Register (or re-register) the account's relay route with a signing secret; `expect` is the address it must keep."""
+    try:
+        route_id, url = await relay.register_route(secret)
+    except (relay_client.RelayError, httpx.HTTPError) as exc:
+        raise _relay_unavailable(exc) from None
+    if expect is not None and route_id != expect:
+        raise AppEventError("relay_unavailable", "The event relay gave this account a different address than the one Composio uses. "
+                                                 "Switch the new-mail wakes off and on again.", 409)
+    return route_id, url
+
+
+async def _drop_relay_route(relay, route_id: str) -> None:
+    """Best effort: an unused route is harmless (it queues nothing without a subscription pointing at it)."""
+    try:
+        await relay.delete_route(route_id)
+    except (relay_client.RelayError, httpx.HTTPError):
+        pass
+
+
+async def _ensure_relay_subscription(db, owner_id: str, client, hook: dict | None, remote: list) -> dict:
+    """OUR webhook, pointed at the relay: created in two steps so the signing secret Composio returns is the one the relay
+    checks. Never alters a webhook this app did not create."""
+    relay = relay_client.get_client()
+    if hook:
+        match = next((s for s in remote if s.id == hook["subscription_id"]), None)
+        if match is not None:
+            if match.url != hook["url"] or TRIGGER_EVENT not in match.events:
+                raise AppEventError("webhook_changed", "The event webhook in your Composio project was changed outside this "
+                                                       "app. This app will not overwrite it. Remove it in Composio and try again.", 409)
+            await _ensure_status_events(client, match, hook["secret"])
+            await _register_route(relay, hook["secret"], hook["route_id"])  # keeps the route alive; same address
+            return hook
+        # deleted in Composio: make it again at the same relay address, then give the relay its new secret
+        created = await _create_subscription(client, hook["url"], remote)
+        await _register_route(relay, created.secret, hook["route_id"])
+        fresh = {**hook, "subscription_id": created.id, "url": created.url, "secret": created.secret}
+        await _update_record(db, owner_id, lambda r: r.__setitem__("webhook", fresh))
+        return fresh
+    session = relay._session()
+    prefix = f"{session.base_url}/hook/" if session else None
+    ours = next((s for s in remote if prefix and s.url.startswith(prefix) and relay_client.ROUTE_ID.match(s.url[len(prefix):] or "")), None)
+    if ours is not None:  # a record lost in a key change: adopt our own relay address again (the secret can be read back)
+        full = await client.get_webhook_subscription(ours.id)
+        route_id = ours.url[len(prefix):]
+        if not full.secret:
+            raise AppEventError("webhook_changed", "Composio did not return the signing secret of this app's webhook.", 409)
+        await _register_route(relay, full.secret, route_id)
+        adopted = {"route_id": route_id, "subscription_id": full.id, "url": full.url, "secret": full.secret, "mode": "relay"}
+        await _update_record(db, owner_id, lambda r: r.__setitem__("webhook", adopted))
+        return adopted
+    route_id, public_url = await _register_route(relay, secrets.token_urlsafe(32))  # a placeholder secret, to learn the address
+    try:
+        created = await _create_subscription(client, public_url, remote)
+    except AppEventError:
+        await _drop_relay_route(relay, route_id)
+        raise
+    try:
+        await _register_route(relay, created.secret, route_id)  # now the real secret
+    except AppEventError:
+        try:
+            await client.delete_webhook_subscription(created.id)
+        except ComposioError:
+            pass
+        await _drop_relay_route(relay, route_id)
+        raise
+    hook = {"route_id": route_id, "subscription_id": created.id, "url": created.url, "secret": created.secret, "mode": "relay"}
+    await _update_record(db, owner_id, lambda r: r.__setitem__("webhook", hook))
+    return hook
+
+
+async def relay_hook_for(db, owner_id: str) -> dict | None:
+    """The saved webhook when it is the relay kind, else None."""
+    hook = _hook_of(await composio_service.load(db, owner_id))
+    return hook if hook and hook.get("mode") == "relay" else None
+
+
+async def relay_triggers_exist(db, owner_id: str) -> bool:
+    """Whether the event stream has anything to listen for: a relay webhook and at least one trigger that is active or paused."""
+    if await relay_hook_for(db, owner_id) is None:
+        return False
+    return (await db.execute(select(AppEventTrigger.id).where(AppEventTrigger.owner_id == owner_id,
+                                                              AppEventTrigger.state.in_(("active", "paused"))).limit(1))).first() is not None
+
+
+async def stream_cursor(db, owner_id: str) -> int:
+    hook = await relay_hook_for(db, owner_id)
+    seq = (hook or {}).get("last_seq")
+    return seq if isinstance(seq, int) and seq >= 0 else 0
+
+
+async def save_stream_cursor(db, owner_id: str, route_id: str, seq: int) -> None:
+    """Remember the last event handled, so a restart resumes where it stopped. Only for the same route: a new route
+    starts counting from zero."""
+    def change(record):
+        hook = record.get("webhook")
+        if isinstance(hook, dict) and hook.get("route_id") == route_id and seq > (hook.get("last_seq") or 0):
+            record["webhook"] = {**hook, "last_seq": seq}
+    try:
+        await _update_record(db, owner_id, change)
+    except AppEventError:
+        pass
+
+
+async def heal_relay(db, owner_id: str, make_client) -> bool:
+    """The relay said it has no route for this account (it was deleted there). Register it again with the saved secret; if
+    the address changed the webhook in Composio is stale, so our webhook is replaced. True when the stream can go on."""
+    hook = await relay_hook_for(db, owner_id)
+    if hook is None:
+        return False
+    relay = relay_client.get_client()
+    try:
+        route_id, _ = await relay.register_route(hook["secret"])
+    except (relay_client.RelayError, httpx.HTTPError):
+        return False
+    if route_id == hook["route_id"]:
+        return True
+    try:
+        _, client = await _client(db, owner_id, make_client)
+        for sub in await client.list_webhook_subscriptions():
+            if sub.id == hook["subscription_id"] and sub.url == hook["url"]:
+                await client.delete_webhook_subscription(sub.id)
+        await _update_record(db, owner_id, lambda r: r.pop("webhook", None))
+        await _ensure_subscription(db, owner_id, client)
+        await _drop_relay_route(relay, route_id) if route_id != (await relay_hook_for(db, owner_id) or {}).get("route_id") else None
+    except (AppEventError, ComposioError):
+        return False
+    return True
+
+
+def _poke_stream() -> None:
+    """Triggers changed: let the event stream decide whether to connect or stop. Never fails the caller."""
+    try:
+        from app.services import event_stream
+        event_stream.poke()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def last_trigger_removed_cleanup(db, owner_id: str, client) -> bool:
@@ -192,6 +374,8 @@ async def last_trigger_removed_cleanup(db, owner_id: str, client) -> bool:
         except ComposioError:
             return False  # still ours; the next clean-up tries again
         await _update_record(db, owner_id, lambda r: r.pop("webhook", None))
+        if hook.get("mode") == "relay":
+            await _drop_relay_route(relay_client.get_client(), hook["route_id"])
         return True
 
 
@@ -278,6 +462,7 @@ async def status_for(db, routine: Routine) -> dict:
         "state": row.state if row is not None else "off", "last_event_at": row.last_event_at if row else None,
         "last_error": row.last_error if row else None, "today": today,
         "can_receive": problem is None, "reason": problem[0] if problem else None, "message": problem[1] if problem else None,
+        "mode": delivery_mode(),
     }
 
 
@@ -372,6 +557,7 @@ async def set_paused(db, owner_id: str, routine: Routine, paused: bool, make_cli
     except AppEventError as exc:
         row.last_error = exc.message[:200]
         await db.commit()
+        _poke_stream()
         return
     failure = await _remote_enabled(client, row.composio_trigger_id, not paused)
     if failure is None:
@@ -379,6 +565,7 @@ async def set_paused(db, owner_id: str, routine: Routine, paused: bool, make_cli
     else:
         row.last_error = failure
     await db.commit()
+    _poke_stream()
 
 
 async def remove(db, owner_id: str, routine: Routine, make_client, *, deleting: bool = False) -> None:
@@ -400,17 +587,20 @@ async def remove(db, owner_id: str, routine: Routine, make_client, *, deleting: 
     if not done and not deleting:
         row.state, row.last_error = "removed", "Composio could not be reached, so the remote trigger is not deleted yet. It is retried automatically."
         await db.commit()
+        _poke_stream()
         return
     await db.delete(row)
     await db.commit()
     if client is not None:
         await last_trigger_removed_cleanup(db, owner_id, client)
+    _poke_stream()
 
 
 async def mark_error(db, row: AppEventTrigger, reason: str, make_client=None, owner_id: str | None = None) -> None:
     """Stop waking the routine and say why; the routine keeps its schedule. Best effort at Composio when a client is given."""
     row.state, row.last_error = "error", reason[:200]
     await db.commit()
+    _poke_stream()
     if make_client is not None and owner_id is not None:
         try:
             _, client = await _client(db, owner_id, make_client)
@@ -448,6 +638,7 @@ async def apply(db, owner_id: str, routine: Routine, desired: dict | None, make_
         await remove(db, owner_id, routine, make_client)
     else:
         await enable(db, owner_id, routine, make_client, desired)
+    _poke_stream()
 
 
 # -- Reconciliation ----------------------------------------------------------------------------------------------------
