@@ -269,3 +269,12 @@ def test_a_value_schema_on_a_non_object_is_refused():
     with pytest.raises(McpError):
         _normalize_tool({"name": "t", "inputSchema": {"type": "object", "properties": {
             "x": {"type": "string", "additionalProperties": {"type": "string"}}}}})
+
+
+async def test_the_bundled_catalog_lists_the_aimlapi_server_with_a_key_only():
+    catalog = await community_mcp._load_catalog(community_mcp._bundle_file)
+    listing = next(item for item in catalog["community"] if item["slug"] == "aimlapi")
+    # The bearer key goes to this exact host; the listing never asks for OAuth.
+    assert listing["endpoint"] == "https://mcp.aimlapi.com/mcp"
+    assert listing["auth_mode"] == "bearer_token"
+    assert "billed" in listing["setup_instructions"] and "free" in listing["setup_instructions"]
