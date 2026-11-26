@@ -17,3 +17,8 @@ test('only an older version can be restored', () => {
   assert.equal(canRestore(rev({ number: 2 }), 3), true);
   assert.equal(canRestore(rev({ number: 2 }), null), false);
 });
+
+test('chat changes and their Undo are named as such', () => {
+  assert.equal(describeRevision(rev({ source: 'chat', changed_fields: ['instructions'] })), 'Changed instructions in chat');
+  assert.equal(describeRevision(rev({ source: 'chat_undo', changed_fields: ['instructions'] })), 'Changed instructions (chat change undone)');
+});

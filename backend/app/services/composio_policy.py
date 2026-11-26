@@ -56,6 +56,9 @@ def automatic(tool: str, mode: str | None, levels: dict | None, arguments: objec
     turn's agent may do, {app: "read" | "write"}."""
     if not tool.startswith(PREFIX):
         return None
+    if tool == PREFIX + composio_tools.CONNECT:
+        # Only shows a card and connects nothing. The server lists it only in a person-started turn.
+        return "allowed", "composio_connect_request"
     if not levels:
         return "denied", "no_connected_apps"
     name = tool.removeprefix(PREFIX)
@@ -71,6 +74,8 @@ def automatic(tool: str, mode: str | None, levels: dict | None, arguments: objec
         return "denied", "app_not_allowed"
     if not composio_tools.allows(level, found.kind):
         return "denied", "write_not_allowed"
+    if name == composio_tools.TRIAGE_MARK and mode == "plan":
+        return "denied", "plan_mode"  # it records in this app's database; a plan changes nothing, not even that
     if found.kind == "read":
         return "allowed", "composio_read"
     if mode == "plan":

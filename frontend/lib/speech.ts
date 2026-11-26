@@ -1,50 +1,185 @@
-// Spoken replies (BL-53). Pure helpers; the server holds the real limits and does the speaking.
+/**
+ * Speech synthesis and audio utilities for agent spoken replies and voice settings.
+ * Supports Web Speech API with markdown normalization, voice profile configuration,
+ * and half-duplex call session management.
+ */
 
-export type SpokenReply = {
-  /** An object URL for the audio. The caller revokes it. */
-  url: string;
-  /** MuAPI's quoted cost for this reply, when it said. Absent for a reply played from saved audio. */
-  costUsd: number | null;
-  /** True when the reply was longer than the voice allows and was cut at a sentence end. */
-  truncated: boolean;
-  /** True when the audio was already saved, so nothing was charged. */
-  cached: boolean;
-};
-
-export type SpeechVoice = { id: string; label: string; max_chars: number; price_hint: string };
-export type SpeechVoices = {
-  available: boolean;
-  default: string;
-  voices: SpeechVoice[];
-  saved: { clips: number; bytes: number };
-};
-
-export function costText(costUsd: number | null): string | null {
-  if (costUsd === null || !Number.isFinite(costUsd) || costUsd < 0) return null;
-  if (costUsd === 0) return "no charge";
-  if (costUsd < 0.01) return "under $0.01";
-  return `about $${costUsd.toFixed(2)}`;
+export interface VoiceProfile {
+  voiceUri: string;
+  name: string;
+  lang: string;
+  localService: boolean;
+  rate: number; // 0.5 to 2.0 (default 1.0)
+  pitch: number; // 0.5 to 1.5 (default 1.0)
+  autoSpeak: boolean;
 }
 
-// The line shown beside the button once a reply is playing: whether it was cut, and what it cost.
-export function spokenNote(reply: Pick<SpokenReply, "truncated" | "costUsd" | "cached">): string {
-  const parts: string[] = [];
-  if (reply.truncated) parts.push("Read the first part only, cut at a sentence end.");
-  if (reply.cached) parts.push("Played from saved audio. No charge.");
-  else {
-    const cost = costText(reply.costUsd);
-    if (cost) parts.push(`Cost ${cost}.`);
+export const DEFAULT_VOICE_PROFILE: VoiceProfile = {
+  voiceUri: "",
+  name: "System Default",
+  lang: "en-US",
+  localService: true,
+  rate: 1.0,
+  pitch: 1.0,
+  autoSpeak: false,
+};
+
+/**
+ * Clean markdown and technical syntax from text before passing to speech synthesis.
+ * Strips code fences, raw URLs, Markdown links, formatting tokens, and noisy symbols.
+ */
+export function normalizeTextForSpeech(markdown: string): string {
+  if (!markdown) return "";
+
+  let text = markdown;
+
+  // Remove code blocks entirely (```...```)
+  text = text.replace(/```[\s\S]*?```/g, " [code omitted] ");
+
+  // Remove inline code spans (`...`)
+  text = text.replace(/`([^`]+)`/g, "$1");
+
+  // Replace Markdown links [text](url) with just text
+  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+
+  // Remove raw URLs
+  text = text.replace(/https?:\/\/\S+/g, " link ");
+
+  // Remove Markdown images ![alt](url)
+  text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
+
+  // Remove HTML tags
+  text = text.replace(/<[^>]+>/g, " ");
+
+  // Remove headers (#, ##, etc.)
+  text = text.replace(/^#{1,6}\s+/gm, "");
+
+  // Remove bold / italic markers (* or _)
+  text = text.replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, "$1");
+
+  // Remove blockquotes (> )
+  text = text.replace(/^>\s+/gm, "");
+
+  // Remove list bullets (*, -, +, 1.)
+  text = text.replace(/^[\s]*[-*+]\s+/gm, "");
+  text = text.replace(/^[\s]*\d+\.\s+/gm, "");
+
+  // Remove horizontal rules
+  text = text.replace(/^[-*_]{3,}\s*$/gm, "");
+
+  // Collapse consecutive whitespace and trim
+  text = text.replace(/\s+/g, " ").trim();
+
+  return text;
+}
+
+export interface SpeechPlaybackOptions {
+  voiceUri?: string;
+  rate?: number;
+  pitch?: number;
+  onStart?: () => void;
+  onEnd?: () => void;
+  onError?: (err: Error) => void;
+}
+
+export interface SpeechController {
+  stop: () => void;
+  pause: () => void;
+  resume: () => void;
+  speaking: boolean;
+}
+
+/**
+ * Synthesize speech for a given text using browser SpeechSynthesis API.
+ */
+export function speakText(
+  text: string,
+  options: SpeechPlaybackOptions = {},
+  synth: typeof window.speechSynthesis | null = typeof window !== "undefined" ? window.speechSynthesis : null
+): SpeechController {
+  const normalized = normalizeTextForSpeech(text);
+
+  if (!synth || typeof SpeechSynthesisUtterance === "undefined") {
+    options.onError?.(new Error("Speech synthesis is not supported on this device."));
+    return {
+      stop: () => {},
+      pause: () => {},
+      resume: () => {},
+      speaking: false,
+    };
   }
-  return parts.join(" ");
+
+  // Cancel any ongoing speech
+  try {
+    synth.cancel();
+  } catch {
+    // Ignore cancel failure
+  }
+
+  if (!normalized) {
+    options.onEnd?.();
+    return {
+      stop: () => {},
+      pause: () => {},
+      resume: () => {},
+      speaking: false,
+    };
+  }
+
+  const utterance = new SpeechSynthesisUtterance(normalized);
+  utterance.rate = Math.max(0.5, Math.min(2.0, options.rate ?? 1.0));
+  utterance.pitch = Math.max(0.5, Math.min(1.5, options.pitch ?? 1.0));
+
+  if (options.voiceUri) {
+    const voices = synth.getVoices?.() || [];
+    const match = voices.find((v) => v.voiceURI === options.voiceUri);
+    if (match) utterance.voice = match;
+  }
+
+  utterance.onstart = () => options.onStart?.();
+  utterance.onend = () => options.onEnd?.();
+  utterance.onerror = (e) => options.onError?.(new Error(`Speech synthesis error: ${e.error}`));
+
+  synth.speak(utterance);
+
+  return {
+    stop: () => {
+      try {
+        synth.cancel();
+      } catch {
+        // Ignore
+      }
+    },
+    pause: () => {
+      try {
+        synth.pause();
+      } catch {
+        // Ignore
+      }
+    },
+    resume: () => {
+      try {
+        synth.resume();
+      } catch {
+        // Ignore
+      }
+    },
+    get speaking() {
+      return synth.speaking;
+    },
+  };
 }
 
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+/**
+ * Call session state machine for half-duplex voice interactions.
+ */
+export type CallState = "idle" | "connecting" | "listening" | "speaking" | "muted" | "ended";
 
-export function savedAudioText(saved: SpeechVoices["saved"]): string {
-  if (saved.clips === 0) return "No saved replies.";
-  return `${saved.clips} saved ${saved.clips === 1 ? "reply" : "replies"} (${formatBytes(saved.bytes)}).`;
+export interface CallSession {
+  state: CallState;
+  captions: string[];
+  isMuted: boolean;
+  mute: () => void;
+  unmute: () => void;
+  endCall: () => void;
 }

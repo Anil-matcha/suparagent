@@ -42,6 +42,7 @@ _EDITABLE = (
     "claude_account",
     "connector_scopes",
     "connector_account_scopes",
+    "connector_shares",
 )
 
 

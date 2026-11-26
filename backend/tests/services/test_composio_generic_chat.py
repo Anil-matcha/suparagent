@@ -159,7 +159,7 @@ async def test_a_read_level_agent_can_search_but_never_run(rt, sessions, cli, co
     await turn(rt, sessions, thread)
     args = cli.launches[-1]["args"]
     server = json.loads(args[args.index("--mcp-config") + 1])["mcpServers"]["composio"]
-    assert server["args"][-2:] == ["--apps", "notion=read"]
+    assert server["args"][-3:] == ["--apps", "notion=read", "--connect"]
     assert len(results(cli)) == 1 and composio.executes == []
     assert await decided(sessions, thread.id) == [("allowed", "composio_search"), ("denied", "write_not_allowed")]
 

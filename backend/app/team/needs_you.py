@@ -311,7 +311,8 @@ async def collect_providers(db, owner_id: str, lead_id: int | None, *, now: date
         try:
             async with asyncio.timeout(15):
                 result = await composio_service.run_tool(db, owner_id, make_client, tool, sent, alias,
-                                                         allowed_account_ids=account_ids)
+                                                         allowed_account_ids=account_ids,
+                                                         shares=agent.connector_shares or {})
         except Exception:
             # Never expose provider error text, request details or credentials.
             sources[source] = "failed"

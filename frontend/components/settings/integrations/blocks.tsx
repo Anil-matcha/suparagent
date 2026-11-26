@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type ComponentType } from "react";
 import { api, ApiError, type ApplicationSetting } from "@/lib/api";
 import type { IntegrationBlockId } from "@/lib/integrations";
-import { savedAudioText, type SpeechVoices } from "@/lib/speech";
+import { savedAudioText, type SpeechVoices } from "@/lib/speechReplies";
 import { SettingsCard } from "../SettingsCard";
 
 const BUTTON = "rounded-md border border-line px-3 py-1.5 text-xs font-medium hover:bg-hover disabled:opacity-50";

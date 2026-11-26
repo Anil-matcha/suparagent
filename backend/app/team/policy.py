@@ -24,6 +24,18 @@ class TurnTeam:
     delegation_enabled: bool = True
     configuration_allowed: bool = True
     setup_allowed: bool = False
+    profile_auto: bool = False
+
+
+SELF_TEXT_FIELDS = frozenset({'name', 'title', 'description', 'instructions'})
+
+
+def _own_text_edit(team, arguments):
+    """Only the caller's own wording; folder, engine and other agents keep the person decision."""
+    if not isinstance(arguments, dict) or arguments.get('agent_id', team.agent_id) != team.agent_id:
+        return False
+    fields = arguments.get('fields')
+    return isinstance(fields, dict) and bool(fields) and set(fields) <= SELF_TEXT_FIELDS
 
 
 def automatic(tool, mode, team, arguments):
@@ -56,6 +68,8 @@ def automatic(tool, mode, team, arguments):
     elif name in ('propose_profile', 'propose_model', 'create_routine', 'manage_routine', 'skill_manage'):
         if mode == 'plan' or team.origin in UNATTENDED:
             return 'denied', 'configuration_forbidden'
+        if team.profile_auto and name == 'propose_profile' and _own_text_edit(team, arguments):
+            return 'allowed', 'team_profile_auto'
         return None  # Configuration outside the setup plan needs a person decision.
     elif name in ('create_agent', 'create_room', 'propose_team_setup', 'propose_bot_deletion', 'close_thread'):
         if mode == 'plan':
