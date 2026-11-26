@@ -26,6 +26,11 @@ from app import composio_generic
 LIST_ACCOUNTS = "list_accounts"
 CONNECT = "request_app_connection"
 TRIAGE_MARK = "gmail_triage_mark"
+# Learning from the owner's past replies (BL-174; services/history_reader.py and services/history_learning.py). Neither
+# tool is a plain Composio call, and both are refused unless the owner turned the learning on for the account.
+SENT_REPLIES = "gmail_read_sent_replies"
+LESSON_PROPOSE = "lessons_propose"
+LESSON_TYPES = ("template", "tone", "question", "policy")
 # What a support worker calls a thread it ranked (BL-173). A fixed list, so the comparison with what the owner did is countable.
 TRIAGE_CATEGORIES = ("urgent", "angry", "at_risk", "blocked", "billing", "bug", "question", "other")
 LABEL_LIST = "gmail_list_labels"
@@ -280,6 +285,26 @@ TOOLS: tuple[Tool, ...] = (
                "draft_ref": _text(200, "The notes path of the draft reply you wrote for this thread.", "line"),
                "draft_text": _text(4000, "The text of that draft reply (personal details are removed before it is kept).")},
               ("thread_id", "rank", "category"), special="triage_mark"),
+    # Reads, on the server, the next batch of the owner's past replies in their support mail: short redacted pairs, no ids.
+    _app_read(SENT_REPLIES, "gmail", "GMAIL_READ_SENT_REPLIES",
+              "Read the next batch (at most 30 threads) of the owner's past replies in their support mail, as short redacted pairs "
+              "of the customer's message and the owner's reply. It works only when the owner has turned on learning from past "
+              "replies for this account, in stages the owner allows. It returns no message or thread IDs. Call it again for the next "
+              "batch until it says done, then distil what you learned and submit it with lessons_propose.",
+              {}, special="sent_replies"),
+    # Hands one distilled lesson to the owner for review; nothing is used until the owner accepts it (services/history_learning.py).
+    _app_read(LESSON_PROPOSE, "gmail", "GMAIL_PROPOSE_LESSON",
+              "Give the owner one thing you learned from their past replies, to review: a template (a question pattern and the answer "
+              "as the owner usually gives it), their tone, a recurring question, or a policy observation with how often you saw it. "
+              "Write it in your own words, short, with no names, addresses or order numbers. Nothing is used until the owner accepts it, "
+              "and a policy observation is only ever a suggestion.",
+              {"lesson_type": {"type": "string", "enum": list(LESSON_TYPES), "description": "template, tone, question or policy."},
+               "pattern": _text(120, "The question or situation this is about, in a few words.", "line"),
+               "text": _text(600, "The answer, style rule or observation, without names or private details."),
+               "count": _int(1, 100000, "How many of the replies you read showed this."),
+               "newest": _text(10, "The date of the newest reply that showed it, as YYYY-MM-DD.", "line"),
+               "oldest": _text(10, "The date of the oldest reply that showed it, as YYYY-MM-DD.", "line")},
+              ("lesson_type", "pattern", "text", "count", "newest", "oldest"), special="lesson_propose"),
     # The two label tools are not plain Composio calls: services/worker_label_ops.py decides the label name and id, so the agent
     # never sends either, and runs them inside composio_service.run_tool after the account and share rules.
     _app_read(LABEL_LIST, "gmail", "GMAIL_LIST_LABELS",
@@ -465,7 +490,7 @@ def tool_note(levels: dict, connect: bool = False) -> str:
     names = ", ".join(sorted(levels))
     hints = {
         "github": "GitHub profile, repositories, issues, pull requests, commits and files",
-        "gmail": "Gmail search, messages, threads and profile, and recording how you ranked a thread (gmail_triage_mark, kept in this app only)",
+        "gmail": "Gmail search, messages, threads and profile, and recording how you ranked a thread (gmail_triage_mark, kept in this app only); when the owner has turned it on, reading their past replies a batch at a time (gmail_read_sent_replies) and giving them what you learned to review (lessons_propose)",
         "googlecalendar": "Google Calendar lists, bounded event searches and finding events by words",
         "googleads": "Google Ads reports by read-only GAQL query (each ends in LIMIT 100 or less)",
         "metaads": "Meta Ads accounts, campaigns and performance insights",
