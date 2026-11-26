@@ -13,12 +13,13 @@ platform and release qualification limits.
   instructions, engine/model, workspace, approval mode, notes and skills. Use
   the bundled, searchable role gallery to start an agent; the person reviews
   and saves the configuration. Agent files can be exported and imported with
-  safer defaults. See [templates](TEMPLATES.md), [skills](SKILLS.md), and
+  safer defaults. An agent's picture can be made from a description. See [templates](TEMPLATES.md), [skills](SKILLS.md), and
   [setup](SETUP.md#the-chat-page).
 - **Chat and files.** Conversations persist across reloads, stream answers and
   tool activity, and support stop, search, text/image attachments, workspace
-  file browsing and downloads, and reported token/cost visibility. See
-  [everyday features](EVERYDAY.md).
+  file browsing and downloads, reported token/cost visibility, and a speaker
+  button that reads a reply aloud through MuAPI. See
+  [everyday features](EVERYDAY.md#reading-a-reply-aloud).
 - **Memory.** Agents can use private notes, topic notes, cross-chat recall,
   past-conversation search, memory proposals and upkeep, compaction, and a
   journal with undo. Availability of model-powered upkeep depends on the

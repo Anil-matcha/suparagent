@@ -138,7 +138,9 @@ agent templates on the phone.
 
 ### P2 — Add voice and richer media
 
-Stage spoken replies before live calls. Add optional text-to-speech settings,
+Stage spoken replies before live calls. On-demand reading of a reply (a speaker
+button, a voice choice and saved audio, through MuAPI) is built; a voice per agent
+and optional auto-speak are not. Add optional text-to-speech settings,
 macOS dictation that inserts editable text without sending, and a half-duplex
 call view with captions and explicit mute/hang-up controls. Keep screenshots
 from intentional actions as bounded transcript attachments; do not retain

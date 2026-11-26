@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, type Agent } from "@/lib/api";
 import { IMAGE_SIZES, PROMPT_MAX, pickProvider, promptProblem, type GeneratedImage, type ImageProvider } from "@/lib/image-gen";
@@ -95,7 +96,9 @@ export function AgentImageGenerator({ agent, onChanged }: { agent: Agent; onChan
       </div>
       {providers && !providers.some((p) => p.available) && (
         <p role="status" className="rounded-field border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
-          No image service is set up. Add an image API key in the server settings (IMAGE_API_KEY), then reload.
+          No image service is set up. Connect MuAPI under{" "}
+          <Link href="/settings/integrations/" className="underline">Settings → Integrations</Link>
+          , or add an image API key in the server settings (IMAGE_API_KEY), then reload.
         </p>
       )}
       <label className="block text-xs font-medium text-muted">

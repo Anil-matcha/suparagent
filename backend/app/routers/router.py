@@ -29,6 +29,7 @@ from app.routers.attachments import router as attachments_router
 from app.routers.workspace_files import router as workspace_files_router
 from app.routers.workspace_snapshots import router as workspace_snapshots_router
 from app.routers.images import router as images_router
+from app.routers.speech import router as speech_router
 from app.routers.usage import router as usage_router
 from app.routers.history_export import router as history_export_router
 from app.routers.profile import router as profile_router
@@ -82,6 +83,7 @@ router.include_router(attachments_router)
 router.include_router(workspace_files_router)
 router.include_router(workspace_snapshots_router)
 router.include_router(images_router)
+router.include_router(speech_router)
 router.include_router(usage_router)
 router.include_router(history_export_router)
 router.include_router(profile_router)
