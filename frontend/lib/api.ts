@@ -4,7 +4,9 @@ import type { HireReceipt, LatestSuggestion, SuggestGoal, Suggestion, TemplateCa
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
 import type { AppEventConfig, AppEventStatus } from "./app-event";
 import type { ShadowReport } from "./shadow-report";
+import type { FeedbackBody, FeedbackResult, ShareSuggestion } from "./shadow-feedback";
 import type { UndoResult, WorkerLabels } from "./worker-labels";
+import type { AccountUpdate, ForgetResult, HistoryAccount, HistoryLearning, Lesson, Lessons } from "./history-learning";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
 import type { CustomMcpConnection, CustomMcpDraft, CustomMcpTool } from "./custom-mcp";
 import type { ServiceAudit, ServiceCandidate, ServiceKind, ServicePreset, ServiceProvider, ServiceResource } from "./agent-services";
@@ -146,8 +148,16 @@ function authHeaders(method: string | undefined): Record<string, string> {
 }
 
 export type ShadowReportResponse = ShadowReport;
+export type ShadowFeedbackBody = FeedbackBody;
+export type ShadowFeedbackResult = FeedbackResult;
+export type ShareSuggestionResponse = ShareSuggestion;
 export type WorkerLabelsResponse = WorkerLabels;
 export type WorkerLabelsUndoResponse = UndoResult;
+export type HistoryLearningResponse = HistoryLearning;
+export type HistoryAccountResponse = HistoryAccount;
+export type LessonsResponse = Lessons;
+export type LessonResponse = Lesson;
+export type HistoryForgetResponse = ForgetResult;
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -1217,9 +1227,25 @@ export const api = {
   // A support worker's shadow-mode comparison (numbers and thread ids only). `refresh` asks the server to recompute; it may answer 429.
   getShadowReport: (agentId: number, options: { days?: number; refresh?: boolean } = {}) =>
     request<ShadowReportResponse>(`/agents/${agentId}/shadow-report?days=${options.days ?? 28}&refresh=${options.refresh ? "true" : "false"}`),
+  // The owner's "that was wrong, and why" about a thread the worker predicted, and the proposal to raise or lower its share of the
+  // mailbox (a proposal only: the share changes when the owner saves it through updateAgent).
+  sendShadowFeedback: (agentId: number, body: ShadowFeedbackBody) =>
+    request<ShadowFeedbackResult>(`/agents/${agentId}/shadow-feedback`, { method: "POST", body: JSON.stringify(body) }),
+  getShareSuggestion: (agentId: number, options: { refresh?: boolean } = {}) =>
+    request<ShareSuggestionResponse>(`/agents/${agentId}/share-suggestion?refresh=${options.refresh ? "true" : "false"}`),
   // The labels a support worker added under Worker/ (counts and names only), and the one-click removal of exactly those.
   getWorkerLabels: (agentId: number) => request<WorkerLabelsResponse>(`/agents/${agentId}/worker-labels`),
   undoWorkerLabels: (agentId: number) => request<WorkerLabelsUndoResponse>(`/agents/${agentId}/worker-labels/undo`, { method: "POST" }),
+  // Learning from the owner's past replies (BL-174): the opt-in per Gmail account, and the lessons to review.
+  getHistoryLearning: (agentId: number) => request<HistoryLearningResponse>(`/agents/${agentId}/history-learning`),
+  updateHistoryLearning: (agentId: number, accountId: string, body: AccountUpdate) =>
+    request<HistoryAccountResponse>(`/agents/${agentId}/history-learning/${encodeURIComponent(accountId)}`, { method: "PUT", body: JSON.stringify(body) }),
+  forgetHistoryLearning: (agentId: number) => request<HistoryForgetResponse>(`/agents/${agentId}/history-learning`, { method: "DELETE" }),
+  getLessons: (agentId: number) => request<LessonsResponse>(`/agents/${agentId}/lessons`),
+  acceptLesson: (agentId: number, lessonId: string, text?: string) =>
+    request<LessonResponse>(`/agents/${agentId}/lessons/${encodeURIComponent(lessonId)}/accept`, { method: "POST", body: JSON.stringify(text === undefined ? {} : { text }) }),
+  dismissLesson: (agentId: number, lessonId: string) =>
+    request<void>(`/agents/${agentId}/lessons/${encodeURIComponent(lessonId)}/dismiss`, { method: "POST" }),
   connectComposioApp: (toolkit: string, alias?: string) =>
     request<ComposioLink>("/integrations/composio/connect", { method: "POST", body: JSON.stringify(alias ? { toolkit, alias } : { toolkit }) }),
   disconnectComposioAccount: (id: string) => request<void>(`/integrations/composio/accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),
