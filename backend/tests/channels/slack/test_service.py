@@ -354,6 +354,23 @@ async def test_the_owners_message_reaches_the_agent_and_the_answer_comes_back_to
     assert len(world.engine.calls) == 1
 
 
+async def test_the_agent_reads_what_was_typed_not_slacks_markup(world):
+    await world.linked()
+    await world.reply("ok")
+    await world.service.handle_envelope(dm("is a &lt; b &amp; c? see <https://example.com|example.com> <@U9|ana>"))
+    await wait_until(lambda: world.engine.calls)
+    prompt = world.engine.calls[0].prompt
+    assert "is a < b & c? see example.com (https://example.com) @ana" in prompt
+    assert "&lt;" not in prompt and "<https" not in prompt
+
+
+async def test_the_link_word_still_works_when_slack_escapes_around_it(world):
+    await world.service.connect(BOT, APP)
+    code = (await world.service.issue_link_code())["code"]
+    await world.service.handle_envelope(dm(f"link {code}"))
+    assert (await world.service._load()).linked
+
+
 @pytest.mark.parametrize("label,message", [
     ("another user", dm("hi", user="U2")),
     ("another workspace", dm("hi", team="T9")),

@@ -50,6 +50,37 @@ def to_mrkdwn(markdown: str) -> str:
     return re.sub(r"\x00(\d+)\x00", lambda m: kept[int(m.group(1))], text)
 
 
+_SLACK_TOKEN = re.compile(r"<([^<>\n]+)>")
+
+
+def from_slack(text: str) -> str:
+    """What a person typed in Slack, as plain text for the agent.
+
+    Slack rewrites a message before sending it on: a link becomes `<url|label>`,
+    a mention `<@U123>`, a channel `<#C123|name>`, `@here` `<!here>`, and `&`, `<`
+    and `>` are escaped. This undoes that, so the agent reads what was written
+    and a pasted `a < b & c` is not turned into entities."""
+
+    def token(match: re.Match) -> str:
+        body = match.group(1)
+        target, _, label = body.partition("|")
+        if target.startswith("@"):
+            return "@" + (label or target[1:])  # a person: the id is meaningless to the agent
+        if target.startswith("#"):
+            return "#" + (label or target[1:])
+        if target.startswith("!"):
+            special = target[1:].split("^")[0]
+            return label or "@" + special
+        if target.startswith("mailto:"):
+            return label or target[len("mailto:"):]
+        if label and label != target:
+            return f"{label} ({target})"
+        return target
+
+    text = _SLACK_TOKEN.sub(token, text)
+    return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+
+
 def escape(text: str) -> str:
     """`&`, `<` and `>` as Slack wants them in text."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

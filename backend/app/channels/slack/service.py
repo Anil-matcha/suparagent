@@ -35,6 +35,7 @@ from app.channels.slack import state
 from app.channels.slack.adapter import ACTION_ALLOW, ACTION_DENY, SlackAdapter
 from app.channels.slack.api import SlackApi, SlackAuthError, SlackError
 from app.channels.slack.events import ButtonClick, DirectMessage, parse
+from app.channels.slack.mrkdwn import from_slack
 from app.channels.slack.socket import SocketModeClient
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -336,7 +337,7 @@ class SlackService:
             return
         if message.user == config.bot_user_id:
             return
-        text = message.text.strip()
+        text = from_slack(message.text).strip()
         link = LINK_WORD.fullmatch(text)
         if link:
             if self._codes.redeem(link.group(1)):

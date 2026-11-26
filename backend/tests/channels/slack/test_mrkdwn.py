@@ -1,4 +1,4 @@
-from app.channels.slack.mrkdwn import to_mrkdwn
+from app.channels.slack.mrkdwn import from_slack, to_mrkdwn
 
 
 def test_bold_italic_and_strike():
@@ -54,3 +54,28 @@ def test_windows_line_endings_are_normalised():
 
 def test_plain_text_is_unchanged():
     assert to_mrkdwn("Just a sentence.") == "Just a sentence."
+
+
+def test_incoming_links_become_plain_text_with_their_address():
+    assert from_slack("a link to <https://example.com|example.com>") == "a link to example.com (https://example.com)"
+    assert from_slack("see <https://example.com/a?b=1&amp;c=2>") == "see https://example.com/a?b=1&c=2"
+    assert from_slack("<https://example.com|https://example.com>") == "https://example.com"
+    assert from_slack("mail <mailto:a@b.co|a@b.co>") == "mail a@b.co"
+    assert from_slack("mail <mailto:a@b.co>") == "mail a@b.co"
+
+
+def test_incoming_mentions_channels_and_broadcasts_are_readable():
+    assert from_slack("hi <@U123> and <@U123|ana>") == "hi @U123 and @ana"
+    assert from_slack("in <#C1|general>") == "in #general"
+    assert from_slack("<!here> and <!channel> and <!subteam^S1|@devs>") == "@here and @channel and @devs"
+
+
+def test_incoming_entities_are_unescaped_once():
+    assert from_slack("a &lt; b &amp; c &gt; d") == "a < b & c > d"
+    assert from_slack("&amp;lt;") == "&lt;"
+
+
+def test_plain_incoming_text_and_code_are_unchanged():
+    assert from_slack("just text") == "just text"
+    assert from_slack("`x &lt; y`") == "`x < y`"
+    assert from_slack("") == ""
