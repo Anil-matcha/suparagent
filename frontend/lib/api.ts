@@ -639,6 +639,20 @@ export type EngineLimit = {
   since: string;
   message: string;
 };
+export type EngineUsageWindow = {
+  name: string;
+  left_percent: number;
+  used_percent: number;
+  resets_at: string | null;
+};
+export type EngineUsageReport = {
+  engine: string;
+  name: string;
+  checked_at: number;
+  windows: EngineUsageWindow[];
+  primary_left_percent: number;
+  tone: "fine" | "near" | "out";
+};
 export type EngineConfigInput = {
   command?: string;
   label?: string;
@@ -1183,6 +1197,7 @@ export const api = {
   getNeedsYou: () => request<import("./needs-you").NeedsYouSnapshot>("/needs-you?refresh=true"),
   requestTeamLead: (agentId: number) => request<{ id: number; lead_agent_id: number }>("/team/lead", { method: "POST", body: JSON.stringify({ agent_id: agentId }) }),
   getEngines: (refresh = false) => request<Engine[]>(`/engines${refresh ? "?refresh=true" : ""}`),
+  getEngineUsageLimits: (engineId: string) => request<EngineUsageReport | null>(`/engines/${encodeURIComponent(engineId)}/usage-limits`),
   getEnginePreference: () => request<EnginePreference>("/engines/preference"),
   setEnginePreference: (preference: EnginePreference) => request<EnginePreference>("/engines/preference", { method: "PUT", body: JSON.stringify(preference) }),
   logoutClaudeEngine: () => request<void>("/engines/claude/logout", { method: "POST" }),

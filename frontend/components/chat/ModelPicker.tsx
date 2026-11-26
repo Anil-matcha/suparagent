@@ -15,7 +15,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import type { Engine, EngineModel } from "@/lib/api";
+import { api, type Engine, type EngineModel, type EngineUsageReport } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
 export interface ModelPickerProps {
@@ -64,6 +64,42 @@ export function EngineMark({ engineId, size = 14, className }: { engineId: strin
   return <Sparkles size={size} className={cn("text-accent shrink-0", className)} aria-hidden />;
 }
 
+/** Four rising bars indicating the remaining usage signal: empty and struck through when out. */
+export function UsageGlyph({
+  leftPercent,
+  tone,
+  className,
+}: {
+  leftPercent: number;
+  tone: "fine" | "near" | "out";
+  className?: string;
+}) {
+  const filled = leftPercent <= 0 ? 0 : leftPercent <= 20 ? 1 : leftPercent <= 40 ? 2 : leftPercent <= 70 ? 3 : 4;
+  const color = tone === "out" ? "text-red-500" : tone === "near" ? "text-amber-500" : "text-muted group-hover:text-ink";
+  return (
+    <svg width="14" height="12" viewBox="0 0 14 12" className={cn("shrink-0", color, className)} aria-hidden="true">
+      <rect x="0" y="8" width="2" height="4" rx="0.5" fill="currentColor" opacity={filled >= 1 ? 1 : 0.25} />
+      <rect x="4" y="5.5" width="2" height="6.5" rx="0.5" fill="currentColor" opacity={filled >= 2 ? 1 : 0.25} />
+      <rect x="8" y="3" width="2" height="9" rx="0.5" fill="currentColor" opacity={filled >= 3 ? 1 : 0.25} />
+      <rect x="12" y="0" width="2" height="12" rx="0.5" fill="currentColor" opacity={filled >= 4 ? 1 : 0.25} />
+      {tone === "out" && <path d="M1 11L13 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />}
+    </svg>
+  );
+}
+
+function formatResetTime(isoString: string): string {
+  try {
+    const at = Date.parse(isoString);
+    if (!Number.isFinite(at)) return isoString;
+    const date = new Date(at);
+    const now = new Date();
+    const isSameDay = date.toDateString() === now.toDateString();
+    return date.toLocaleTimeString(undefined, isSameDay ? { hour: "numeric", minute: "2-digit" } : { weekday: "short", hour: "numeric", minute: "2-digit" });
+  } catch {
+    return isoString;
+  }
+}
+
 const EFFORT_DESCRIPTIONS: Record<string, string> = {
   auto: "The model decides how long to think.",
   none: "Reasoning disabled.",
@@ -88,6 +124,7 @@ export function ModelPicker({
   const [search, setSearch] = useState("");
   const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({});
   const [thinkingOpen, setThinkingOpen] = useState(false);
+  const [usageReport, setUsageReport] = useState<EngineUsageReport | null>(null);
 
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -96,6 +133,21 @@ export function ModelPicker({
   const activeEngine = engines.find((e) => e.id === selectedProvider) ?? engines[0];
   const activeModelId = selectedModel ?? activeEngine?.default_model ?? activeEngine?.models[0]?.id ?? null;
   const activeModelObj = activeEngine?.models.find((m) => m.id === activeModelId);
+
+  // Fetch real usage limits whenever provider changes or popover opens
+  useEffect(() => {
+    let active = true;
+    api.getEngineUsageLimits(selectedProvider)
+      .then((rep) => {
+        if (active) setUsageReport(rep);
+      })
+      .catch(() => {
+        if (active) setUsageReport(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedProvider, open]);
 
   // Reasoning efforts support
   const supportsEffort = Boolean(
@@ -188,7 +240,7 @@ export function ModelPicker({
         aria-label={`Model: ${pillTitle}`}
         title={pillTitle}
         className={cn(
-          "group inline-flex h-8 max-w-[200px] sm:max-w-[260px] shrink-0 items-center gap-1.5 rounded-full border border-line bg-raised/70 px-2.5 text-[13px] font-medium text-ink transition-colors duration-150 hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 select-none shadow-xs cursor-pointer",
+          "group inline-flex h-8 max-w-[200px] sm:max-w-[280px] shrink-0 items-center gap-1.5 rounded-full border border-line bg-raised/70 px-2.5 text-[13px] font-medium text-ink transition-colors duration-150 hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 select-none shadow-xs cursor-pointer",
           open && "ring-1 ring-accent/60 bg-hover text-ink",
           className
         )}
@@ -197,6 +249,13 @@ export function ModelPicker({
           <EngineMark engineId={selectedProvider} size={14} />
         </span>
         <span className="truncate">{pillShortName}</span>
+        {usageReport && (
+          <UsageGlyph
+            leftPercent={usageReport.primary_left_percent}
+            tone={usageReport.tone}
+            className="ms-0.5"
+          />
+        )}
         <ChevronDown
           size={12}
           strokeWidth={2}
@@ -210,8 +269,44 @@ export function ModelPicker({
         <div
           role="dialog"
           aria-label="Model picker"
-          className="absolute bottom-full left-0 mb-2 w-[324px] sm:w-[340px] max-h-[480px] origin-bottom-left rounded-2xl border border-line bg-raised/95 shadow-2xl backdrop-blur-md z-50 flex flex-col overflow-hidden text-xs text-ink transition-all duration-150 animate-in fade-in zoom-in-95"
+          className="absolute bottom-full left-0 mb-2 w-[324px] sm:w-[340px] max-h-[500px] origin-bottom-left rounded-2xl border border-line bg-raised/95 shadow-2xl backdrop-blur-md z-50 flex flex-col overflow-hidden text-xs text-ink transition-all duration-150 animate-in fade-in zoom-in-95"
         >
+          {/* Real Usage Limits Card at top of dropdown (matches screenshot exactly) */}
+          {usageReport && usageReport.windows.length > 0 && (
+            <div className="border-b border-line/60 bg-inset/30 p-2.5 shrink-0">
+              <div className="flex items-baseline justify-between gap-2 mb-2">
+                <span className="text-[12px] font-semibold text-ink">{usageReport.name} usage</span>
+                <span className="text-[11px] text-muted">checked just now</span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {usageReport.windows.map((win) => (
+                  <div key={win.name} className="flex flex-col gap-1">
+                    <div className="flex items-baseline justify-between text-[11px]">
+                      <span className="text-muted font-medium">{win.name}</span>
+                      <span className="tabular-nums text-muted">
+                        <span className="font-semibold text-ink">{win.left_percent}% left</span>
+                        {win.resets_at && ` · resets ${formatResetTime(win.resets_at)}`}
+                      </span>
+                    </div>
+                    <div className="h-1 w-full overflow-hidden rounded-full bg-ink/[0.08]">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-300",
+                          win.left_percent <= 10
+                            ? "bg-red-500"
+                            : win.left_percent <= 25
+                              ? "bg-amber-500"
+                              : "bg-ink-tertiary/70"
+                        )}
+                        style={{ width: `${100 - win.left_percent}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Top Search Input */}
           <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/60 bg-inset/20 px-3">
             <Search size={15} className="shrink-0 text-muted" aria-hidden="true" />
