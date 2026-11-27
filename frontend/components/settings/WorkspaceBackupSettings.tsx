@@ -68,8 +68,18 @@ export function WorkspaceBackupSettings() {
   }, []);
 
   useEffect(() => {
-    void loadStatus();
-  }, [loadStatus]);
+    let active = true;
+    void fetch(`${API_BASE}/workspace-backup/status`, { credentials: "include" })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const body = (await res.json()) as BackupStatus;
+        if (active) setStatus(body);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const startExport = async (event: React.FormEvent) => {
     event.preventDefault();

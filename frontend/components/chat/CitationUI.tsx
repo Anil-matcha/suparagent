@@ -293,8 +293,7 @@ export function CitationBadge({
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
-  const rect = triggerRef.current?.getBoundingClientRect();
-  const point = { left: rect?.left ?? 16, top: (rect?.bottom ?? 16) + 6 };
+  const [point, setPoint] = useState({ left: 16, top: 22 });
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -332,7 +331,9 @@ export function CitationBadge({
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => {
+        onClick={(event) => {
+          const r = event.currentTarget.getBoundingClientRect();
+          setPoint({ left: r.left, top: r.bottom + 6 });
           setUnavailable(false);
           setOpen((v) => !v);
         }}
@@ -361,7 +362,6 @@ export function CitationBadge({
             aria-label="Quote details"
             ref={(el) => {
               detailsRef.current = el;
-              if (el) place(el, point);
             }}
             className={cn(POPOVER_CLASS, "w-[min(28rem,calc(100vw-1rem))]")}
             style={point}

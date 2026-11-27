@@ -66,8 +66,19 @@ export function ConnectedWorkspacesSettings() {
   }, [bridge]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!bridge) return;
+    let active = true;
+    void bridge({ action: "state" })
+      .then((result) => {
+        if (active) setState(result as EnvironmentsState);
+      })
+      .catch((err) => {
+        if (active) setError(err instanceof Error ? err.message : "Could not read workspace environments.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [bridge]);
 
   if (!bridge) return null;
 

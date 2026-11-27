@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api, ApiError, type AgentPromptPreview } from "@/lib/api";
 
 export function PromptPreview({ agentId }: { agentId: number }) {
@@ -20,12 +20,6 @@ export function PromptPreview({ agentId }: { agentId: number }) {
       setLoading(false);
     }
   }, [agentId]);
-
-  useEffect(() => {
-    if (open && !data && !loading) {
-      void load();
-    }
-  }, [open, data, loading, load]);
 
   return (
     <div className="rounded-field border border-line bg-surface/40 p-3 text-xs">
@@ -51,7 +45,10 @@ export function PromptPreview({ agentId }: { agentId: number }) {
           )}
           <button
             type="button"
-            onClick={() => setOpen((v) => !v)}
+            onClick={() => {
+              if (!open && !data && !loading) void load();
+              setOpen((v) => !v);
+            }}
             className="cursor-pointer rounded-md border border-line px-2.5 py-1 text-xs font-medium hover:bg-hover"
           >
             {open ? "Hide preview" : "Preview prompt"}

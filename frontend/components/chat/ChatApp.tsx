@@ -262,12 +262,35 @@ export function ChatApp() {
   const [todaySnapshot, setTodaySnapshot] = useState<NeedsYouSnapshot | null>(null);
   // Files chosen for the next message, and why one was refused.
   const [attached, setAttached] = useState<File[]>([]);
-  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
-  const [citations, setCitations] = useState<CitationAttachment[]>([]);
-  const [forkThreadId, setForkThreadId] = useState<number | null>(null);
-  const [findOpen, setFindOpen] = useState(false);
+  const [replyState, setReplyState] = useState<{ threadId: number | null; value: ReplyTarget | null }>({ threadId: null, value: null });
+  const replyTo = replyState.threadId === threadId ? replyState.value : null;
+  const setReplyTo = useCallback((value: ReplyTarget | null) => setReplyState({ threadId, value }), [threadId]);
+
+  const [citationState, setCitationState] = useState<{ threadId: number | null; items: CitationAttachment[] }>({ threadId: null, items: [] });
+  const citations = citationState.threadId === threadId ? citationState.items : [];
+  const setCitations = useCallback(
+    (updater: CitationAttachment[] | ((prev: CitationAttachment[]) => CitationAttachment[])) => {
+      setCitationState((prev) => {
+        const base = prev.threadId === threadId ? prev.items : [];
+        return { threadId, items: typeof updater === "function" ? updater(base) : updater };
+      });
+    },
+    [threadId],
+  );
+
+  const [forkState, setForkState] = useState<{ threadId: number | null; forkId: number | null }>({ threadId: null, forkId: null });
+  const forkThreadId = !panel && forkState.threadId === threadId ? forkState.forkId : null;
+  const setForkThreadId = useCallback((forkId: number | null) => setForkState({ threadId, forkId }), [threadId]);
+
+  const [findState, setFindState] = useState<{ threadId: number | null; open: boolean }>({ threadId: null, open: false });
+  const findOpen = findState.threadId === threadId ? findState.open : false;
+  const setFindOpen = useCallback((open: boolean) => setFindState({ threadId, open }), [threadId]);
+
   const [focusFindNonce, setFocusFindNonce] = useState(0);
-  const [pinsOpen, setPinsOpen] = useState(false);
+  const [pinsState, setPinsState] = useState<{ threadId: number | null; open: boolean }>({ threadId: null, open: false });
+  const pinsOpen = pinsState.threadId === threadId ? pinsState.open : false;
+  const setPinsOpen = useCallback((open: boolean) => setPinsState({ threadId, open }), [threadId]);
+
   const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
   const [retryingFailedId, setRetryingFailedId] = useState<string | null>(null);
   const [dismissedContextKey, setDismissedContextKey] = useState<string | null>(null);
@@ -277,22 +300,14 @@ export function ChatApp() {
   const [audioConsent, setAudioConsent] = useState(false);
 
   useEffect(() => {
-    setReplyTo(null);
-    setCitations([]);
-    setForkThreadId(null);
-    setFindOpen(false);
-    setPinsOpen(false);
-  }, [threadId]);
-
-  useEffect(() => {
     const sync = () => setFailedSends(loadFailedSends(threadId));
-    sync();
-    return subscribeFailedSends(threadId, sync);
+    const timer = window.setTimeout(sync, 0);
+    const unsubscribe = subscribeFailedSends(threadId, sync);
+    return () => {
+      window.clearTimeout(timer);
+      unsubscribe();
+    };
   }, [threadId]);
-
-  useEffect(() => {
-    if (panel) setForkThreadId(null);
-  }, [panel]);
   const [audioCapability, setAudioCapability] = useState<{ provider_label: string; available: boolean; retention: string } | null>(null);
   useEffect(() => { if (fullAccess) api.audioCapabilities().then(setAudioCapability).catch(() => setAudioCapability(null)); }, [fullAccess]);
   const [attachNotice, setAttachNotice] = useState<string | null>(null);
