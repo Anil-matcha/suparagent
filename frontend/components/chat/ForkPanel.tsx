@@ -17,6 +17,8 @@ import {
 import { pendingApprovals } from "@/lib/transcript";
 import { Composer } from "./Composer";
 import { ComposerFailedSends } from "./ComposerFailedSends";
+import { ContextWarning } from "./ContextWarning";
+import { measureContextWindow } from "@/lib/context-window";
 import { Conversation } from "./Conversation";
 import { useThreadStream } from "./useThreadStream";
 
@@ -61,6 +63,7 @@ export function ForkPanel({
   const [focusComposer, setFocusComposer] = useState(true);
   const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
   const [retryingFailedId, setRetryingFailedId] = useState<string | null>(null);
+  const [dismissedContextKey, setDismissedContextKey] = useState<string | null>(null);
   const [width, setWidth] = useState<number>(readSavedWidth);
   const draggingRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -97,6 +100,10 @@ export function ForkPanel({
 
   const waiting = pendingApprovals(transcript).length > 0;
   const agent = thread?.agent_id != null && agents ? agents.find((a) => a.id === thread.agent_id) ?? null : null;
+  const forkEngine = thread?.provider && engines ? engines.find((e) => e.id === thread.provider) ?? null : null;
+  const contextStatus = measureContextWindow(transcript.items, thread?.model ?? null, forkEngine);
+  const contextWarningKey =
+    contextStatus.severity === "none" ? null : `${threadId}:${contextStatus.severity}`;
   const blockedReason =
     stream.connection === "failed"
       ? stream.error
@@ -253,6 +260,12 @@ export function ForkPanel({
             }}
             onAddCitation={(citation) => setCitations((prev) => [...prev, citation])}
           />
+          {contextWarningKey && dismissedContextKey !== contextWarningKey && (
+            <ContextWarning
+              status={contextStatus}
+              onDismiss={() => setDismissedContextKey(contextWarningKey)}
+            />
+          )}
           <ComposerFailedSends
             items={failedSends}
             retryingId={retryingFailedId}

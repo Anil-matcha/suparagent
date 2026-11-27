@@ -60,6 +60,8 @@ import {
   type FailedSend,
 } from "@/lib/failed-sends";
 import { ComposerFailedSends } from "./ComposerFailedSends";
+import { measureContextWindow } from "@/lib/context-window";
+import { ContextWarning } from "./ContextWarning";
 import { isFindShortcut } from "@/lib/chat-find";
 import { isMacPlatform } from "@/lib/citations-dom";
 import { onboarding } from "@/lib/onboarding";
@@ -268,6 +270,7 @@ export function ChatApp() {
   const [pinsOpen, setPinsOpen] = useState(false);
   const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
   const [retryingFailedId, setRetryingFailedId] = useState<string | null>(null);
+  const [dismissedContextKey, setDismissedContextKey] = useState<string | null>(null);
   const failedFilesRef = useRef<Map<string, File[]>>(new Map());
   const audioAbort = useRef<AbortController | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
@@ -769,6 +772,9 @@ export function ChatApp() {
       ? "Tokens and cost by month"
       : `This conversation: ${formatTokens(totals.tokens)} tokens, ${formatCost(totals.cost)}` +
         (totals.reported < totals.turns ? ` (${totals.turns - totals.reported} turn(s) reported nothing)` : "");
+  const contextStatus = measureContextWindow(transcript.items, selectedModel, selectedEngine);
+  const contextWarningKey =
+    contextStatus.severity === "none" ? null : `${threadId ?? "new"}:${contextStatus.severity}`;
 
   let blockedReason: string | null = null;
   if (stream.connection === "failed") blockedReason = "This conversation cannot be opened.";
@@ -1702,6 +1708,13 @@ export function ChatApp() {
                 </div>
               </div>
             </div>
+          )}
+          {contextWarningKey && dismissedContextKey !== contextWarningKey && (
+            <ContextWarning
+              status={contextStatus}
+              onNewChat={() => startChat()}
+              onDismiss={() => setDismissedContextKey(contextWarningKey)}
+            />
           )}
           <ComposerFailedSends
             items={failedSends}
