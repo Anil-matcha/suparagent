@@ -121,16 +121,20 @@ def snapshot(workspace: str | Path, store: Path, snap_id: str, label: str = "") 
     blobs.mkdir(exist_ok=True, mode=0o700)
     # Reuse hashes of files whose size and mtime are unchanged since the newest snapshot.
     known: dict[str, dict] = {}
+    taken = 0.0
     newest = list_snapshots(store)
     if newest:
         try:
             known = _load(store, newest[0]["id"])["files"]
+            taken = newest[0]["created"]
         except SnapshotError:
             known = {}
     manifest: dict[str, dict] = {}
     for rel, full, st in files:
         prior = known.get(rel)
-        if prior and prior["size"] == st.st_size and prior["mtime"] == st.st_mtime_ns and (blobs / prior["sha"]).exists():
+        # Racily clean: a coarse mtime (ext4 ~4 ms, FAT 2 s) can hide a same-size edit made just after the last snapshot.
+        settled = st.st_mtime_ns < (taken - 2) * 1e9
+        if prior and settled and prior["size"] == st.st_size and prior["mtime"] == st.st_mtime_ns and (blobs / prior["sha"]).exists():
             sha = prior["sha"]
         else:
             data = Path(full).read_bytes()

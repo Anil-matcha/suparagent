@@ -53,6 +53,19 @@ def test_two_restores_in_the_same_millisecond_do_not_overwrite_each_other(env, m
     assert (ws / "a.txt").read_text() == "two"
 
 
+def test_same_size_edit_with_identical_mtime_is_not_missed(env):
+    ws, store = env
+    (ws / "a.txt").write_text("one")
+    snaps.snapshot(ws, store, "t1")
+    mtime = (ws / "a.txt").stat().st_mtime_ns
+    (ws / "a.txt").write_text("two")
+    os.utime(ws / "a.txt", ns=(mtime, mtime))
+    snaps.snapshot(ws, store, "t2")
+    snaps.restore(ws, store, "t1")
+    snaps.restore(ws, store, "t2")
+    assert (ws / "a.txt").read_text() == "two"
+
+
 def test_ignored_folders_and_links_are_left_alone(env, tmp_path):
     ws, store = env
     (ws / "node_modules").mkdir()
