@@ -300,7 +300,7 @@ Preset connection options:
 
 For example, `SUPARAGENT_ENGINES="@google/gemini-cli opencode-ai" docker compose build` installs those packages; a direct image build uses `--build-arg ENGINES="@google/gemini-cli opencode-ai"`. These optional package builds have not been run. Cursor's installer is outside the supported image build. Preset CLIs on Windows have not been enabled.
 
-`SUPARAGENT_PRESET_ENGINES` is a comma-separated selection of presets. Unset means Gemini, Cursor and OpenRouter. Set it to an empty string to disable all presets, or `gemini,cursor,openrouter,opencode` to also expose experimental OpenCode. OpenCode must remain opt-in until a real adversarial configuration check proves its permission override. Custom ACP and endpoint engines remain available.
+`SUPARAGENT_PRESET_ENGINES` is a comma-separated selection of presets. Unset means Gemini, Cursor, OpenRouter and LLMTR. Set it to an empty string to disable all presets, or `gemini,cursor,openrouter,llmtr,opencode` to also expose experimental OpenCode. OpenCode must remain opt-in until a real adversarial configuration check proves its permission override. Custom ACP and endpoint engines remain available.
 
 Saved keys are injected only into their engine's process and are readable by shell commands that process starts. Cursor credentials are not added to other engines' environments; existing globally allowed provider prefixes remain as described below. OpenCode strips ambient foreign API keys, removes configuration override variables, and pins project configuration off. Additional OpenCode provider-key maps are not implemented.
 

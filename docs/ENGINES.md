@@ -16,6 +16,7 @@ UI do not know which engine they are talking to.
 | `acp` | ACP agent | acp | any agent CLI that speaks the Agent Client Protocol, from a saved command |
 | `openai_compat` | OpenAI-compatible | api | `POST {base_url}/chat/completions`, streamed (Ollama, LM Studio, vLLM, hosted APIs) |
 | `openrouter` | OpenRouter | api | the OpenAI-compatible engine preset for `https://openrouter.ai/api/v1` |
+| `llmtr` | LLMTR | api | the OpenAI-compatible engine preset for `https://llmtr.com/v1` |
 
 ## Choose and configure an engine
 
@@ -43,7 +44,7 @@ endpoint, save its base URL (including `/v1` when required), optional default
 model and optional API key. Configuration is encrypted at rest. A blank key
 keeps the saved key for the same URL; changing the URL drops it unless you
 enter a key again. **Forget settings** deletes the configuration and credential.
-For OpenRouter, save an API key. The address is fixed to OpenRouter over HTTPS; configure a proxy with the generic OpenAI-compatible engine.
+For OpenRouter, save an API key. The address is fixed to OpenRouter over HTTPS; configure a proxy with the generic OpenAI-compatible engine. For LLMTR, save an API key from https://llmtr.com/dashboard/keys. The address is fixed to `https://llmtr.com/v1`; configure a proxy with the generic OpenAI-compatible engine.
 
 In **Agents → Model and approvals**, choose a reasoning effort for that agent's
 selected model when the model supports it. New conversations from the agent use
@@ -354,6 +355,23 @@ differences:
 Tested against a mock endpoint only; no turn has been run against the real
 OpenRouter service yet.
 
+
+## LLMTR
+
+A preset of the OpenAI-compatible engine (`LLMTRAdapter` in
+`backend/app/services/openai_chat_adapter.py`), registered as its own engine
+`llmtr` with its own saved configuration (`engine:llmtr`), so it can be set up
+beside a local endpoint or OpenRouter. Chat only, like any OpenAI-compatible
+endpoint: no tools, images or computers.
+
+- The address is fixed to `https://llmtr.com/v1`. Configuration requests
+  containing a different `base_url` are rejected. Use the OpenAI-compatible
+  engine for a proxy.
+- A key is required. Create one at https://llmtr.com/dashboard/keys. Readiness
+  is checked through `GET /models` with that key. A rejected key reports signed
+  out. A failed catalog request reports unavailable without displaying its body.
+- Model IDs use the `vendor/model` form, for example `minimax/minimax-m3.1-flash`.
+
 ## Limits and the fallback engine
 
 When an engine refuses a turn for a usage limit, a rate limit or a lack of
@@ -431,7 +449,7 @@ Gemini CLI (`gemini`) and Cursor (`cursor`) use the same ACP transport, approval
 - **Cursor:** install from [Cursor's CLI documentation](https://cursor.com/docs/cli), then `cursor-agent login` or save a key. Starts with `cursor-agent acp`, without automatic approval flags. Credentials suppress ACP browser authentication. Status and model discovery use bounded CLI commands. A selected model must be offered by the session and accepted by `session/set_model`; refusal ends the turn before the prompt. Cursor's `cursor/ask_question` extension is answered as unsupported, so it cannot hang waiting for a question card.
 - **OpenCode (experimental):** install `npm install -g opencode-ai` and run `opencode auth login`. Discovery uses `opencode models` without creating a session. A model must be offered by the session's configuration and confirmed by `session/set_config_option`. Additional saved provider-key maps are not implemented. OpenCode strips ambient foreign API keys and configuration overrides, pins project configuration off, and supplies `OPENCODE_PERMISSION` asking for every tool (edit/bash denied in plan mode, all tools denied when tools are off). This override has **not** been proven against hostile real CLI configuration; OpenCode is disabled by default.
 
-`SUPARAGENT_PRESET_ENGINES` selects enabled presets by comma-separated ID. Unset enables `gemini,cursor,openrouter,antigravity`. An empty value disables all presets; add `opencode` to also enable experimental OpenCode. Include `antigravity` when setting an explicit list to show Google account setup. Custom ACP and OpenAI-compatible engines are always registered. Preset CLIs are not supported on Windows yet.
+`SUPARAGENT_PRESET_ENGINES` selects enabled presets by comma-separated ID. Unset enables `gemini,cursor,openrouter,llmtr,antigravity`. An empty value disables all presets; add `opencode` to also enable experimental OpenCode. Include `antigravity` and `llmtr` when setting an explicit list if you want those presets. Custom ACP and OpenAI-compatible engines are always registered. Preset CLIs are not supported on Windows yet.
 
 For ask and accept-edits modes, Gemini always uses `--approval-mode default`, Cursor receives no automatic approval flag, and OpenCode receives ask rules. Every permission request uses the existing approval gate; accept-edits only auto-allows edits whose listed locations all lie inside the workspace. Plan mode and tools-off refuse permission requests. A vendor's own configuration can allow tools without sending a request, especially Cursor allow rules; these presets do not provide a filesystem sandbox. Review CLI configuration before enabling tools.
 

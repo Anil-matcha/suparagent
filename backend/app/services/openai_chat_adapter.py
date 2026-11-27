@@ -13,9 +13,9 @@ configuration (app/services/engine_config.py). The key goes only into the
 returned by the API, written to an event or put in the decision log, and an
 error message from the endpoint has it removed before it is shown.
 
-`OpenRouterAdapter` at the end is a preset of the same engine: OpenRouter's
-address filled in, its key required, and OpenRouter's optional app-attribution
-headers (sent to openrouter.ai only).
+`OpenRouterAdapter` and `LLMTRAdapter` at the end are presets of the same engine:
+OpenRouter's or LLMTR's address filled in, and a key required. OpenRouter also
+sends optional app-attribution headers (to openrouter.ai only).
 """
 
 import asyncio
@@ -558,3 +558,115 @@ class OpenRouterAdapter(OpenAIChatAdapter):
             probe = await self._probe_config(config)
             ctx.model = next((model.id for model in probe.models or [] if model.default), None)
         return await super().run_turn(ctx, sink, gate)
+
+
+LLMTR_BASE_URL = "https://llmtr.com/v1"
+
+
+class LLMTRAdapter(OpenAIChatAdapter):
+    preset = True
+    config_fields = [
+        {"name": "api_key", "label": "LLMTR API key", "kind": "secret", "required": True},
+        {"name": "model", "label": "Default model", "placeholder": "vendor/model"},
+    ]
+    setup = {
+        "credential": "api_key", "docs_url": "https://llmtr.com/dashboard/keys",
+        "notes": ["Create an LLMTR key and save it here. Chat only.",
+                  "Requests go to LLMTR's OpenAI-compatible gateway at https://llmtr.com/v1. Model IDs use the vendor/model form."],
+    }
+    """LLMTR (https://llmtr.com) as a preset of the OpenAI-compatible engine:
+    its own saved configuration (`engine:llmtr`), so it can sit beside a local
+    endpoint or OpenRouter. The address is fixed to LLMTR's, a key is required,
+    and models are IDs such as `minimax/minimax-m3.1-flash`."""
+
+    key = "llmtr"
+    label = "LLMTR"
+    max_models = 600
+    not_configured = "Add your LLMTR API key in Settings → Engines."
+
+    def validate_config(self, payload: dict, current: dict | None) -> dict:
+        base = payload.get("base_url")
+        if base and base.strip().rstrip("/") != LLMTR_BASE_URL:
+            raise InvalidConfig("LLMTR uses its fixed address. Use the OpenAI-compatible engine for a proxy.")
+        payload = {**payload, "base_url": LLMTR_BASE_URL}
+        config = super().validate_config(payload, current)
+        if not config.get("api_key"):
+            raise InvalidConfig("Give your LLMTR API key (llmtr.com → Dashboard → Keys).")
+        return config
+
+    async def status(self) -> ProviderStatus:
+        probe = await self.probe()
+        return ProviderStatus(ready=probe.ready, error=probe.reason, installed=probe.installed, signed_in=probe.signed_in)
+
+    async def probe(self) -> EngineProbe:
+        return await self._probe_config(self.config or {})
+
+    async def _probe_config(self, config: dict) -> EngineProbe:
+        if not config.get("api_key"):
+            return EngineProbe(installed=False, ready=False, reason=self.not_configured)
+        if config.get("base_url", LLMTR_BASE_URL) != LLMTR_BASE_URL:
+            return EngineProbe(
+                installed=True, ready=False,
+                reason="Use the OpenAI-compatible engine for a proxy, or save your LLMTR settings again.",
+            )
+        default = config.get("model")
+        try:
+            async with self._client(httpx.Timeout(PROBE_TIMEOUT_SECONDS)) as client:
+                response = await client.get(f"{LLMTR_BASE_URL}/models", headers=self._headers(config))
+        except httpx.HTTPError as exc:
+            return EngineProbe(
+                installed=True, ready=False,
+                reason=f"LLMTR did not answer ({exc.__class__.__name__}).",
+                models=[ModelOption(default, default, True)] if default else None,
+            )
+        if response.status_code in (401, 403):
+            return EngineProbe(installed=True, ready=False, signed_in=False, reason="LLMTR refused the key. Save a valid key in Settings → Engines.")
+        models: list[ModelOption] = []
+        if response.status_code == 200:
+            try:
+                data = response.json().get("data")
+            except (ValueError, AttributeError):
+                data = None
+            for item in (data if isinstance(data, list) else [])[:self.max_models]:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    mid = item["id"]
+                    is_reasoning = any(p in mid.lower() for p in ("o1", "o3-mini", "o3", "o4", "r1"))
+                    efforts = ("low", "medium", "high") if is_reasoning else ()
+                    models.append(
+                        ModelOption(
+                            mid,
+                            mid,
+                            mid == default,
+                            default_reasoning_effort="medium" if is_reasoning else None,
+                            supported_reasoning_efforts=efforts,
+                            reasoning_effort_configurable=bool(efforts),
+                        )
+                    )
+        elif response.status_code != 200:
+            return EngineProbe(installed=True, ready=False, reason=f"LLMTR catalog answered {response.status_code}. Try again later.")
+        if default and default not in {m.id for m in models}:
+            is_def_reasoning = any(p in default.lower() for p in ("o1", "o3-mini", "o3", "o4", "r1"))
+            def_efforts = ("low", "medium", "high") if is_def_reasoning else ()
+            models.insert(
+                0,
+                ModelOption(
+                    default,
+                    default,
+                    True,
+                    default_reasoning_effort="medium" if is_def_reasoning else None,
+                    supported_reasoning_efforts=def_efforts,
+                    reasoning_effort_configurable=bool(def_efforts),
+                ),
+            )
+        return EngineProbe(installed=True, ready=True, signed_in=True, models=models or None)
+
+    async def run_turn(self, ctx: TurnContext, sink, gate) -> TurnOutcome:
+        config = ctx.engine_config or self.config or {}
+        if not config.get("api_key") or config.get("base_url", LLMTR_BASE_URL) != LLMTR_BASE_URL:
+            return TurnOutcome(
+                "failed",
+                error="Save your LLMTR key in Settings → Engines. For a proxy use the OpenAI-compatible engine.",
+                error_code="engine_not_configured",
+            )
+        return await super().run_turn(ctx, sink, gate)
+
