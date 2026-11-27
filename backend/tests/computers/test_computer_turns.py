@@ -134,8 +134,8 @@ async def test_an_approved_command_runs_in_the_computer_not_on_the_host(rt, sess
     args = launch["args"]
     assert args[args.index("--tools") + 1] == ""  # no host tools at all
     config = json.loads(args[args.index("--mcp-config") + 1])
-    # the computer is the only source of host-like tools; the read-only memory search rides along
-    assert sorted(config["mcpServers"]) == ["computer", "memory"]
+    # the computer is the only source of host-like tools; the read-only memory search and the page viewer ride along
+    assert sorted(config["mcpServers"]) == ["computer", "memory", "pages"]
     assert "--strict-mcp-config" in args and "--permission-prompt-tool" in args
     assert "own computer" in launch["system_prompt"]
     assert cli.log("start")[0]["tools"] is True
@@ -230,12 +230,12 @@ async def test_an_agent_without_a_computer_runs_as_before(rt, sessions, cli, doc
     await finished(sessions, thread.id)
     args = cli.launches[-1]["args"]
     # No computer, no host tools: what is mounted is the agent's read-only memory search, asked about like any
-    # tool (docs/MEMORY.md), and the connected-apps server that only offers the request to connect an app
-    # (services/app_connection.py).
+    # tool (docs/MEMORY.md), the page viewer that only draws a sandboxed page in the chat, and the
+    # connected-apps server that only offers the request to connect an app (services/app_connection.py).
     assert docker.calls() == []
     assert args[args.index("--tools") + 1] == ""
     config = json.loads(args[args.index("--mcp-config") + 1])
-    assert list(config["mcpServers"]) == ["memory", "composio"]
+    assert list(config["mcpServers"]) == ["memory", "pages", "composio"]
 
 
 def test_build_args_with_a_computer(tmp_path):

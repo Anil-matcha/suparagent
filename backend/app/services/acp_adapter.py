@@ -37,7 +37,7 @@ from app.core import app_settings
 from app.core.logging import get_logger
 from app.services import local_claude_runner
 from app.services.local_approval_broker import MAX_REVIEWABLE_INPUT_CHARS
-from app.services import memory_bridge
+from app.services import memory_bridge, pages_bridge
 from app.services.provider_adapter import (
     ALLOW,
     LOST,
@@ -390,7 +390,7 @@ class _AcpTurn:
                 self.argv, cwd=str(self.workspace), max_bytes=self.max_text * RAW_STREAM_SIZE_FACTOR, env=self.env,
                 diagnostic=self.adapter.diagnostic if self.adapter.redact_diagnostics else None,
                 sandbox=True,
-                sandbox_writable=turn_sandbox.mailbox_mounts((self.ctx.team_launch, self.ctx.memory_launch)),
+                sandbox_writable=turn_sandbox.mailbox_mounts((self.ctx.team_launch, self.ctx.memory_launch, self.ctx.pages_launch)),
                 sandbox_readonly=[Path(image["path"]) for image in (self.ctx.images or [])],
             )
         except turn_sandbox.SandboxUnavailable as exc:
@@ -567,19 +567,22 @@ class _AcpTurn:
     def _mcp_servers(self) -> list[dict]:
         """The read-only past-conversation search, the only MCP server this app mounts
         for an ACP agent (stdio, as the protocol requires every agent to accept)."""
-        launch = self.ctx.memory_launch
-        if launch is None:
-            return []
-        return [{
-            "name": memory_bridge.SERVER, "command": launch.command, "args": list(launch.args),
-            "env": [{"name": k, "value": v} for k, v in launch.env.items()],
-        }]
+        servers = []
+        for server, launch in ((memory_bridge.SERVER, self.ctx.memory_launch), (pages_bridge.SERVER, self.ctx.pages_launch)):
+            if launch is not None:
+                servers.append({
+                    "name": server, "command": launch.command, "args": list(launch.args),
+                    "env": [{"name": k, "value": v} for k, v in launch.env.items()],
+                })
+        return servers
 
     def _prompt_text(self) -> str:
         parts = []
         instructions = self.ctx.instructions
         if self.ctx.memory_launch is not None:
             instructions = f"{instructions}\n\n{memory_bridge.TOOL_NOTE}" if instructions else memory_bridge.TOOL_NOTE
+        if self.ctx.pages_launch is not None:
+            instructions = f"{instructions}\n\n{pages_bridge.TOOL_NOTE}" if instructions else pages_bridge.TOOL_NOTE
         if instructions:
             parts.append(f"Standing instructions for this conversation:\n{instructions}\n\n")
         parts.append(self.preamble)
@@ -725,6 +728,15 @@ class _AcpTurn:
         ):
             # A read-only call to this turn's own memory server: no card, whatever the
             # approval mode (it only reads the agent's own history, memory_bridge.py).
+            self.rpc.respond(rid, payload(True))
+            return
+        if (
+            self.ctx.pages_launch is not None
+            and allow_id is not None
+            and kind in ("other", "read", "fetch")
+            and pages_bridge.is_pages_call(title=call.get("title"), raw=raw)
+        ):
+            # Only renders a sandboxed page in the chat (pages_bridge.py): no card.
             self.rpc.respond(rid, payload(True))
             return
         if not self.tools or self.mode == "plan":

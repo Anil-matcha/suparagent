@@ -28,11 +28,15 @@ class ApiError extends Error {
   // The backend's machine-readable cause when it gives one (for example
   // "turn_running"); null otherwise.
   code: string | null;
+  // The error's own object when it has extra fields (for example summary and confirmation on a page's needs_approval);
+  // null otherwise.
+  detail: Record<string, unknown> | null;
 
-  constructor(status: number, message: string, code: string | null = null) {
+  constructor(status: number, message: string, code: string | null = null, detail: Record<string, unknown> | null = null) {
     super(message);
     this.status = status;
     this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -170,14 +174,16 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
     let code: string | null = null;
+    let extra: Record<string, unknown> | null = null;
     try {
       const body = await res.json();
+      if (body?.detail && typeof body.detail === "object" && !Array.isArray(body.detail)) extra = body.detail;
       detail = formatErrorDetail(body?.detail, detail);
       if (typeof body?.detail?.error_code === "string") code = body.detail.error_code;
     } catch {
       // response body wasn't JSON — fall back to statusText
     }
-    const error = new ApiError(res.status, detail, code);
+    const error = new ApiError(res.status, detail, code, extra);
     if (res.status === 401 && isSignedOutError(error)) onSignedOut?.();
     throw error;
   }

@@ -32,6 +32,7 @@ from app.db.models import Room
 from app.db.transactions import begin_write
 from app.services import side_jobs, speaker
 from app.services.memory_bridge import MemoryBridge
+from app.services.pages_bridge import PagesBridge
 from app.services.composio_bridge import ComposioBridge, accounts_for, apps_for
 from app.services.community_mcp_bridge import CommunityMcpBridge
 from app.services.memory_capture import MemoryCapture, Turn as MemoryTurn
@@ -998,6 +999,14 @@ class ThreadRuntime:
             logger.exception("could not decide whether the agent may ask for an app", thread_id=run.thread_id)
             return False
 
+    async def _in_room(self, run) -> bool:
+        """A room thread never gets the page tools: the bot answers in text there."""
+        from app.db.models import Thread
+
+        async with self.session() as db:
+            thread = await db.get(Thread, run.thread_id)
+        return thread is None or thread.room_id is not None
+
     async def _composio_apps(self, run, adapter) -> dict:
         """Connected apps within current agent scopes and the routine's saved grant.
 
@@ -1285,6 +1294,7 @@ class ThreadRuntime:
         binding = None
         team_bridge = None
         memory_bridge = None
+        pages_bridge = None
         composio_bridge = None
         community_bridge = None
         try:
@@ -1323,6 +1333,11 @@ class ThreadRuntime:
                     memory_bridge = MemoryBridge(self, run)
                     run.ctx.memory_launch = memory_bridge.launch
                     memory_bridge.start()
+                if (run.agent_id is not None and not getattr(run.ctx, "draft_only", False) and capabilities_of(adapter).can_search_history
+                        and not await self._in_room(run)):
+                    pages_bridge = PagesBridge(self, run)
+                    run.ctx.pages_launch = pages_bridge.launch
+                    pages_bridge.start()
                 composio_apps = await self._composio_apps(run, adapter)
                 connect = await self._may_ask_for_apps(run, adapter)
                 if composio_apps or connect:
@@ -1375,6 +1390,8 @@ class ThreadRuntime:
                 await team_bridge.close()
             if memory_bridge is not None:
                 await memory_bridge.close()
+            if pages_bridge is not None:
+                await pages_bridge.close()
             if composio_bridge is not None:
                 await composio_bridge.close()
             if community_bridge is not None:
@@ -1520,7 +1537,7 @@ class ThreadRuntime:
             instructions=old.instructions,
             computer=old.computer,
             browser=old.browser,
-            team=old.team, team_launch=old.team_launch, memory_launch=old.memory_launch,
+            team=old.team, team_launch=old.team_launch, memory_launch=old.memory_launch, pages_launch=old.pages_launch,
             community_launch=old.community_launch, community_tools=list(old.community_tools),
             community_prompt_note=old.community_prompt_note,
             community_bridge=old.community_bridge,

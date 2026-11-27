@@ -408,3 +408,39 @@ test('an approval answered by a member keeps who answered it', () => {
     ev('approval.resolved', { approval_id: 'a2', status: 'denied' })]);
   assert.equal('resolvedPerson' in plain.items[0], false);
 });
+
+test('page.shown adds a page, replaces it in place on a higher rev and keeps ten revisions', () => {
+  reset();
+  const page = (rev, extra = {}) => ev('page.shown', { page_id: 'p1', rev, title: `T${rev}`, html: `<p>${rev}</p>`, uses: ['state'], ...extra });
+  let t = run([ev('turn.started', { prompt_text: 'hi' }), page(1), ev('assistant.message', { text: 'done' })]);
+  assert.deepEqual(kinds(t), ['user', 'page', 'assistant']);
+  assert.equal(t.items[1].height, 360);
+  assert.equal(t.items[1].frameless, false);
+  assert.deepEqual(t.items[1].uses, ['state']);
+  t = run([page(2, { height: 9999, frameless: true })], t);
+  assert.deepEqual(kinds(t), ['user', 'page', 'assistant']);
+  assert.equal(t.items[1].rev, 2);
+  assert.equal(t.items[1].height, 720);
+  assert.equal(t.items[1].frameless, true);
+  assert.equal(t.items[1].key, 'e2');
+  assert.deepEqual(t.items[1].versions.map((v) => v.rev), [1, 2]);
+  t = run([page(2, { title: 'again' }), page(1)], t);
+  assert.equal(t.items[1].title, 'T2');
+  for (let r = 3; r <= 14; r++) t = run([page(r)], t);
+  assert.equal(t.items[1].rev, 14);
+  assert.deepEqual(t.items[1].versions.map((v) => v.rev), [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+  assert.equal(t.items.filter((i) => i.kind === 'page').length, 1);
+});
+
+test('page.shown clamps small heights, separates pages by id and ignores malformed events', () => {
+  reset();
+  const t = run([
+    ev('page.shown', { page_id: 'a', rev: 1, html: 'x', height: 10 }),
+    ev('page.shown', { page_id: 'b', rev: 1, html: 'y' }),
+    ev('page.shown', { rev: 1, html: 'z' }),
+    ev('page.shown', { page_id: 'c', rev: 1 }),
+  ]);
+  assert.equal(t.items.length, 2);
+  assert.equal(t.items[0].height, 80);
+  assert.equal(t.items[0].title, 'Page');
+});

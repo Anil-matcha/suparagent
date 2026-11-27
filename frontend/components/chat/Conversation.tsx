@@ -30,6 +30,9 @@ import { NeedsYouCard } from "./NeedsYouCard";
 import { RoutineChangeCard } from "./RoutineChangeCard";
 import { SkillChangeCard } from "./SkillChangeCard";
 import { AppConnectionCard } from "./AppConnectionCard";
+import { PageCard } from "./PageCard";
+import { useToast } from "@/components/ui/Toast";
+import { listSavedApps, saveApp, saveErrorMessage, type SavedApp } from "@/lib/saved-apps";
 import { DelegationCard, AgentCreatedCard, TeamNoticeCard, TeamSetupCard } from "./TeamCards";
 
 const STICK_DISTANCE_PX = 80;
@@ -123,6 +126,30 @@ export function Conversation({
   const scroller = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
   const [away, setAway] = useState(false);
+  const toast = useToast();
+  // Saved apps of this conversation, by page id; fetched once a page shows up so a reload keeps "Saved".
+  const [savedPages, setSavedPages] = useState<Record<string, SavedApp>>({});
+  const [savingPages, setSavingPages] = useState<string[]>([]);
+  const hasPage = transcript.items.some((item) => item.kind === "page");
+  useEffect(() => {
+    if (!hasPage || threadId === null) return;
+    let cancelled = false;
+    listSavedApps().then((apps) => {
+      if (cancelled) return;
+      const found: Record<string, SavedApp> = {};
+      for (const app of apps) if (app.thread_id === threadId) found[app.page_id] = app;
+      setSavedPages((current) => ({ ...found, ...current }));
+    }).catch(() => { /* the button simply stays "Save as app" */ });
+    return () => { cancelled = true; };
+  }, [hasPage, threadId]);
+  const savePage = (pageId: string) => {
+    if (threadId === null || savingPages.includes(pageId)) return;
+    setSavingPages((ids) => [...ids, pageId]);
+    saveApp({ thread_id: threadId, page_id: pageId })
+      .then((app) => { setSavedPages((current) => ({ ...current, [pageId]: app })); toast("Saved as an app."); })
+      .catch((err) => toast(saveErrorMessage(err), "danger"))
+      .finally(() => setSavingPages((ids) => ids.filter((id) => id !== pageId)));
+  };
 
   useEffect(() => {
     const el = scroller.current;
@@ -206,6 +233,9 @@ export function Conversation({
               switch (item.kind) {
                 case "needs_you":
                   node = <NeedsYouCard key={item.key} item={item} />;
+                  break;
+                case "page":
+                  node = <PageCard key={item.key} item={item} onSend={sendingReactionReplyDisabled ? undefined : onReactionReply} onSave={threadId === null ? undefined : (page) => savePage(page.pageId)} saved={savedPages[item.pageId] ?? null} saving={savingPages.includes(item.pageId)} threadId={threadId} />;
                   break;
                 case "team_job":
                   node = <DelegationCard key={item.key} item={item} />;

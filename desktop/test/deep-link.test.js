@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { deepLinkPath, deepLinkFromArgv, createDeepLinkHandler } = require("../src/deep-link");
+const { deepLinkPath, deepLinkTarget, deepLinkFromArgv, createDeepLinkHandler } = require("../src/deep-link");
 
 test("a chat or room link becomes an in-app path", () => {
   assert.equal(deepLinkPath("suparagent://chat?thread=3"), "/chat/?thread=3");
@@ -45,4 +45,48 @@ test("a failing navigation does not throw", async () => {
   handler.ready();
   assert.equal(handler.open("suparagent://chat?thread=1"), true);
   await new Promise((r) => setImmediate(r));
+});
+
+const ID = "sa_AbCdEf0123456789";
+
+test("a saved-app link opens the app page, in its own window only with window=1", () => {
+  assert.equal(deepLinkPath(`suparagent://app/${ID}`), `/apps/view/?id=${ID}`);
+  assert.equal(deepLinkPath(`suparagent://app/${ID}/`), `/apps/view/?id=${ID}`);
+  assert.equal(deepLinkPath(`suparagent://app/${ID}?window=1`), `/apps/view/?id=${ID}&window=1`);
+  assert.deepEqual(deepLinkTarget(`suparagent://app/${ID}?window=1`), { path: `/apps/view/?id=${ID}&window=1`, appWindowId: ID });
+  assert.deepEqual(deepLinkTarget(`suparagent://app/${ID}`), { path: `/apps/view/?id=${ID}` });
+});
+
+test("saved-app links with anything extra are refused", () => {
+  for (const bad of [
+    `suparagent://app/${ID}?window=0`, `suparagent://app/${ID}?window=1&x=1`, `suparagent://app/${ID}?x=1`, `suparagent://app/${ID}?window=1#h`,
+    `suparagent://app/${ID}#h`, `suparagent://app/${ID}/extra`, `suparagent://app/${ID}x`, "suparagent://app/sa_short", "suparagent://app/",
+    "suparagent://app", "suparagent://app/sa_AbCdEf012345678!", "suparagent://app/xx_AbCdEf0123456789", `suparagent://u:p@app/${ID}`,
+    `suparagent://app:80/${ID}`, `suparagent://apps/${ID}`, `https://app/${ID}`, `suparagent://app/${ID}?window=1&${"a".repeat(260)}`,
+    `suparagent://app//${ID}`, `suparagent://app/%73a_AbCdEf0123456789`,
+  ]) {
+    assert.equal(deepLinkPath(bad), null, bad);
+  }
+});
+
+test("a saved-app link is found in the command line", () => {
+  assert.equal(deepLinkFromArgv(["Suparagent.exe", `suparagent://app/${ID}?window=1`]), `suparagent://app/${ID}?window=1`);
+  assert.equal(deepLinkFromArgv(["x", "suparagent://app/bad"]), null);
+});
+
+test("a window link opens the app window and leaves the main window alone; other app links navigate", () => {
+  const events = [];
+  const handler = createDeepLinkHandler({
+    navigate: (p) => events.push(`nav ${p}`),
+    focus: () => events.push("focus"),
+    openAppWindow: (id) => events.push(`win ${id}`),
+  });
+  assert.equal(handler.open(`suparagent://app/${ID}?window=1`), true);
+  assert.deepEqual(events, []);
+  handler.ready();
+  assert.deepEqual(events, [`win ${ID}`]);
+  handler.open(`suparagent://app/${ID}`);
+  assert.deepEqual(events.slice(1), ["focus", `nav /apps/view/?id=${ID}`]);
+  handler.open("suparagent://chat?thread=4");
+  assert.deepEqual(events.slice(3), ["focus", "nav /chat/?thread=4"]);
 });

@@ -30,7 +30,7 @@ from app.computers import grants
 from app.computers.service import COMPUTER_TOOL_PREFIX
 from app.core import app_settings
 from app.core.logging import get_logger
-from app.services import engine_errors, local_claude_runner, memory_bridge
+from app.services import engine_errors, local_claude_runner, memory_bridge, pages_bridge
 from app.services.local_approval_broker import (
     DENY_BY_USER,
     DENY_CANCELLED,
@@ -234,7 +234,7 @@ class ClaudeAdapter:
         # The memory search is an MCP tool asked about like any other: the turn
         # then runs with approvals, but with the host's own tools off unless
         # they were on already.
-        tools = host_tools or ctx.memory_launch is not None or ctx.composio_launch is not None or ctx.browser is not None or ctx.community_launch is not None
+        tools = host_tools or ctx.memory_launch is not None or ctx.pages_launch is not None or ctx.composio_launch is not None or ctx.browser is not None or ctx.community_launch is not None
         attempt = await self._attempt(ctx, sink, gate, resume=ctx.resume, tools=tools, host_tools=host_tools)
         if attempt.already_in_use and not attempt.resume and not ctx.aborted:
             attempt = await self._attempt(ctx, sink, gate, resume=True, tools=tools, host_tools=host_tools)
@@ -425,6 +425,9 @@ class ClaudeAdapter:
         if ctx.memory_launch is not None:
             servers["memory"] = ctx.memory_launch
             notes.append(memory_bridge.TOOL_NOTE)
+        if ctx.pages_launch is not None:
+            servers["pages"] = ctx.pages_launch
+            notes.append(pages_bridge.TOOL_NOTE)
         if ctx.composio_launch is not None:
             servers["composio"] = ctx.composio_launch
             if not ctx.routine_uninterrupted:

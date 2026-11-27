@@ -18,6 +18,7 @@ import { Banner } from "@/components/ui/Banner";
 import { SkeletonList } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SavedAppsSection } from "@/components/SavedAppsSection";
 
 const CHIP = "cursor-pointer rounded-full border border-line px-3 py-1 text-sm hover:bg-hover";
 const CHIP_ON = "cursor-pointer rounded-full border border-ink bg-ink px-3 py-1 text-sm text-surface";
@@ -48,6 +49,7 @@ export function AppsApp() {
         <h2 className="text-xl font-semibold">Apps</h2>
         <p className="mt-2 text-sm text-muted">Connect an app once, then choose which agents may use it under Agents → choose an agent → Connected apps. Connecting an app does not give any agent access. Agents can use an allowed app only in conversations you start.</p>
       </div>
+      <SavedAppsSection />
       <AppsBrowser />
     </main>
   </div>;

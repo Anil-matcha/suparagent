@@ -8,6 +8,8 @@ from app.routers.providers import router as providers_router
 from app.routers.agents import router as agents_router
 from app.routers.shadow import router as shadow_router
 from app.routers.worker_labels import router as worker_labels_router
+from app.routers.saved_apps import router as saved_apps_router
+from app.routers.page_rpc import router as page_rpc_router
 from app.routers.history_learning import router as history_learning_router
 from app.routers.agent_skills import router as agent_skills_router
 from app.routers.threads import router as threads_router
@@ -59,6 +61,8 @@ router.include_router(providers_router)
 router.include_router(agents_router)
 router.include_router(shadow_router)
 router.include_router(worker_labels_router)
+router.include_router(saved_apps_router)
+router.include_router(page_rpc_router)
 router.include_router(history_learning_router)
 router.include_router(agent_skills_router)
 router.include_router(threads_router)
