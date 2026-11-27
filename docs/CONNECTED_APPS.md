@@ -247,7 +247,7 @@ Slack is a chat channel, not a tool: you send a direct message to a Slack app of
 Discord is an owner-only chat channel. You send a direct message to a bot you create, one chosen agent answers, and approval requests have **Allow** and **Deny** buttons. The backend connects to Discord's Gateway over an outbound WebSocket. It works only while Suparagent is running and is not offered on a hosted workspace.
 
 1. Create an application in the [Discord Developer Portal](https://discord.com/developers/applications). On its **Bot** page, copy or reset the bot token. Keep it private.
-2. Under **Installation**, enable a server install with the `bot` scope, then install it in a server you belong to. Open a direct message with the bot. Do not set an Interactions Endpoint URL: button interactions arrive over the Gateway.
+2. Under **Installation**, check **Guild Install**. In **Default Install Settings → Guild Install**, add the `bot` scope. Use the Discord Provided Link to add the bot to a server you belong to, then open a direct message with it. Do not set an Interactions Endpoint URL: button interactions arrive over the Gateway.
 3. In **Settings → Integrations → Discord**, paste the bot token and connect. The backend checks it with Discord and stores it encrypted and write-only. Disconnect deletes it.
 4. Choose the agent, select **Link my Discord account**, and DM the bot the shown `link 123456` code. It expires after 10 minutes, works once, and five wrong attempts cancel it. Send `new` in the DM to start a fresh conversation.
 

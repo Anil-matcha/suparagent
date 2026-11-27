@@ -82,7 +82,7 @@ export function DiscordPanel({ manifest, agents }: { manifest: ChannelIntegratio
     <div className="space-y-4">
       <ol className="list-decimal space-y-2 pl-5 text-sm">
         <li>Create an app in the Discord Developer Portal. On its <strong>Bot</strong> page, create or reset the bot token.</li>
-        <li>On <strong>Installation</strong>, enable a server install with the <code>bot</code> scope. Install it in a server you belong to, then open a direct message with the bot. No privileged Message Content intent is needed for DMs.</li>
+        <li>On <strong>Installation</strong>, check <strong>Guild Install</strong>. In <strong>Default Install Settings → Guild Install</strong>, add the <code>bot</code> scope. Use the Discord Provided Link to add the bot to a server you belong to, then open a direct message with it. No privileged Message Content intent is needed for DMs.</li>
         <li>Paste the bot token here. This app connects to Discord over an outbound Gateway connection; do not set an Interactions Endpoint URL.</li>
       </ol>
       <label className="block text-sm">Bot token
