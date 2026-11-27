@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Closing the Suparagent desktop window hides it to a tray icon when one can be created, so routines and running turns keep going. Use the tray's Quit item or quit the app to stop the backend. Lifecycle tests cover closing, reopening and quitting; packaged tray behavior across platforms remains unverified.
+
 ## 0.8.9 - 2026-11-27
 
 Desktop 0.8.9: a new model picker in the chat composer with real engine usage limits, managed engine installs on Windows with real download progress, the support worker's shadow mode, label controls and Gmail new-mail trigger, plus MuAPI integrations (spoken replies and agent pictures). Installed apps pick it up from Settings → App updates.
