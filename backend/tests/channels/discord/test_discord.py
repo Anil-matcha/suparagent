@@ -45,7 +45,11 @@ def click(user="123", channel="789", author="999", action=ACTION_ALLOW):
 def test_only_plain_dms_and_button_clicks_are_parsed():
     assert isinstance(parse(dm("hi")), DirectMessage)
     assert parse(dm("hi", guild=True)) is None
-    assert parse(dm("edit", kind=19)) is None
+    # Discord's Reply feature sends type 19; an owner who replies to the bot must be heard.
+    assert isinstance(parse(dm("a reply", kind=19)), DirectMessage)
+    # System messages (a call, a slash command) are not the owner typing.
+    for system in (3, 7, 20, 21):
+        assert parse(dm("system", kind=system)) is None
     assert isinstance(parse(click()), ButtonClick)
     assert parse({"op": 0, "t": "MESSAGE_UPDATE", "d": dm("x")["d"]}) is None
 
@@ -54,6 +58,25 @@ def test_gateway_address_is_restricted_to_discord():
     assert gateway_url("wss://gateway.discord.gg") == "wss://gateway.discord.gg/?v=10&encoding=json"
     with pytest.raises(Exception):
         gateway_url("wss://gateway.discord.gg.evil.test/")
+
+
+@pytest.mark.parametrize("url", [
+    "ws://gateway.discord.gg/",                      # not encrypted
+    "wss://user:pass@gateway.discord.gg/",           # credentials in the address
+    "wss://gateway.discord.gg:8443/",                # not the standard port
+    "wss://gateway.discord.gg@evil.test/",           # the real host is after the @
+    "wss://evil.test/gateway.discord.gg",            # Discord's name only in the path
+    "wss://notgateway.discord.gg/",
+    "",
+])
+def test_other_gateway_addresses_are_refused(url):
+    with pytest.raises(Exception):
+        gateway_url(url)
+
+
+@pytest.mark.parametrize("url", ["wss://gateway.discord.gg", "wss://gateway.discord.gg:443/", "wss://gateway-us-east1-b.discord.gg"])
+def test_discord_gateway_addresses_are_accepted(url):
+    assert gateway_url(url).startswith("wss://gateway")
 
 
 def test_link_code_expires_and_five_wrong_attempts_cancel_it():
@@ -295,11 +318,13 @@ async def test_only_linked_owner_in_linked_dm_reaches_bridge(world):
 
     service._bridge.on_owner_message = capture
     for event in [dm("wrong user", user="456"), dm("wrong dm", channel="790"),
-                  dm("bot", bot=True), dm("edit", kind=19), dm("guild", guild=True)]:
+                  dm("bot", bot=True), dm("a call", kind=3), dm("guild", guild=True)]:
         await service.handle_event(event)
     assert calls == []
     await service.handle_event(dm("hello"))
-    assert calls == ["hello"]
+    # The owner using Discord's Reply feature (message type 19) is still the owner typing.
+    await service.handle_event(dm("a reply", kind=19))
+    assert calls == ["hello", "a reply"]
 
 
 async def test_switching_to_a_different_bot_clears_the_link(world):

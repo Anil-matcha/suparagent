@@ -1,5 +1,10 @@
 """Parse only owner-addressable Discord DMs and approval button interactions."""
 
+# A person's own message is type 0, or type 19 when sent with Discord's Reply
+# feature (checked against Discord's message type table, 2026-11-27). An edit is
+# a different event (MESSAGE_UPDATE), and other types are system messages.
+PERSON_MESSAGE_TYPES = (0, 19)
+
 from dataclasses import dataclass
 
 
@@ -30,7 +35,7 @@ def parse(event: dict) -> DirectMessage | ButtonClick | None:
     if event.get("t") == "MESSAGE_CREATE":
         author = data.get("author")
         if (data.get("guild_id") is not None or not isinstance(author, dict)
-                or data.get("type") != 0):
+                or data.get("type") not in PERSON_MESSAGE_TYPES):
             return None
         user, channel, message_id, text = (
             author.get("id"), data.get("channel_id"), data.get("id"), data.get("content"),
