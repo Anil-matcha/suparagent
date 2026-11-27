@@ -233,6 +233,26 @@ async def test_accept_edits_allows_only_edits_inside_the_workspace(art, sessions
     await finished(sessions, thread.id, count=2)
 
 
+async def test_acp_auto_approves_own_reads_and_web_search_in_permissive_modes(art, sessions, owner, acp, monkeypatch):
+    monkeypatch.setattr(settings, "LOCAL_TOOLS_ENABLED", True)
+    thread = await acp_thread(art, sessions, owner, mode="approve_for_me")
+    inside = str(Path(thread.workspace_path) / "README.md")
+    acp.plan({"type": "permission", "kind": "read", "locations": [inside]})
+    await art.send_turn(thread.id, "read readme")
+    await finished(sessions, thread.id)
+
+    acp.plan({"type": "permission", "kind": "search", "locations": []})
+    (acp.folder / "prompts").unlink()
+    await art.send_turn(thread.id, "search web")
+    await finished(sessions, thread.id, count=2)
+
+    answers = acp.answers()
+    assert [a["result"]["outcome"]["optionId"] for a in answers] == ["once", "once"]
+    async with sessions() as db:
+        approvals = await store.list_approvals(db, thread.id)
+    assert [(a.tool, a.status) for a in approvals] == [("acp:read", "allowed"), ("acp:search", "allowed")]
+
+
 async def test_file_system_requests_are_refused(art, sessions, owner, acp):
     acp.plan({"type": "fs"})
     thread = await acp_thread(art, sessions, owner)

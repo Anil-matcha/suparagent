@@ -7,6 +7,10 @@ from app.services import composio_policy, safety_floor, tool_scope as tool_scope
 from app.team import policy as teams
 
 FILE_WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
+FILE_READ_TOOLS = frozenset({"Read", "Glob", "Grep", "LS", "View", "acp:read"})
+WEB_SEARCH_TOOLS = frozenset({"WebSearch", "web_search", "google_web_search", "search_web", "acp:search"})
+AUTO_WEB_SEARCH_MODES = frozenset({"accept_edits", "approve_for_me", "full_access"})
+_READ_PATH_KEYS = ("file_path", "path", "file", "target_file", "directory")
 
 
 def qualify_tool_name(tool: str, arguments: object = None) -> str:
@@ -52,6 +56,61 @@ def _inside(path, workspace):
     except (ValueError, OSError):
         return False
     return True
+
+
+def _read_target_paths(arguments: object) -> list[str]:
+    if not isinstance(arguments, dict):
+        return []
+    targets: list[str] = []
+    locations = arguments.get("locations")
+    if isinstance(locations, list):
+        for loc in locations:
+            if isinstance(loc, str) and loc.strip():
+                targets.append(loc)
+    for key in _READ_PATH_KEYS:
+        val = arguments.get(key)
+        if isinstance(val, str) and val.strip():
+            targets.append(val)
+    return targets
+
+
+def _own_read_roots(run) -> list[Path]:
+    roots: list[Path] = []
+    ctx = getattr(run, "ctx", None)
+    workspace = getattr(ctx, "workspace", None) if ctx is not None else None
+    if isinstance(workspace, (str, Path)) and str(workspace).strip():
+        roots.append(Path(workspace))
+    agent_id = getattr(run, "agent_id", None)
+    if agent_id is None and ctx is not None:
+        agent_id = getattr(ctx, "agent_id", None)
+    if agent_id is not None:
+        from app.services import agent_memory
+        roots.append(agent_memory.agent_home(int(agent_id)))
+    return roots
+
+
+def _within_root(target: str, root: Path) -> bool:
+    raw = target.strip()
+    if not raw:
+        return False
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    try:
+        candidate.resolve().relative_to(root.resolve())
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def _is_own_file_read(run, arguments: object) -> bool:
+    targets = _read_target_paths(arguments)
+    if not targets:
+        return False
+    roots = _own_read_roots(run)
+    if not roots:
+        return False
+    return all(any(_within_root(target, root) for root in roots) for target in targets)
 
 
 def _full_access(tool, run, arguments):
@@ -146,6 +205,10 @@ def automatic(tool, mode, run, arguments):
                 else:
                     calls.discard(key)
         return decision
+    if tool in WEB_SEARCH_TOOLS and mode in AUTO_WEB_SEARCH_MODES:
+        return "allowed", "auto_web_search"
+    if tool in FILE_READ_TOOLS and _is_own_file_read(run, arguments):
+        return "allowed", "own_file_read"
     if mode == "full_access" and not tool.startswith("mcp__"):
         return _full_access(tool, run, arguments)
     # Screen grants are turn scoped and are never persisted as command rules.
