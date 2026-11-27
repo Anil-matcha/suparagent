@@ -159,3 +159,25 @@ test("closeAll destroys every app window", () => {
   assert.ok(h.made.every((w) => w.state.destroyed));
   assert.equal(h.windows.has(ID), false);
 });
+
+test("the size is also kept shortly after a resize, so a window that goes away without a close event keeps it", async () => {
+  const h = harness({ sizeFor: { width: 700, height: 500 } });
+  h.windows.open(ID);
+  const store = createSizeStore({ fs, dir: h.userData });
+  assert.equal(store.get(ID), null);
+  h.made[0].handlers.resize();
+  h.made[0].handlers.resize(); // a drag fires many: only the last one counts
+  assert.equal(store.get(ID), null); // not yet: it waits for the resizing to settle
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  assert.deepEqual([store.get(ID).width, store.get(ID).height], [777, 555]);
+  h.made[0].handlers.closed();
+});
+
+test("a window closed before the resize timer fires cancels it", async () => {
+  const h = harness({ sizeFor: { width: 700, height: 500 } });
+  h.windows.open(ID);
+  h.made[0].handlers.resize();
+  h.made[0].handlers.closed(); // gone without a close event: nothing may run afterwards
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  assert.equal(createSizeStore({ fs, dir: h.userData }).get(ID), null);
+});

@@ -10,6 +10,7 @@ const DEFAULT_SIZE = { width: 1100, height: 760 };
 const MIN_SIZE = { width: 420, height: 360 };
 const MAX_REMEMBERED = 100;
 const SIZES_FILE = "app-window-sizes.json";
+const RESIZE_SAVE_MS = 400;
 
 /** A window size kept within the minimum and the screen's usable area. */
 function clampSize(size, workArea) {
@@ -107,8 +108,19 @@ function createAppWindows({ BrowserWindow, screen, fs, userData, preloadPath, ge
         // Closing: no size to keep.
       }
     };
-    win.on("close", remember);
+    // Also keep the size a moment after each resize, so a window that goes away without a close event (a crash, a forced
+    // quit, a close from inside the page) still comes back at the size it had.
+    let resizeTimer = null;
+    win.on("resize", () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(remember, RESIZE_SAVE_MS);
+    });
+    win.on("close", () => {
+      clearTimeout(resizeTimer);
+      remember();
+    });
     win.on("closed", () => {
+      clearTimeout(resizeTimer);
       if (open.get(id) === win) open.delete(id);
     });
     open.set(id, win);
