@@ -42,12 +42,12 @@ READ_TOOL_SPEC = {
 
 
 class Server:
-    def __init__(self, mailbox, levels, exact_tools=None, *, uninterrupted=False):
+    def __init__(self, mailbox, levels, exact_tools=None, *, uninterrupted=False, connect=False):
         self.mailbox = Path(mailbox)
-        self.tools = composio_tools.mcp_tools(levels, routine_tools=exact_tools is not None, uninterrupted=uninterrupted)
+        self.tools = composio_tools.mcp_tools(levels, routine_tools=exact_tools is not None, uninterrupted=uninterrupted, connect=connect)
         if exact_tools is not None:
             self.tools = [t for t in self.tools if t["name"] in exact_tools]
-        if any(t["name"] != "list_accounts" for t in self.tools):
+        if any(t["name"] not in ("list_accounts", composio_tools.CONNECT) for t in self.tools):
             self.tools = self.tools + [READ_TOOL_SPEC]
         self.names = {tool["name"] for tool in self.tools}
 
@@ -96,10 +96,11 @@ def main():
     parser.add_argument("--apps", default="")
     parser.add_argument("--exact-tools", default=None)
     parser.add_argument("--uninterrupted", action="store_true")
+    parser.add_argument("--connect", action="store_true")
     arguments = parser.parse_args()
     levels = dict(pair.split("=", 1) for pair in arguments.apps.split(",") if "=" in pair)
     server = Server(arguments.mailbox, levels, arguments.exact_tools.split(",") if arguments.exact_tools is not None else None,
-                    uninterrupted=arguments.uninterrupted)
+                    uninterrupted=arguments.uninterrupted, connect=arguments.connect)
     for line in sys.stdin:
         try:
             if len(line) > 100000:

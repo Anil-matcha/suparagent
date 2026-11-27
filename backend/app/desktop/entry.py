@@ -135,8 +135,10 @@ def main(stdin=None, handshake_timeout: float = handshake.DEFAULT_TIMEOUT_SECOND
     # App-managed engines are separate from any CLI installed by the person.
     # These stable paths also discover a completed install without an app restart.
     import os
-    managed = [str(desktop.data_dir / "engine-runtimes" / name / "current" / "bin")
-               for name in ("claude", "codex", "opencode")]
+    managed = []
+    for name in ("claude", "codex", "opencode"):
+        managed.append(str(desktop.data_dir / "engine-runtimes" / name / "current" / "bin"))
+        managed.append(str(desktop.data_dir / "engine-runtimes" / name / "current"))
     os.environ["PATH"] = os.pathsep.join([*managed, os.environ.get("PATH", "")])
     profile.activate(desktop)
     launch_auth.install(message.token)

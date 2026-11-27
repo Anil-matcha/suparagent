@@ -953,7 +953,7 @@ class ThreadRuntime:
                 ctx.team = TurnTeam(team.id, agent.id, team.lead_agent_id == agent.id,
                                     app_settings.get("TEAM_LEAD_AUTO"), origin=team_origin,
                                     delegation_enabled=agent.delegation_enabled, configuration_allowed=configuration_allowed,
-                                    setup_allowed=setup_allowed)
+                                    setup_allowed=setup_allowed, profile_auto=bool(app_settings.get("TEAM_PROFILE_AUTO")))
                 from app.team import prompt as team_prompt
                 async with self.session() as db:
                     intro = await team_prompt.build(db, team=team, agent=agent, owner_id=self.owner_id)
@@ -971,6 +971,26 @@ class ThreadRuntime:
         run.task = asyncio.create_task(self._run(run, adapter, capabilities_of(adapter).computers))
         self.hub.notify(thread_id)
         return turn
+
+    async def _may_ask_for_apps(self, run, adapter) -> bool:
+        """Whether this turn may call request_app_connection (app_connection.py): a person-started chat of a live agent
+        on an engine that mounts connected apps. Never a routine, an unattended or computer-backed turn, where no one
+        could answer the card or the mount is kept apart."""
+        if (run.agent_id is None or not capabilities_of(adapter).connected_apps or run.ctx.computer is not None
+                or getattr(run, "routine_run_id", None) is not None or getattr(run, "uninterrupted_access", False)
+                or getattr(run.ctx, "draft_only", False) or getattr(run.ctx, "media_review_only", False)
+                or getattr(run.ctx, "approval_mode", None) == "plan"):
+            return False
+        try:
+            from app.db.models import Agent, Turn
+            async with self.session() as db:
+                agent = await db.get(Agent, run.agent_id)
+                turn = await db.get(Turn, run.turn_id)
+            return (agent is not None and agent.archived_at is None and agent.owner_id == self.owner_id
+                    and turn is not None and turn.origin in (None, "person"))
+        except Exception:  # noqa: BLE001
+            logger.exception("could not decide whether the agent may ask for an app", thread_id=run.thread_id)
+            return False
 
     async def _composio_apps(self, run, adapter) -> dict:
         """Connected apps within current agent scopes and the routine's saved grant.
@@ -1008,12 +1028,13 @@ class ThreadRuntime:
                 if not apps:
                     return unavailable("agent_app_or_account_scope_missing")
                 if getattr(run, "uninterrupted_access", False):
+                    from app import composio_tools
                     from app.services import routine_uninterrupted
                     current = await routine_uninterrupted.state(self, run, db)
                     if current is None:
                         return unavailable("uninterrupted_access_revoked")
                     ceiling = current[2]
-                    apps = {app: ("write" if level == "write" and ceiling.get("apps", {}).get(app) == "write" else "read")
+                    apps = {app: composio_tools.lower_level(level, ceiling.get("apps", {}).get(app))
                             for app, level in apps.items() if app in ceiling.get("apps", {})}
                     account_scopes = {app: [account for account in ids if account in ceiling.get("accounts", {}).get(app, [])]
                                       for app, ids in account_scopes.items() if app in apps}
@@ -1023,13 +1044,13 @@ class ThreadRuntime:
                     if not apps:
                         return unavailable("uninterrupted_agent_scope_missing")
                 elif turn is not None and turn.origin not in (None, "person"):
-                    from app.db.models.routine import Routine, RoutineRun
+                    from app.db.models.routine import SCHEDULED_TRIGGERS, Routine, RoutineRun
                     if turn.origin != "routine":
                         return unavailable("turn_origin_not_routine")
                     rr = await db.get(RoutineRun, run.routine_run_id) if run.routine_run_id else None
                     routine = await db.get(Routine, rr.routine_id) if rr else None
                     if (not routine or routine.owner_id != self.owner_id or routine.agent_id != run.agent_id
-                            or rr.trigger not in ("schedule", "manual") or rr.thread_id != run.thread_id):
+                            or rr.trigger not in SCHEDULED_TRIGGERS or rr.thread_id != run.thread_id):
                         return unavailable("run_not_eligible")
                     from app import composio_tools
                     run.routine_id = routine.id
@@ -1040,7 +1061,9 @@ class ThreadRuntime:
                         and composio_tools.allows(apps.get(composio_tools.BY_NAME[g["tool"]].app), composio_tools.BY_NAME[g["tool"]].kind)
                         and g.get("account_id") in account_scopes.get(composio_tools.BY_NAME[g["tool"]].app, [])
                     }
-                    apps = {app: ("write" if any(composio_tools.BY_NAME[t].app == app and composio_tools.BY_NAME[t].kind == "write" for t in run.routine_grants) else "read")
+                    apps = {app: ("write" if any(composio_tools.BY_NAME[t].app == app and composio_tools.BY_NAME[t].kind == "write" for t in run.routine_grants)
+                                  else "labels" if any(composio_tools.BY_NAME[t].app == app and composio_tools.BY_NAME[t].kind == "label" for t in run.routine_grants)
+                                  else "read")
                             for app in {composio_tools.BY_NAME[t].app for t in run.routine_grants}}
                     if not apps:
                         return unavailable("routine_grants_not_in_agent_scope")
@@ -1295,10 +1318,13 @@ class ThreadRuntime:
                     run.ctx.memory_launch = memory_bridge.launch
                     memory_bridge.start()
                 composio_apps = await self._composio_apps(run, adapter)
-                if composio_apps:
+                connect = await self._may_ask_for_apps(run, adapter)
+                if composio_apps or connect:
                     composio_bridge = ComposioBridge(self, run, composio_apps,
-                                                      account_scopes=getattr(run.ctx, "composio_account_scopes", {}))
+                                                      account_scopes=getattr(run.ctx, "composio_account_scopes", {}),
+                                                      connect=connect)
                     run.ctx.composio_launch, run.ctx.composio_apps = composio_bridge.launch, composio_apps
+                    run.ctx.composio_connect = connect
                     run.ctx.composio_exact_tools = list(run.routine_grants) if run.routine_grants is not None else None
                     composio_bridge.start()
                 community_snapshot = await CommunityMcpBridge.for_turn(self, run, adapter)

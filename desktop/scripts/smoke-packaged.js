@@ -56,7 +56,17 @@ async function runSmoke({ executable, args = [], timeoutMs = 90_000, environment
     const origin = `http://127.0.0.1:${port}`;
     // No token is available outside Electron. Both the page and API must refuse.
     for (const pathname of ["/chat/", "/api/v1/threads"]) {
-      const response = await fetch(origin + pathname, { redirect: "manual", signal: AbortSignal.timeout(remaining()) });
+      let response;
+      const probeEnd = Math.min(Date.now() + 15_000, deadline);
+      while (Date.now() < probeEnd) {
+        try {
+          response = await fetch(origin + pathname, { redirect: "manual", signal: AbortSignal.timeout(remaining()) });
+          break;
+        } catch (err) {
+          if (Date.now() >= probeEnd) throw err;
+          await pause();
+        }
+      }
       await response.body?.cancel();
       if (response.status !== 401) throw new Error(`${pathname}: expected unauthenticated HTTP 401, got ${response.status}.`);
     }
@@ -73,7 +83,12 @@ async function runSmoke({ executable, args = [], timeoutMs = 90_000, environment
       await Promise.race([exited, new Promise((resolve) => { timer = setTimeout(resolve, 5000); })]);
       clearTimeout(timer);
     }
-    if (!keep) fs.rmSync(dataRoot, { recursive: true, force: true });
+    if (!keep) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      try {
+        fs.rmSync(dataRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      } catch {}
+    }
   }
 }
 

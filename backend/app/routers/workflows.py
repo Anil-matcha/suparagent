@@ -1,4 +1,6 @@
 """Multi-step workflow endpoints with condition evaluation, branching, and approval checkpoints."""
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.routers.threads import get_runtime

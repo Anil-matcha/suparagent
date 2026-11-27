@@ -83,15 +83,23 @@ export function GoogleEngineSetup({ engine, onChanged }: { engine: Engine; onCha
       {running && <Button type="button" disabled={busy} onClick={() => void act(async () => { await api.cancelGoogleSetup(); setOperation(await api.googleSetupStatus()); setCallback(""); changed.current(); })}>Cancel setup</Button>}
     </div>
     {running && (
-      <div className="space-y-2">
-        <p role="status" className="text-xs text-muted">
-          {operation.detail || (operation.kind === "install" ? "Downloading and verifying the official Google runtime. This can take a few minutes." : operation.kind === "models" ? "Refreshing the models available to your account…" : "Waiting for Google sign-in and loading your models…")}
-        </p>
-        {operation.progress != null && (
-          <div className="w-full bg-line rounded-full h-2 overflow-hidden">
+      <div className="space-y-2 pt-1">
+        <div className="flex justify-between items-center text-xs">
+          <p role="status" className="text-muted flex items-center gap-1.5 font-medium">
+            <span className="inline-block w-2 h-2 rounded-full bg-accent animate-ping" />
+            {operation.detail || (operation.kind === "install" ? "Downloading and verifying the official Google runtime. This can take a few minutes." : operation.kind === "models" ? "Refreshing the models available to your account…" : "Waiting for Google sign-in and loading your models…")}
+          </p>
+          {operation.progress != null && operation.progress > 0 && (
+            <span className="font-mono text-accent font-semibold">{operation.progress}%</span>
+          )}
+        </div>
+        <div className="w-full bg-line rounded-full h-2 overflow-hidden">
+          {operation.progress != null && operation.progress > 0 ? (
             <div className="bg-accent h-2 rounded-full transition-all duration-200" style={{ width: `${Math.max(4, Math.min(100, operation.progress))}%` }} />
-          </div>
-        )}
+          ) : (
+            <div className="bg-accent h-2 rounded-full animate-pulse w-full" />
+          )}
+        </div>
       </div>
     )}
     {running && operation.authorization_url && <div className="space-y-2">

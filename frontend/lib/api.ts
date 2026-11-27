@@ -2,6 +2,11 @@ import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview
 import type { SpendLimits, SpendLimitsChange, SpendOverview, WorkerSpend } from "./spend";
 import type { HireReceipt, LatestSuggestion, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
+import type { AppEventConfig, AppEventStatus } from "./app-event";
+import type { ShadowReport } from "./shadow-report";
+import type { FeedbackBody, FeedbackResult, ShareSuggestion } from "./shadow-feedback";
+import type { UndoResult, WorkerLabels } from "./worker-labels";
+import type { AccountUpdate, ForgetResult, HistoryAccount, HistoryLearning, Lesson, Lessons } from "./history-learning";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
 import type { CustomMcpConnection, CustomMcpDraft, CustomMcpTool } from "./custom-mcp";
 import type { ServiceAudit, ServiceCandidate, ServiceKind, ServicePreset, ServiceProvider, ServiceResource } from "./agent-services";
@@ -141,6 +146,18 @@ function authHeaders(method: string | undefined): Record<string, string> {
   const safe = !method || ["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   return !safe && csrfToken ? { "X-CSRF-Token": csrfToken } : {};
 }
+
+export type ShadowReportResponse = ShadowReport;
+export type ShadowFeedbackBody = FeedbackBody;
+export type ShadowFeedbackResult = FeedbackResult;
+export type ShareSuggestionResponse = ShareSuggestion;
+export type WorkerLabelsResponse = WorkerLabels;
+export type WorkerLabelsUndoResponse = UndoResult;
+export type HistoryLearningResponse = HistoryLearning;
+export type HistoryAccountResponse = HistoryAccount;
+export type LessonsResponse = Lessons;
+export type LessonResponse = Lesson;
+export type HistoryForgetResponse = ForgetResult;
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -501,6 +518,8 @@ export type Agent = {
   connector_scopes?: Record<string, string> | null;
   // Exact connected accounts this agent may use, keyed by Composio app slug.
   connector_account_scopes?: Record<string, string[]>;
+  // The share of a mailbox it may see, {app: {accountId: {percent, pins}}}; no entry means all mail. Never a seed.
+  connector_shares?: Record<string, Record<string, { percent: number; pins?: string[] }>>;
   // Off: no quick model call files facts noticed in its conversations.
   memory_upkeep?: boolean;
   compaction_summary?: boolean;
@@ -574,6 +593,8 @@ export type AgentInput = {
   connector_scopes?: Record<string, string> | null;
   // Update only: exact connected account IDs this agent may use, keyed by app.
   connector_account_scopes?: Record<string, string[]>;
+  // Update only: the share of a mailbox it may see per account ({gmail: {accountId: {percent}}}); omit to leave it unchanged.
+  connector_shares?: Record<string, Record<string, { percent: number; pins?: string[] }>>;
   // Create only: the first contents of the agent's notes.
   starter_notes?: string | null;
 };
@@ -627,6 +648,21 @@ export type EngineLimit = {
   resets_at: string | null;
   since: string;
   message: string;
+};
+export type EngineUsageWindow = {
+  name: string;
+  left_percent: number;
+  used_percent: number;
+  resets_at: string | null;
+};
+export type EngineUsageReport = {
+  engine: string;
+  name: string;
+  user_email?: string | null;
+  checked_at: number;
+  windows: EngineUsageWindow[];
+  primary_left_percent: number;
+  tone: "fine" | "near" | "out";
 };
 export type EngineConfigInput = {
   command?: string;
@@ -993,6 +1029,9 @@ export type Routine = {
   latest_run: RoutineRun | null;
   connected_app_grants: ConnectedAppGrant[];
   uninterrupted_access: boolean;
+  // The optional new-mail trigger and how it is doing (BL-177); absent on a server that predates it.
+  app_event?: AppEventConfig | null;
+  app_event_status?: AppEventStatus | null;
 };
 
 export type RoutineInput = {
@@ -1011,6 +1050,8 @@ export type RoutineInput = {
   retry_delay_minutes: number;
   connected_app_grants: ConnectedAppGrant[];
   uninterrupted_access: boolean;
+  // A config turns the trigger on, null removes it, leaving it out keeps what the routine has.
+  app_event?: AppEventConfig | null;
 };
 
 export type SchedulePreview = { summary: string; next_dates: string[] };
@@ -1145,6 +1186,9 @@ export type NotificationPreferences = {
 };
 
 export const api = {
+  speak: (body: { text: string; voice?: string }, signal?: AbortSignal) => requestSpeech(body, signal),
+  speechVoices: () => request<import("./speechReplies").SpeechVoices>("/speech/voices"),
+  clearSavedSpeech: () => request<{ removed: number }>("/speech/cache", { method: "DELETE" }),
   listImageProviders: () => request<import("./image-gen").ImageProvider[]>("/images/providers"),
   generateImage: (body: { prompt: string; provider?: string; size?: string }) =>
     request<import("./image-gen").GeneratedImage>("/images/generate", { method: "POST", body: JSON.stringify(body) }),
@@ -1167,6 +1211,7 @@ export const api = {
   getNeedsYou: () => request<import("./needs-you").NeedsYouSnapshot>("/needs-you?refresh=true"),
   requestTeamLead: (agentId: number) => request<{ id: number; lead_agent_id: number }>("/team/lead", { method: "POST", body: JSON.stringify({ agent_id: agentId }) }),
   getEngines: (refresh = false) => request<Engine[]>(`/engines${refresh ? "?refresh=true" : ""}`),
+  getEngineUsageLimits: (engineId: string) => request<EngineUsageReport | null>(`/engines/${encodeURIComponent(engineId)}/usage-limits`),
   getEnginePreference: () => request<EnginePreference>("/engines/preference"),
   setEnginePreference: (preference: EnginePreference) => request<EnginePreference>("/engines/preference", { method: "PUT", body: JSON.stringify(preference) }),
   logoutClaudeEngine: () => request<void>("/engines/claude/logout", { method: "POST" }),
@@ -1198,6 +1243,28 @@ export const api = {
   saveComposioKey: (apiKey: string) => request<ComposioStatus>("/integrations/composio/key", { method: "PUT", body: JSON.stringify({ api_key: apiKey }) }),
   deleteComposioKey: () => request<void>("/integrations/composio/key", { method: "DELETE" }),
   listComposioAccounts: () => request<ComposioAccount[]>("/integrations/composio/accounts"),
+  // A support worker's shadow-mode comparison (numbers and thread ids only). `refresh` asks the server to recompute; it may answer 429.
+  getShadowReport: (agentId: number, options: { days?: number; refresh?: boolean } = {}) =>
+    request<ShadowReportResponse>(`/agents/${agentId}/shadow-report?days=${options.days ?? 28}&refresh=${options.refresh ? "true" : "false"}`),
+  // The owner's "that was wrong, and why" about a thread the worker predicted, and the proposal to raise or lower its share of the
+  // mailbox (a proposal only: the share changes when the owner saves it through updateAgent).
+  sendShadowFeedback: (agentId: number, body: ShadowFeedbackBody) =>
+    request<ShadowFeedbackResult>(`/agents/${agentId}/shadow-feedback`, { method: "POST", body: JSON.stringify(body) }),
+  getShareSuggestion: (agentId: number, options: { refresh?: boolean } = {}) =>
+    request<ShareSuggestionResponse>(`/agents/${agentId}/share-suggestion?refresh=${options.refresh ? "true" : "false"}`),
+  // The labels a support worker added under Worker/ (counts and names only), and the one-click removal of exactly those.
+  getWorkerLabels: (agentId: number) => request<WorkerLabelsResponse>(`/agents/${agentId}/worker-labels`),
+  undoWorkerLabels: (agentId: number) => request<WorkerLabelsUndoResponse>(`/agents/${agentId}/worker-labels/undo`, { method: "POST" }),
+  // Learning from the owner's past replies (BL-174): the opt-in per Gmail account, and the lessons to review.
+  getHistoryLearning: (agentId: number) => request<HistoryLearningResponse>(`/agents/${agentId}/history-learning`),
+  updateHistoryLearning: (agentId: number, accountId: string, body: AccountUpdate) =>
+    request<HistoryAccountResponse>(`/agents/${agentId}/history-learning/${encodeURIComponent(accountId)}`, { method: "PUT", body: JSON.stringify(body) }),
+  forgetHistoryLearning: (agentId: number) => request<HistoryForgetResponse>(`/agents/${agentId}/history-learning`, { method: "DELETE" }),
+  getLessons: (agentId: number) => request<LessonsResponse>(`/agents/${agentId}/lessons`),
+  acceptLesson: (agentId: number, lessonId: string, text?: string) =>
+    request<LessonResponse>(`/agents/${agentId}/lessons/${encodeURIComponent(lessonId)}/accept`, { method: "POST", body: JSON.stringify(text === undefined ? {} : { text }) }),
+  dismissLesson: (agentId: number, lessonId: string) =>
+    request<void>(`/agents/${agentId}/lessons/${encodeURIComponent(lessonId)}/dismiss`, { method: "POST" }),
   connectComposioApp: (toolkit: string, alias?: string) =>
     request<ComposioLink>("/integrations/composio/connect", { method: "POST", body: JSON.stringify(alias ? { toolkit, alias } : { toolkit }) }),
   disconnectComposioAccount: (id: string) => request<void>(`/integrations/composio/accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),
@@ -2014,6 +2081,28 @@ async function requestBlobUrl(path: string): Promise<string> {
   const res = await fetch(`${API_BASE}${path}`, { credentials: "include" });
   if (!res.ok) throw await errorFrom(res);
   return URL.createObjectURL(await res.blob());
+}
+
+// Read one reply aloud (BL-53). The server keeps the audio so the same reply can be played again for
+// free; the cost, whether the text was cut and whether it came from saved audio come back as headers.
+// The caller revokes the object URL.
+async function requestSpeech(body: { text: string; voice?: string }, signal?: AbortSignal): Promise<import("./speechReplies").SpokenReply> {
+  const res = await fetch(`${API_BASE}/speech/speak`, {
+    method: "POST",
+    credentials: "include",
+    signal,
+    headers: { "Content-Type": "application/json", ...authHeaders("POST") },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await errorFrom(res);
+  const quoted = res.headers.get("X-Speech-Cost-Usd");
+  const cost = quoted === null ? Number.NaN : Number(quoted);
+  return {
+    url: URL.createObjectURL(await res.blob()),
+    costUsd: Number.isFinite(cost) ? cost : null,
+    truncated: res.headers.get("X-Speech-Truncated") === "1",
+    cached: res.headers.get("X-Speech-Cached") === "1",
+  };
 }
 
 export { ApiError };

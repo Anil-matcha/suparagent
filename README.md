@@ -90,7 +90,7 @@ end.
 - **Connect tools and apps.** Connect services such as GitHub, Gmail, and Google
   Calendar through your own Composio key, then grant access to selected Claude
   or Codex agents. Changes wait for your approval. Add individual tools from
-  the MCP Marketplace. The MuAPI listing includes selected data research tools:
+  the MCP Marketplace. Connect MuAPI under Settings → Integrations to give chosen agents data research tools:
   search APIs, estimate USD cost, and make a lookup with a per-call cost cap.
   Paid calls use MuAPI credits and require approval. See
   [connected apps](docs/CONNECTED_APPS.md).

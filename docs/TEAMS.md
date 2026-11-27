@@ -86,6 +86,8 @@ The lead can call `retry_thread` to continue that conversation. It refuses with 
 
 If the lead is busy, reports wait and are folded into one turn when it is free; none is refused. If there is no lead, the lead itself failed, or it cannot take the report, you get a notification instead (not twice for something you already heard about, such as a failed routine).
 
+**Self-edits without a prompt** (setting `TEAM_PROFILE_AUTO`, off by default): when on, an agent changing its own name, title, description or standing instructions at your request through `propose_profile` is allowed without a permission prompt, in a conversation you started. The result card still shows the change with Undo. Working folder, engine, other agents and unattended or plan-mode turns still need your decision. The lead already skips the prompt for all configuration while `TEAM_LEAD_AUTO` is on.
+
 **Escalations** (setting `TEAM_ESCALATIONS`, off by default): a teammate can call `raise_escalation` to flag a gate only you can lift, and an approval left unanswered for ten minutes is flagged the same way. The lead is told in "Team escalations" and assigns nothing: it tells you what is asked and where to answer. Three flags an hour per thread, then muted.
 
 Not verified: a real Claude lead taking an incident and retrying; computers for notice turns (a lead whose computer is unavailable fails the report turn and you are notified).

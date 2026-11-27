@@ -1,5 +1,5 @@
 export type NeedsYouRow = {
-  kind: "signed_out" | "out_of_credit" | "usage_limit" | "approval" | "routine" | "repeated_failure" | "question" | "due" | "routine_completed" | "calendar_event" | "gmail_message";
+  kind: "signed_out" | "out_of_credit" | "usage_limit" | "approval" | "routine" | "repeated_failure" | "question" | "due" | "routine_completed" | "calendar_event" | "gmail_message" | "support_unanswered";
   key: string;
   title: string;
   detail: string | null;
@@ -41,6 +41,7 @@ const ACTIONS: Record<NeedsYouRow["kind"], string> = {
   routine_completed: "View runs",
   calendar_event: "Open event",
   gmail_message: "Open message",
+  support_unanswered: "Review threads",
 };
 
 export function rowAction(row: NeedsYouRow): { label: string; href: string | null } {

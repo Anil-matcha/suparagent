@@ -3,6 +3,7 @@ prompt block. A temporary folder stands in for the app's workspace root."""
 
 import os
 import stat
+import sys
 
 import pytest
 
@@ -27,7 +28,8 @@ def test_a_skill_is_written_read_listed_and_deleted(home):
     assert (saved.name, saved.enabled, saved.source) == ("weekly-report", True, "user")
     path = home / "agents" / "1" / "skills" / "weekly-report" / "SKILL.md"
     assert path.read_text().startswith("---\nname: weekly-report\n")
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if sys.platform != "win32":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert skills.read_skill(1, "weekly-report").body == "1. Read the notes.\n2. Write it up."
     assert [s.name for s in skills.list_skills(1)] == ["weekly-report"]
     skills.write_skill(1, "weekly-report", "Changed", "New body.", enabled=False)
@@ -78,19 +80,28 @@ def test_a_symlinked_skill_or_folder_is_refused(home, tmp_path_factory):
     (outside / "SKILL.md").write_text("---\nname: x\ndescription: d\n---\nsecret body\n")
     root = home / "agents" / "1" / "skills"
     root.mkdir(parents=True)
-    os.symlink(outside, root / "linked")
+    try:
+        os.symlink(outside, root / "linked")
+    except OSError:
+        pytest.skip("Symlinks require administrator privileges or Developer Mode on Windows")
     assert code(skills.read_skill, 1, "linked") in ("skill_path_unsafe", "skill_not_found")
     assert code(skills.write_skill, 1, "linked", "d", "b") == "skill_path_unsafe"
     assert [s.name for s in skills.list_skills(1)] == []
     assert not (outside / "SKILL.md").read_text().startswith("changed")
     # A symlinked SKILL.md inside a real folder is not read either.
     (root / "real").mkdir()
-    os.symlink(outside / "SKILL.md", root / "real" / "SKILL.md")
+    try:
+        os.symlink(outside / "SKILL.md", root / "real" / "SKILL.md")
+    except OSError:
+        pytest.skip("Symlinks require administrator privileges or Developer Mode on Windows")
     assert code(skills.read_skill, 1, "real") == "skill_not_found"
     # A symlinked skills folder is refused as a whole.
     os.remove(root / "real" / "SKILL.md")
     (home / "agents" / "2").mkdir(parents=True)
-    os.symlink(outside, home / "agents" / "2" / "skills")
+    try:
+        os.symlink(outside, home / "agents" / "2" / "skills")
+    except OSError:
+        pytest.skip("Symlinks require administrator privileges or Developer Mode on Windows")
     assert code(skills.list_skills, 2) == "skill_path_unsafe"
     assert code(skills.write_skill, 2, "x", "d", "b") == "skill_path_unsafe"
 
@@ -164,7 +175,10 @@ def test_undo_detects_external_edits_and_symlinked_lock(home):
     assert code(skills.delete_skill, 1, "draft", expected_revision=saved.revision) == "skill_undo_stale"
     folder = home / "agents/2"
     folder.mkdir()
-    os.symlink(path, folder / ".skills.lock")
+    try:
+        os.symlink(path, folder / ".skills.lock")
+    except OSError:
+        pytest.skip("Symlinks require administrator privileges or Developer Mode on Windows")
     assert code(skills.write_skill, 2, "draft", "d", "b") == "skill_path_unsafe"
 
 

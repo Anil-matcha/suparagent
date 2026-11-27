@@ -37,9 +37,13 @@ from tests.services.thread_harness import (  # noqa: F401
 def codex(monkeypatch, tmp_path):
     folder = tmp_path / "codex"
     folder.mkdir()
-    exe = tmp_path / "codex-bin"
-    exe.write_text(f"#!/bin/sh\nexec {sys.executable} {FAKE} \"$@\"\n")
-    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    if sys.platform == "win32":
+        exe = tmp_path / "codex-bin.cmd"
+        exe.write_text(f'@echo off\r\n"{sys.executable}" "{FAKE}" %*\r\n')
+    else:
+        exe = tmp_path / "codex-bin"
+        exe.write_text(f"#!/bin/sh\nexec {sys.executable} {FAKE} \"$@\"\n")
+        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("FAKE_CODEX_DIR", str(folder))
     monkeypatch.setattr(codex_adapter, "resolve_codex_executable", lambda: exe)
     workspace = tmp_path / "ws"
@@ -162,12 +166,12 @@ async def test_without_a_permit_the_computer_refuses_even_if_codex_calls_it(rt, 
 
 async def test_reads_go_through_the_gate_without_a_card(rt, sessions, codex, docker):  # noqa: F811
     _, _, thread, workspace = await codex_agent_with_computer(rt, sessions, docker)
-    (workspace / "README.md").write_text("hello from the folder\n")
+    (workspace / "README.md").write_bytes(b"hello from the folder\n")
     codex.plan(step("read_file", {"path": "README.md"}))
     await rt.send_turn(thread.id, "read")
     await finished(sessions, thread.id)
     result = next(e for e in codex.log() if e.get("event") == "mcp_result")
-    assert result["content"] == "hello from the folder\n"
+    assert result["content"].replace("\r\n", "\n") == "hello from the folder\n"
     async with sessions() as db:
         approvals = await store.list_approvals(db, thread.id)
     assert [(a.tool, a.status) for a in approvals] == [("mcp__computer__read_file", "allowed")]

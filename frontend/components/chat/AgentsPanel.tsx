@@ -32,7 +32,7 @@ import {
   type AgentMigrationPreview,
   type AgentMigrationSource,
 } from "@/lib/agent-migration";
-import { accountScopesToSend, scopesToSend, supportsConnectedApps, type AccountScopes, type ComposioAccount, type Scopes } from "@/lib/connected-apps";
+import { accountScopesToSend, scopesToSend, sharesToSend, supportsConnectedApps, type AccountScopes, type ComposioAccount, type Scopes, type Shares } from "@/lib/connected-apps";
 import { ComputerView } from "./ComputerPanel";
 import { EngineModelFields } from "./EngineModelFields";
 import { MemoryPanel } from "./MemoryPanel";
@@ -49,6 +49,9 @@ import { AgentImageGenerator } from "./AgentImageGenerator";
 import { useT } from "@/lib/use-i18n";
 import { AgentEditorFooter } from "./agents/AgentEditorFooter";
 import { ConnectedAppsSection } from "./agents/ConnectedAppsSection";
+import { ShadowResultsPanel } from "./agents/ShadowResultsPanel";
+import { WorkerLabelsPanel } from "./agents/WorkerLabelsPanel";
+import { HistoryLearningPanel, LessonsPanel } from "./agents/HistoryLearningPanel";
 import { filterAgents, shouldShowAgentSearch, unavailableEnginesInUse } from "./agents/agent-list";
 import { draftSignature } from "./agents/draft-state";
 
@@ -72,6 +75,8 @@ type Draft = {
   connector_scopes: Scopes;
   // Exact connected account IDs this agent may use.
   connector_account_scopes: AccountScopes;
+  // The share of a mailbox it may see, per app and account; no entry means all mail.
+  connector_shares: Shares;
   // Create only: the first contents of the agent's notes.
   starter_notes: string;
 };
@@ -93,6 +98,7 @@ const EMPTY: Draft = {
   claude_account: null,
   connector_scopes: {},
   connector_account_scopes: {},
+  connector_shares: {},
   starter_notes: "",
 };
 
@@ -114,6 +120,7 @@ function toDraft(agent: Agent): Draft {
     claude_account: agent.claude_account ?? null,
     connector_scopes: agent.connector_scopes ?? {},
     connector_account_scopes: agent.connector_account_scopes ?? {},
+    connector_shares: agent.connector_shares ?? {},
     starter_notes: "",
   };
 }
@@ -140,6 +147,7 @@ function toInput(draft: Draft, admin = false): AgentInput {
   if (draft.id !== null) {
     input.connector_scopes = scopesToSend(draft.connector_scopes, draft.provider);
     input.connector_account_scopes = accountScopesToSend(draft.connector_account_scopes, draft.connector_scopes, draft.provider);
+    input.connector_shares = sharesToSend(draft.connector_shares, draft.connector_account_scopes, draft.connector_scopes, draft.provider);
   }
   return input;
 }
@@ -952,10 +960,24 @@ export function AgentsPanel({
                         appAccounts={appAccounts}
                         connectorScopes={draft.connector_scopes}
                         connectorAccountScopes={draft.connector_account_scopes}
+                        connectorShares={draft.connector_shares}
                         busy={busy}
                         onScopesChange={(connector_scopes) => setDraft({ ...draft, connector_scopes })}
                         onAccountScopesChange={(connector_account_scopes) => setDraft({ ...draft, connector_account_scopes })}
+                        onSharesChange={(connector_shares) => setDraft({ ...draft, connector_shares })}
                       />
+                      <ShadowResultsPanel
+                        agentId={draft.id}
+                        connectorScopes={draft.connector_scopes}
+                        onSharesChanged={(connector_shares) => {
+                          // An accepted suggestion is already saved: keep the editor's copies in step so saving it does not undo the change.
+                          setDraft((current) => current ? { ...current, connector_shares } : current);
+                          setOriginalDraft((current) => current ? { ...current, connector_shares } : current);
+                        }}
+                      />
+                      <WorkerLabelsPanel agentId={draft.id} connectorScopes={draft.connector_scopes} />
+                      <HistoryLearningPanel agentId={draft.id} connectorScopes={draft.connector_scopes} />
+                      <LessonsPanel agentId={draft.id} connectorScopes={draft.connector_scopes} />
                     </TabPanel>
                   )}
 

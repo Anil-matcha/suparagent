@@ -37,6 +37,10 @@ PUBLIC_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
     (frozenset({"POST"}), re.compile(r"^/hooks/room/[0-9]+$")),
     # Hosted deployments: the account is named in the address (routers/hooks.py).
     (frozenset({"POST"}), re.compile(r"^/hooks/t/[0-9a-f]{32}/[0-9]+$")),
+    # Composio's trigger events: each delivery carries Composio's signature, checked by the route (routers/composio_hooks.py).
+    (frozenset({"POST"}), re.compile(r"^/hooks/composio/[0-9a-f]{32}$")),
+    (frozenset({"POST"}), re.compile(r"^/hooks/composio/t/[0-9a-f]{32}/[0-9a-f]{32}$")),
+    (frozenset({"POST"}), re.compile(r"^/hooks/t/[0-9a-f]{32}/composio/[0-9a-f]{32}$")),
 )
 
 # What the `chat` scope reaches: conversations and their approvals, and the

@@ -20,13 +20,19 @@ class FakeDocker:
         self.folder = folder
         self.state_dir = folder / "state"
         self.state_dir.mkdir(parents=True)
-        self.path = folder / "docker"
-        # The state folder is written into the wrapper, so it reaches every
-        # child (the MCP server the Claude CLI starts) whatever its environment.
-        self.path.write_text(
-            f"#!/bin/sh\nFAKE_DOCKER_STATE='{self.state_dir}' exec '{sys.executable}' '{FAKE_DOCKER}' \"$@\"\n"
-        )
-        self.path.chmod(self.path.stat().st_mode | stat.S_IXUSR)
+        if sys.platform == "win32":
+            self.path = folder / "docker.cmd"
+            self.path.write_text(
+                f"@echo off\r\nset FAKE_DOCKER_STATE={self.state_dir}\r\n\"{sys.executable}\" \"{FAKE_DOCKER}\" %*\r\n"
+            )
+        else:
+            self.path = folder / "docker"
+            # The state folder is written into the wrapper, so it reaches every
+            # child (the MCP server the Claude CLI starts) whatever its environment.
+            self.path.write_text(
+                f"#!/bin/sh\nFAKE_DOCKER_STATE='{self.state_dir}' exec '{sys.executable}' '{FAKE_DOCKER}' \"$@\"\n"
+            )
+            self.path.chmod(self.path.stat().st_mode | stat.S_IXUSR)
 
     def state(self) -> dict:
         path = self.state_dir / "state.json"
@@ -63,6 +69,4 @@ class FakeDocker:
 
 @pytest.fixture
 def docker(tmp_path):
-    if sys.platform == "win32":
-        pytest.skip("the fake docker is a POSIX shell script")
     return FakeDocker(tmp_path / "fake-docker")

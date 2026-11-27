@@ -367,12 +367,21 @@ async def test_the_claude_call_runs_the_cli_with_nothing_but_text(tmp_path, monk
 
     from app.services.claude_adapter import ClaudeAdapter
 
-    fake = tmp_path / "claude"
-    fake.write_text(
-        f"#!{sys.executable}\nimport json, os, sys\n"
-        "print(json.dumps({'args': sys.argv[1:], 'stdin': sys.stdin.read(), 'cwd_files': os.listdir('.')}))\n"
-    )
-    fake.chmod(0o755)
+    if sys.platform == "win32":
+        py_script = tmp_path / "fake-claude-impl.py"
+        py_script.write_text(
+            "import json, os, sys\n"
+            "print(json.dumps({'args': sys.argv[1:], 'stdin': sys.stdin.read(), 'cwd_files': os.listdir('.')}))\n"
+        )
+        fake = tmp_path / "claude.cmd"
+        fake.write_text(f'@"{sys.executable}" -u "{py_script.resolve()}" %*\n')
+    else:
+        fake = tmp_path / "claude"
+        fake.write_text(
+            f"#!{sys.executable}\nimport json, os, sys\n"
+            "print(json.dumps({'args': sys.argv[1:], 'stdin': sys.stdin.read(), 'cwd_files': os.listdir('.')}))\n"
+        )
+        fake.chmod(0o755)
     monkeypatch.setattr(local_claude_runner, "resolve_claude_executable", lambda: fake)
     out = json.loads(await ClaudeAdapter().generate_text("the prompt", model="haiku"))
     args = out["args"]
@@ -383,11 +392,17 @@ async def test_the_claude_call_runs_the_cli_with_nothing_but_text(tmp_path, monk
 
 
 async def test_a_claude_call_that_fails_raises(tmp_path, monkeypatch):
+    import sys
+
     from app.services.claude_adapter import ClaudeAdapter
 
-    fake = tmp_path / "claude"
-    fake.write_text("#!/bin/sh\nexit 3\n")
-    fake.chmod(0o755)
+    if sys.platform == "win32":
+        fake = tmp_path / "claude.cmd"
+        fake.write_text("@exit /b 3\n")
+    else:
+        fake = tmp_path / "claude"
+        fake.write_text("#!/bin/sh\nexit 3\n")
+        fake.chmod(0o755)
     monkeypatch.setattr(local_claude_runner, "resolve_claude_executable", lambda: fake)
     with pytest.raises(RuntimeError):
         await ClaudeAdapter().generate_text("x")

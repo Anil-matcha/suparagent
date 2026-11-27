@@ -66,9 +66,9 @@ def make_client(key: str) -> ComposioClient:
 
 
 class ComposioBridge:
-    def __init__(self, runtime, run, apps: dict, client_factory=None, account_scopes: dict | None = None):
+    def __init__(self, runtime, run, apps: dict, client_factory=None, account_scopes: dict | None = None, connect: bool = False):
         # Looked up when used, so a test can replace make_client.
-        self.runtime, self.run, self.apps = runtime, run, apps
+        self.runtime, self.run, self.apps, self.connect = runtime, run, apps, connect
         self.account_scopes = accounts_for(account_scopes if account_scopes is not None else
                                            getattr(run.ctx, "composio_account_scopes", {}))
         self.client_factory = client_factory or (lambda key: make_client(key))
@@ -82,6 +82,7 @@ class ComposioBridge:
         grants = getattr(self.run, "routine_grants", None)
         exact = ["--exact-tools", ",".join(sorted(grants))] if grants is not None else []
         uninterrupted = ["--uninterrupted"] if getattr(self.run, "uninterrupted_access", False) else []
+        uninterrupted += ["--connect"] if self.connect else []
         if getattr(sys, "frozen", False):
             return SimpleNamespace(command=sys.executable,
                 args=["--composio-mcp", "--mailbox", str(self.folder), "--apps", apps] + exact + uninterrupted,
@@ -154,11 +155,27 @@ class ComposioBridge:
             ceiling = state[2].get("apps", {})
             current = {app: level for app, level in current.items()
                        if app in ceiling and app in self.apps}
-            current = {app: ("write" if level == "write" and ceiling[app] == "write"
-                             and self.apps.get(app) == "write" else "read")
+            # Never more than the person allows now, the routine's ceiling, or the turn started with (read < labels < write).
+            current = {app: composio_tools.lower_level(composio_tools.lower_level(level, ceiling[app]), self.apps.get(app))
                        for app, level in current.items()}
-        return {app: ("write" if level == "write" and self.apps.get(app) == "write" else "read")
+        return {app: composio_tools.lower_level(level, self.apps.get(app))
                 for app, level in current.items() if app in self.apps}
+
+    def _mark_context(self) -> dict:
+        """Where gmail_triage_mark and the label tools record: always this run's agent, turn and routine run, never
+        anything the agent sends."""
+        return {"agent_id": self.run.agent_id, "turn_id": self.run.turn_id, "run_id": getattr(self.run, "routine_run_id", None)}
+
+    async def _shares(self, db) -> dict:
+        """The agent's share-of-mailbox rules, read again from the database on every call so that lowering a
+        share applies to the next call (gmail_share.py). A missing agent has no access anyway; a damaged value is
+        passed on as it is and run_tool denies it."""
+        from app.db.models import Agent
+
+        agent = await db.get(Agent, self.run.agent_id, populate_existing=True)
+        if agent is None or agent.archived_at is not None or agent.owner_id != self.runtime.owner_id:
+            return {}
+        return agent.connector_shares or {}
 
     async def allowed_account_ids_now(self) -> dict[str, list[str]]:
         """Intersect the turn snapshot with the agent's current selection.
@@ -218,14 +235,14 @@ class ComposioBridge:
                      and account_id in ceiling.get("accounts", {}).get(app, [])
                      and account_id in current_accounts.get(app, [])
                      and account_id in self.account_scopes.get(app, []))
-        if kind == "write" and self.run.ctx.approval_mode == "plan":
+        if kind != "read" and self.run.ctx.approval_mode == "plan":
             permitted = False
         if not permitted:
             return {"error": "Routine app access was revoked or is outside the run's authorized scope.",
                     "code": "not_allowed"}
 
         request_key = None
-        if kind == "write":
+        if kind != "read":
             digest = json.dumps({"tool": tool_name, "arguments": arguments}, ensure_ascii=False,
                                 sort_keys=True, separators=(",", ":"))
             request_key = hashlib.sha256(digest.encode("utf-8")).hexdigest()
@@ -258,7 +275,7 @@ class ComposioBridge:
                               "failed" if result.get("error") else "completed")
             receipt.code = code
             # Do not retain message bodies or app response text in the routine audit.
-            receipt.result = ({"completed": True} if kind == "write" and not result.get("error") else
+            receipt.result = ({"completed": True} if kind != "read" and not result.get("error") else
                               {"coverage_complete": not bool(result.get("truncated") or result.get("next_page_token"))}
                               if kind == "read" and not result.get("error") else None)
             await db.commit()
@@ -325,7 +342,8 @@ class ComposioBridge:
             return None
 
         result = await composio_service.run_tool(db, self.runtime.owner_id, self.client_factory, tool, sent, account,
-            allowed_account_ids=allowed_account_ids.get(tool.app, []), before_execute=reserve)
+            allowed_account_ids=allowed_account_ids.get(tool.app, []), before_execute=reserve,
+            shares=await self._shares(db), mark_context=self._mark_context())
         if receipt_id is not None:
             await self._finish_uninterrupted_action(receipt_id, result, tool.kind)
         return result
@@ -365,6 +383,11 @@ class ComposioBridge:
             approved = await consume_allowed_approval(db, run.turn_id, run.owner_token, PREFIX + name, args)
         if not approved:
             return {"error": "This call has no matching, unused approval.", "code": "not_approved"}
+        if name == composio_tools.CONNECT:
+            if not self.connect:
+                return {"error": "This turn cannot ask for an app.", "code": "not_allowed"}
+            from app.services import app_connection
+            return await app_connection.call(rt, run, args, self.client_factory)
         allowed = await self.allowed_now()
         allowed_account_ids = await self.allowed_account_ids_now()
         allowed = {app: level for app, level in allowed.items() if allowed_account_ids.get(app)}
@@ -392,7 +415,8 @@ class ComposioBridge:
             if grants is not None:
                 return await self.execute_routine(db, name, tool, sent, account, allowed_account_ids)
             return await composio_service.run_tool(db, rt.owner_id, self.client_factory, tool, sent, account,
-                                                   allowed_account_ids=allowed_account_ids.get(tool.app, []))
+                                                   allowed_account_ids=allowed_account_ids.get(tool.app, []),
+                                                   shares=await self._shares(db), mark_context=self._mark_context())
 
     async def execute_routine(self, db, name, tool, sent, account, allowed_account_ids: dict[str, list[str]]):
         """A grant is checked again at dispatch; reserve writes before any I/O.
@@ -402,7 +426,7 @@ class ComposioBridge:
         """
         import hashlib
         from sqlalchemy.exc import IntegrityError
-        from app.db.models.routine import Routine, RoutineRun, RoutineAppAction
+        from app.db.models.routine import SCHEDULED_TRIGGERS, Routine, RoutineRun, RoutineAppAction
         from app.db.transactions import begin_write
 
         run, rt = self.run, self.runtime
@@ -412,12 +436,12 @@ class ComposioBridge:
         routine = await db.get(Routine, run.routine_id)
         rr = await db.get(RoutineRun, getattr(run, "routine_run_id", None))
         current = {g["tool"]: g["account_id"] for g in routine.connected_app_grants} if routine else {}
-        write = tool.kind == "write"
+        write = tool.kind != "read"  # a write or a label: reserved first, sent once, never repeated after an unknown outcome
         permitted = (bound and bound in permitted_accounts
                      and current.get(name) == bound and routine.agent_id == run.agent_id
                      and routine.owner_id == rt.owner_id and run.ctx.computer is None
                      and rr is not None and rr.routine_id == routine.id
-                     and rr.trigger in ("schedule", "manual") and rr.thread_id == run.thread_id
+                     and rr.trigger in SCHEDULED_TRIGGERS and rr.thread_id == run.thread_id
                      and rr.state in ("running", "needs_input")
                      and (not write or (name in composio_tools.ROUTINE_WRITE_TOOLS and run.ctx.approval_mode != "plan")))
         if not permitted or account is not None:
@@ -435,12 +459,12 @@ class ComposioBridge:
             source_tool = replace(composio_tools.BY_NAME["gmail_fetch_message"], special="checked_message")
             fresh = await composio_service.run_tool(db, rt.owner_id, self.client_factory, source_tool,
                 {"message_id": sent["message_id"], "user_id": "me", "format": "full"}, None,
-                account_id=bound, allowed_account_ids=permitted_accounts)
+                account_id=bound, allowed_account_ids=permitted_accounts, shares=await self._shares(db))
             if fresh.get("_checked_source") != checked:
                 return {"error": "The source message changed or cannot be verified. No draft was created.", "code": "not_allowed"}
             profile = await composio_service.run_tool(db, rt.owner_id, self.client_factory,
                 composio_tools.BY_NAME["gmail_get_profile"], {"user_id": "me"}, None,
-                account_id=bound, allowed_account_ids=permitted_accounts)
+                account_id=bound, allowed_account_ids=permitted_accounts, shares=await self._shares(db))
             own = profile.get("result", {}).get("emailAddress") if isinstance(profile.get("result"), dict) else None
             if not isinstance(own, str) or own.lower() == checked["sender"]:
                 return {"error": "The sender is unavailable or is the connected account.", "code": "not_allowed"}
@@ -452,7 +476,7 @@ class ComposioBridge:
             allowed_account_ids = await self.allowed_account_ids_now()
             if (current != grants or routine.owner_id != rt.owner_id or routine.agent_id != run.agent_id
                     or rr.state not in ("running", "needs_input") or rr.thread_id != run.thread_id
-                    or rr.routine_id != routine.id or rr.trigger not in ("schedule", "manual")
+                    or rr.routine_id != routine.id or rr.trigger not in SCHEDULED_TRIGGERS
                     or {g["tool"]: g["account_id"] for g in rr.connected_app_grants} != grants
                     or not composio_tools.allows(allowed.get("gmail"), "write")
                     or bound not in allowed_account_ids.get("gmail", [])
@@ -477,7 +501,8 @@ class ComposioBridge:
         receipt_id = receipt.id
         dispatch_tool = replace(tool, special="checked_message") if draft_mode and name == "gmail_fetch_message" else tool
         result = await composio_service.run_tool(db, rt.owner_id, self.client_factory, dispatch_tool, sent, None,
-                                                 account_id=bound, allowed_account_ids=permitted_accounts)
+                                                 account_id=bound, allowed_account_ids=permitted_accounts,
+                                                 shares=await self._shares(db), mark_context=self._mark_context())
         checked_source = result.pop("_checked_source", None)
         if checked_source and checked_source["message_id"] == sent.get("message_id"):
             if not hasattr(run, "checked_reply_sources"):

@@ -1,5 +1,6 @@
 import os
 import stat
+import sys
 from pathlib import Path
 
 import httpx
@@ -29,8 +30,9 @@ def test_create_list_rename_remove_and_isolated_folders(data_dir):
     assert all(set(x) == {"id", "label", "created_at"} for x in acc.list_accounts())
     fa, fb = acc.config_dir(a["id"]), acc.config_dir(b["id"])
     assert fa != fb and fa.is_absolute() and fa.parent == data_dir.resolve()
-    assert stat.S_IMODE(os.stat(fa).st_mode) == 0o700 and stat.S_IMODE(os.stat(data_dir).st_mode) == 0o700
-    assert stat.S_IMODE(os.stat(data_dir / "accounts.json").st_mode) == 0o600
+    if sys.platform != "win32":
+        assert stat.S_IMODE(os.stat(fa).st_mode) == 0o700 and stat.S_IMODE(os.stat(data_dir).st_mode) == 0o700
+        assert stat.S_IMODE(os.stat(data_dir / "accounts.json").st_mode) == 0o600
     (fa / "token").write_text("secret")
     assert acc.rename(a["id"], "Work 2")["label"] == "Work 2"
     acc.remove(a["id"])

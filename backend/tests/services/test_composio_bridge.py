@@ -353,7 +353,7 @@ async def test_a_forgotten_session_is_replaced_once_and_saved(world, fake, sessi
         assert (await composio_service.load(db, owner))["session_id"] == "sess_new"
 
 
-async def test_no_key_means_no_server_and_a_removed_key_stops_calls(world, fake, sessions, owner):
+async def test_no_key_means_no_app_tools_and_a_removed_key_stops_calls(world, fake, sessions, owner):
     seen = {}
 
     async def handler(ctx, sink, gate):
@@ -367,11 +367,12 @@ async def test_no_key_means_no_server_and_a_removed_key_stops_calls(world, fake,
     seen.clear()
 
     async def second(ctx, sink, gate):
-        seen["launch"] = ctx.composio_launch
+        seen["launch"], seen["apps"] = ctx.composio_launch, ctx.composio_apps
         return TurnOutcome("succeeded", result="ok")
 
     await one_turn(world, second)
-    assert seen["launch"] is None
+    # No app tools at all; only the person-facing request to connect one is offered (app_connection.py).
+    assert seen["apps"] == {} and seen["launch"].args[-3:] == ["--apps", "", "--connect"]
 
 
 @pytest.mark.parametrize("origin", ["routine", "outside", "restricted", "harness"])

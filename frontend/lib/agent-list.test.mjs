@@ -57,3 +57,16 @@ test("draft dirty checks ignore ordering in connected app and account selections
   assert.equal(draftSignature(first), draftSignature(restored));
   assert.notEqual(draftSignature(first), draftSignature(changed));
 });
+
+test("draft dirty checks see a share change but not an all-mail entry that means the same as none", () => {
+  const base = { name: "Agent", connector_scopes: { gmail: "read" }, connector_account_scopes: { gmail: ["a"] } };
+  const none = { ...base, connector_shares: {} };
+  assert.equal(draftSignature(base), draftSignature(none));
+  assert.equal(draftSignature(none), draftSignature({ ...base, connector_shares: { gmail: { a: { percent: 100 } } } }));
+  assert.equal(draftSignature(none), draftSignature({ ...base, connector_shares: { gmail: {} } }));
+  assert.notEqual(draftSignature(none), draftSignature({ ...base, connector_shares: { gmail: { a: { percent: 10 } } } }));
+  assert.notEqual(
+    draftSignature({ ...base, connector_shares: { gmail: { a: { percent: 10 } } } }),
+    draftSignature({ ...base, connector_shares: { gmail: { a: { percent: 25 } } } }),
+  );
+});

@@ -15,6 +15,7 @@ import { toolRunSummary } from "@/lib/transcript-view";
 import { Button } from "@/components/ui/Button";
 import { useSession } from "../AuthGate";
 import { Markdown } from "./Markdown";
+import { SpeakButton } from "./SpeakButton";
 import { copyToClipboard } from "@/lib/clipboard";
 import { MessageAttachments } from "./Attachments";
 import { canBranchFrom } from "@/lib/branch-link";
@@ -208,6 +209,7 @@ export function AssistantMessage({
       {!live && text && (
         <div className="-ml-1 mt-1 flex flex-wrap items-center gap-1.5">
           <CopyButton text={text} />
+          <SpeakButton text={text} />
           {onReact && (
             <div className="flex items-center gap-1">
               <button

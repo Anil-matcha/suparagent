@@ -16,7 +16,7 @@ GOALS: dict[str, tuple[str, tuple[str, ...]]] = {
     "briefing": ("Start each day with a short summary", ("operations-analyst",)),
     "leads": ("Find companies and people who could buy", ("sales-sales", "growth-gtm-engineer")),
     "outreach": ("Write to people who could become customers", ("sales-sales", "growth-gtm-engineer")),
-    "content": ("Write articles that bring in visitors", ("marketing-seo", "marketing-social-media")),
+    "content": ("Write articles that bring in visitors", ("marketing-seo", "marketing-social-media", "web-web-developer")),
     "social": ("Keep my social accounts active", ("marketing-social-media",)),
     "ads": ("Get more from my advertising", ("marketing-ad-manager",)),
     "support": ("Answer customers and keep them happy", ("support-customer-satisfaction",)),

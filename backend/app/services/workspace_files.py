@@ -195,7 +195,9 @@ def _open_confined(root: Path, target: Path) -> tuple[int, os.stat_result, Path]
     """Open a regular file inside `root` without following a final link, and
     check that what was opened is still the canonical file inside the root.
     The caller closes the descriptor."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    if target.is_dir():
+        raise FileAccessError(400, "not_a_file", "That is a folder, not a file.")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         fd = os.open(target, flags)
     except IsADirectoryError:

@@ -11,4 +11,5 @@ test('queue names each active participant and leaves completed work out', () => 
   const members=[{agent_id:1,name:'Research Agent'},{agent_id:2,name:'Reviewer'}];
   assert.equal(queueText(members,[{agent_id:1,status:'running'},{agent_id:2,status:'queued'},{agent_id:3,status:'completed'}]),'Research Agent is working · Reviewer is queued');
   assert.equal(mentionToken('Research Agent'),'@Research Agent ');
+  assert.equal(mentionToken('Research Agent', 42),'@Research Agent (#42) ');
 });

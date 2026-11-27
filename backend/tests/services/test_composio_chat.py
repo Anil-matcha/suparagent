@@ -100,7 +100,7 @@ async def test_an_allowed_agent_reads_github_in_chat_without_a_card(rt, sessions
     assert args[args.index("--tools") + 1] == ""  # the host's own tools stay off
     assert "connected apps (github)" in launch["system_prompt"]
     server = config["mcpServers"]["composio"]
-    assert server["args"][-2:] == ["--apps", "github=read"] and KEY not in json.dumps(config)
+    assert server["args"][-3:] == ["--apps", "github=read", "--connect"] and KEY not in json.dumps(config)
 
     result = cli.log("mcp_result")[0]
     assert not result["is_error"]
@@ -113,7 +113,7 @@ async def test_an_allowed_agent_reads_github_in_chat_without_a_card(rt, sessions
     assert [(e.data["status"], e.data.get("by")) for e in resolved] == [("allowed", "composio_read")]
 
 
-async def test_an_agent_without_the_app_has_no_server_and_the_call_is_denied(rt, sessions, cli, composio):  # noqa: F811
+async def test_an_agent_without_the_app_has_only_the_connect_request_and_the_call_is_denied(rt, sessions, cli, composio):  # noqa: F811
     agent = await agent_with(rt, sessions, None)
     cli.script(tool_step("github_get_authenticated_user", {}))
     thread = await rt.create_thread(agent_id=agent.id)
@@ -121,7 +121,8 @@ async def test_an_agent_without_the_app_has_no_server_and_the_call_is_denied(rt,
     await finished(sessions, thread.id)
     args = cli.launches[-1]["args"]
     mounted = json.loads(args[args.index("--mcp-config") + 1])["mcpServers"] if "--mcp-config" in args else {}
-    assert "composio" not in mounted
+    # Only the request to connect an app is mounted: no app tool, so the invented call is denied below.
+    assert mounted["composio"]["args"][-3:] == ["--apps", "", "--connect"]
     assert cli.log("mcp_result") == [] and composio.executes == []
     resolved = [e for e in await events_of(sessions, thread.id) if e.type == "approval.resolved"]
     assert [(e.data["status"], e.data.get("by")) for e in resolved] == [("denied", "no_connected_apps")]
@@ -158,7 +159,7 @@ async def test_a_change_shows_a_card_and_runs_only_on_allow(rt, sessions, cli, c
     assert [e["tool_slug"] for e in composio.executes] == ["GITHUB_CREATE_AN_ISSUE"]
     args = cli.launches[-1]["args"]
     server = json.loads(args[args.index("--mcp-config") + 1])["mcpServers"]["composio"]
-    assert server["args"][-2:] == ["--apps", "github=write"]
+    assert server["args"][-3:] == ["--apps", "github=write", "--connect"]
     assert "ask the person first" in cli.launches[-1]["system_prompt"]
 
 

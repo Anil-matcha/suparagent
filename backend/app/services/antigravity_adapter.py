@@ -135,6 +135,7 @@ def catalog(session):
 
     values = []
     def visit(items, depth=0):
+        nonlocal default_effort
         if not isinstance(items, list) or depth > 8:
             return
         for item in items[:600]:
@@ -171,6 +172,11 @@ def catalog(session):
                 elif global_efforts:
                     model_efforts = tuple(global_efforts)
                     configurable = len(model_efforts) > 1
+                elif lower_id == "gemini-4-hydrogen" or "hydrogen" in lower_id:
+                    model_efforts = ("low", "medium", "high", "xhigh")
+                    configurable = True
+                    if not default_effort:
+                        default_effort = "high"
                 elif lower_id.startswith("gemini-") or "gemini" in lower_label:
                     model_efforts = ("low", "medium", "high")
                     configurable = True
@@ -312,12 +318,18 @@ class AntigravityAdapter(AcpAdapter):
             session = result or session
 
         if effort:
-            thought_opt = option(session, "thinking_level") or option(session, "thought_level")
+            thought_opt = option(session, "thinking_level") or option(session, "thought_level") or option(session, "effort")
             if thought_opt and thought_opt.get("type") == "select":
                 current_effort = thought_opt.get("currentValue")
                 options = thought_opt.get("options", [])
                 wire_map = {normalize_effort(o.get("value", "")): o.get("value") for o in options if isinstance(o, dict)}
-                target_wire = wire_map.get(effort)
+                for o in options:
+                    if isinstance(o, dict) and o.get("value"):
+                        val = str(o["value"]).lower()
+                        wire_map[val] = o["value"]
+                        if o.get("name"):
+                            wire_map[str(o["name"]).lower()] = o["value"]
+                target_wire = wire_map.get(effort.lower())
                 if target_wire and target_wire != current_effort:
                     cfg_id = thought_opt.get("id") or "thinking_level"
                     try:
@@ -395,6 +407,37 @@ class AntigravityAdapter(AcpAdapter):
             models = catalog(session)
             if not models:
                 raise InvalidConfig("Antigravity did not offer any models to this account.")
+
+            # Dynamically survey real thinking level options from ACP session for each model
+            sid = session.get("sessionId")
+            if sid:
+                surveyed = []
+                for m in models:
+                    efforts = list(m.supported_reasoning_efforts)
+                    def_effort = m.default_reasoning_effort
+                    try:
+                        res = await asyncio.wait_for(
+                            rpc.request("session/set_config_option", {"sessionId": sid, "configId": "model", "value": m.id}),
+                            timeout=6.0,
+                        )
+                        for opt in (res or {}).get("configOptions", []):
+                            if opt.get("id") in ("thinking_level", "thought_level", "effort") or opt.get("category") == "thought_level":
+                                vals = [o.get("value") for o in opt.get("options", []) if isinstance(o, dict) and o.get("value")]
+                                if vals:
+                                    efforts = vals
+                                    cur = opt.get("currentValue")
+                                    if cur in vals:
+                                        def_effort = cur
+                    except Exception:
+                        pass
+                    surveyed.append(dataclasses.replace(
+                        m,
+                        supported_reasoning_efforts=tuple(efforts),
+                        default_reasoning_effort=def_effort,
+                        reasoning_effort_configurable=len(efforts) > 1,
+                    ))
+                models = surveyed
+
             path = profile_dir(config) / "models.json"
             payload = [
                 {

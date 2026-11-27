@@ -51,7 +51,7 @@ def test_bad_arguments_are_refused_not_dropped(name, args):
 
 
 def test_every_tool_is_one_fixed_tool_and_writes_are_a_short_list():
-    assert tools.TOOLS and all(t.kind in tools.LEVELS for t in tools.TOOLS)
+    assert tools.TOOLS and all(t.kind in {"read", "label", "write"} for t in tools.TOOLS)  # a tool's kind; the level is spelled labels
     prefixes = {"github": "GITHUB_", "gmail": "GMAIL_", "googlecalendar": "GOOGLECALENDAR_", "googleads": "GOOGLEADS_", "metaads": "METAADS_"}
     assert all(t.slug.startswith(prefixes[t.app]) and t.slug.isupper() for t in tools.TOOLS)
     assert len({t.name for t in tools.TOOLS}) == len(tools.TOOLS)
@@ -82,6 +82,8 @@ def test_the_shim_shows_tools_by_level():
 @pytest.mark.parametrize("level, kind, ok", [
     ("read", "read", True), ("write", "read", True), ("write", "write", True),
     ("read", "write", False), (None, "read", False), ("admin", "read", False), ("", "write", False),
+    ("labels", "read", True), ("labels", "label", True), ("labels", "write", False),
+    ("read", "label", False), ("write", "label", True), ("labels", "labels", True), ("write", "bogus", False),
 ])
 def test_a_level_allows_its_own_tools_and_the_ones_below(level, kind, ok):
     assert tools.allows(level, kind) is ok
@@ -632,3 +634,45 @@ def test_ad_results_are_cut_to_whitelisted_numbers():
 ])
 def test_ad_policy(name, levels, expected):
     assert composio_policy.automatic(composio_policy.PREFIX + name, "ask", levels) == expected
+
+
+def test_the_three_levels_and_the_tools_each_one_shows():
+    assert tools.LEVELS == ("read", "labels", "write")
+    read = {t["name"] for t in tools.mcp_tools({"gmail": "read"})}
+    labels = {t["name"] for t in tools.mcp_tools({"gmail": "labels"})}
+    write = {t["name"] for t in tools.mcp_tools({"gmail": "write"})}
+    assert read < labels < write
+    assert labels - read == {tools.LABEL_APPLY}
+    assert tools.LABEL_LIST in read and tools.TRIAGE_MARK in read and tools.LABEL_APPLY not in read
+    assert {"gmail_send_email", "gmail_create_draft_reply"} <= write - labels
+    assert not {"gmail_send_email", "gmail_create_draft_reply", "gmail_prepare_checked_reply"} & labels
+
+
+def test_the_least_of_two_levels():
+    assert tools.lower_level("write", "labels") == "labels" and tools.lower_level("labels", "write") == "labels"
+    assert tools.lower_level("write", "read") == "read" and tools.lower_level("labels", "labels") == "labels"
+    assert tools.lower_level("write", None) == "read" and tools.lower_level("bogus", "write") == "read"
+
+
+def test_the_label_tool_takes_only_a_thread_and_a_fixed_word_and_the_dangerous_slugs_are_not_tools():
+    label = tool(tools.LABEL_APPLY)
+    assert label.kind == "label" and label.slug == "GMAIL_MODIFY_THREAD_LABELS" and tools.LABEL_APPLY in tools.ROUTINE_WRITE_TOOLS
+    assert set(label.properties) == {"thread_id", "label"} and label.required == ("thread_id", "label")
+    sent, _ = tools.clean_arguments(label, {"thread_id": "t1", "label": "At risk"})
+    assert sent == {"thread_id": "t1", "label": "At risk"}
+    for bad in ({"thread_id": "t1", "label": "Worker/Urgent"}, {"thread_id": "t1", "label": "INBOX"}, {"thread_id": "t1", "label": "Spam"},
+                {"thread_id": "t1", "label": "Urgent", "add_label_ids": ["L1"]}, {"thread_id": "t1", "label": "Urgent", "remove_label_ids": ["INBOX"]},
+                {"thread_id": "t1"}, {"label": "Urgent"}):
+        with pytest.raises(tools.BadArguments):
+            tools.clean_arguments(label, bad)
+    slugs = {t.slug for t in tools.TOOLS}
+    assert not slugs & {"GMAIL_DELETE_LABEL", "GMAIL_PATCH_LABEL", "GMAIL_UPDATE_LABEL", "GMAIL_REMOVE_LABEL", "GMAIL_MOVE_TO_TRASH",
+                        "GMAIL_MOVE_THREAD_TO_TRASH", "GMAIL_UNTRASH_MESSAGE", "GMAIL_UNTRASH_THREAD", "GMAIL_ADD_LABEL_TO_EMAIL"}
+    assert tools.has_label_tools("gmail") and not tools.has_label_tools("github")
+
+
+def test_the_note_tells_a_labels_agent_what_it_can_and_cannot_do():
+    note = tools.tool_note({"gmail": "labels"})
+    assert "gmail_apply_worker_label" in note and "Worker/<word>" in note and "never remove or change a label" in note
+    assert "gmail_apply_worker_label" not in tools.tool_note({"gmail": "read"})
+    assert "saving a draft reply" in tools.tool_note({"gmail": "write"}) and "saving a draft reply" not in note

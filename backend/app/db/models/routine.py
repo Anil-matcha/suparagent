@@ -14,7 +14,9 @@ ROUTINE_RUN_STATES = (
 )
 ACTIVE_RUN_STATES = ("queued", "running", "needs_input")
 # "retry" is a new attempt of a failed run (Routine.retry_limit).
-ROUTINE_TRIGGERS = ("schedule", "manual", "webhook", "retry")
+ROUTINE_TRIGGERS = ("schedule", "manual", "webhook", "retry", "app_event")
+# The triggers whose runs read connected apps like a scheduled run (BL-177). A webhook run does not: its text is outside text.
+SCHEDULED_TRIGGERS = ("schedule", "manual", "app_event")
 
 
 class Routine(Base):
@@ -41,6 +43,9 @@ class Routine(Base):
     paused: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=expression.false()
     )
+    # Optional new-mail trigger beside the schedule (BL-177): {"app": "gmail", "account_id": ..., "query": ...,
+    # "debounce_minutes": 5, "max_runs_per_day": 12, "quiet": {"from": "20:00", "to": "07:00"}}. Null = none.
+    app_event: Mapped[dict | None] = mapped_column(JSONValue, nullable=True)
     # Why the app paused it (agent gone), not set when a person pauses it.
     paused_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
@@ -94,6 +99,15 @@ class RoutineRun(Base):
             unique=True,
             sqlite_where=text("trigger = 'schedule'"),
             postgresql_where=text("trigger = 'schedule'"),
+        ),
+        # One queued wake per time slot for a routine woken by new mail (BL-177).
+        Index(
+            "uq_routine_run_app_event_slot",
+            "routine_id",
+            "scheduled_for",
+            unique=True,
+            sqlite_where=text("trigger = 'app_event'"),
+            postgresql_where=text("trigger = 'app_event'"),
         ),
         # A failed run gets at most one new attempt, so two schedulers that
         # both settle it cannot both queue a retry.

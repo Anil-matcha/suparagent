@@ -189,6 +189,46 @@ def _small(value: object, depth: int = 0):
     return None
 
 
+def _clean_input(value: object):
+    """Drop empty strings, empty lists and nulls; MuAPI's validators reject them."""
+    if isinstance(value, dict):
+        cleaned = {key: _clean_input(item) for key, item in value.items()}
+        return {key: item for key, item in cleaned.items() if not _is_empty(item)}
+    if isinstance(value, list):
+        return [item for item in (_clean_input(item) for item in value) if not _is_empty(item)]
+    return value
+
+
+def _is_empty(value: object) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip()) or value == [] or value == {}
+
+
+def _input_summary(schema: object) -> dict | None:
+    """Flat field list (type, allowed values, default) that survives the depth limit of _small."""
+    try:
+        data = schema["schemas"]["input_data"]  # type: ignore[index]
+        properties = data["properties"]
+    except (KeyError, TypeError):
+        return None
+    if not isinstance(properties, dict):
+        return None
+    fields = {}
+    for name, spec in list(properties.items())[:30]:
+        if not isinstance(spec, dict):
+            continue
+        entry = {"type": spec.get("type") if isinstance(spec.get("type"), str) else None}
+        if isinstance(spec.get("enum"), list):
+            entry["allowed_values"] = [item for item in spec["enum"][:20] if isinstance(item, (str, int, float, bool))]
+        if "default" in spec and isinstance(spec["default"], (str, int, float, bool)):
+            entry["default"] = spec["default"]
+        if isinstance(spec.get("description"), str):
+            entry["description"] = spec["description"][:300]
+        fields[str(name)[:100]] = entry
+    required = data.get("required") if isinstance(data, dict) else None
+    return {"fields": fields,
+            "required": [item for item in (required or [])[:30] if isinstance(item, str)]}
+
+
 def valid_api_name(value: object) -> bool:
     return isinstance(value, str) and API_NAME.fullmatch(value) is not None
 
@@ -211,6 +251,23 @@ class MuapiError(Exception):
         self.not_run = not_run
 
 
+async def _read_failed_result(response: httpx.Response) -> dict | None:
+    """MuAPI answers a failed prediction with 400 and {"detail": {"status": "failed", "error": ...}}."""
+    raw = b""
+    async for chunk in response.aiter_bytes():
+        raw += chunk
+        if len(raw) > 16_000:
+            return None
+    try:
+        detail = json.loads(raw).get("detail")
+    except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+        return None
+    if not isinstance(detail, dict) or detail.get("status") != "failed":
+        return None
+    return {"id": str(detail.get("id") or "")[:128], "status": "failed",
+            "error": str(detail.get("error") or "The request failed.")[:500]}
+
+
 class MuapiDataApi:
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key
@@ -219,7 +276,7 @@ class MuapiDataApi:
         return None
 
     async def _request(self, method: str, path: str, *, body: dict | None = None,
-                       timeout: float = 30.0) -> object:
+                       timeout: float = 30.0, failed_result_ok: bool = False) -> object:
         url = f"{API_ROOT}/{path.lstrip('/')}"
         may_spend = method == "POST" and not path.endswith("/estimate-cost")
         if not url.startswith(API_ROOT + "/"):
@@ -241,6 +298,10 @@ class MuapiDataApi:
                         if response.is_redirect or 300 <= response.status_code < 400:
                             raise MuapiError("redirect_denied", "MuAPI returned an unexpected redirect.", 502,
                                              not_run=True)
+                        if failed_result_ok and response.status_code == 400:
+                            failed = await _read_failed_result(response)
+                            if failed is not None:
+                                return failed
                         if response.status_code >= 400:
                             status = response.status_code
                             code = "authentication_failed" if status in (401, 403) else f"muapi_http_{status}"
@@ -383,12 +444,15 @@ class MuapiDataApi:
                 "dynamic_pricing": model.get("dynamic_pricing", False),
                 "cost_strategy": _small(model.get("cost_strategy")),
                 "endpoint": str(model.get("endpoint_url") or model.get("endpoint") or "")[:300],
+                "input_summary": _input_summary(model.get("input_schema")),
                 "input_schema": _small(model.get("input_schema")),
                 "output_schema": _small(model.get("output_schema")),
             }
 
         if tool_name in ("muapi_data_api_estimate", "muapi_data_api_call"):
             name, payload = arguments.get("api_name"), arguments.get("input")
+            if isinstance(payload, dict):
+                payload = _clean_input(payload)
             if not valid_api_name(name) or not isinstance(payload, dict):
                 raise MuapiError("bad_arguments", "Choose a searched API and provide its JSON input.", 422,
                                  not_run=True)
@@ -427,6 +491,8 @@ class MuapiDataApi:
 
         if tool_name == "muapi_media_generate":
             name, payload = arguments.get("api_name"), arguments.get("input")
+            if isinstance(payload, dict):
+                payload = _clean_input(payload)
             if not valid_api_name(name) or not isinstance(payload, dict):
                 raise MuapiError("bad_arguments", "Choose a searched media model and provide its JSON input.", 422,
                                  not_run=True)
@@ -440,7 +506,8 @@ class MuapiDataApi:
             if not isinstance(request_id, str) or PREDICTION_ID.fullmatch(request_id) is None:
                 raise MuapiError("bad_arguments", "Give a prediction request ID returned by MuAPI.", 422,
                                  not_run=True)
-            result = await self._request("GET", f"predictions/{quote(request_id, safe='')}/result")
+            result = await self._request("GET", f"predictions/{quote(request_id, safe='')}/result",
+                                         failed_result_ok=True)
             return result if isinstance(result, dict) else {"result": result}
 
         raise MuapiError("unknown_tool", "That MuAPI tool is not available.", 404, not_run=True)
