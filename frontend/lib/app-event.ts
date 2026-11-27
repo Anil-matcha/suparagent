@@ -124,7 +124,7 @@ type AgentAccess = { connector_scopes?: Record<string, string> | null; connector
 // The Gmail accounts this routine's agent may read, active ones only.
 export function gmailChoices(agent: AgentAccess, accounts: ComposioAccount[] | null): ComposioAccount[] {
   const scope = agent?.connector_scopes?.gmail;
-  if (!accounts || (scope !== "read" && scope !== "write")) return [];
+  if (!accounts || (scope !== "read" && scope !== "labels" && scope !== "write")) return [];
   const allowed = agent?.connector_account_scopes?.gmail ?? [];
   return accountsOf(accounts, "gmail").filter((account) => account.status === "ACTIVE" && allowed.includes(account.id));
 }

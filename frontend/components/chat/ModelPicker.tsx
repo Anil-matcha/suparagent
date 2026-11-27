@@ -15,7 +15,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { api, type Engine, type EngineModel, type EngineUsageReport } from "@/lib/api";
+import { api, type Engine, type EngineUsageReport } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
 export interface ModelPickerProps {
@@ -125,11 +125,6 @@ export function ModelPicker({
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync active rail provider with selected provider
-  useEffect(() => {
-    setActiveRailEngineId(selectedProvider);
-  }, [selectedProvider]);
-
   // Selected engine & model details
   const activeEngine = engines.find((e) => e.id === selectedProvider) ?? engines[0];
   const activeModelId = selectedModel ?? activeEngine?.default_model ?? activeEngine?.models[0]?.id ?? null;
@@ -184,8 +179,6 @@ export function ModelPicker({
   useEffect(() => {
     if (open) {
       setTimeout(() => searchInputRef.current?.focus(), 50);
-    } else {
-      setSearch("");
     }
   }, [open]);
 
@@ -314,7 +307,13 @@ export function ModelPicker({
       <button
         type="button"
         disabled={disabled}
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          if (!open) {
+            setSearch("");
+            setActiveRailEngineId(selectedProvider);
+          }
+          setOpen((prev) => !prev);
+        }}
         aria-expanded={open}
         aria-label={`Model: ${pillTitle}`}
         title={pillTitle}

@@ -238,7 +238,8 @@ def start(scheduler=None, make_client=None) -> asyncio.Task:
         scheduler = routine_service.scheduler
     if make_client is None:
         from app.routers.routines import _composio_factory
-        make_client = _composio_factory
+        # _composio_factory() returns the client maker (looked up when used); the listener calls make_client(api_key).
+        make_client = lambda api_key: _composio_factory()(api_key)  # noqa: E731
     _task = asyncio.get_running_loop().create_task(_run_global(scheduler, make_client), name="desktop-event-stream")
     return _task
 

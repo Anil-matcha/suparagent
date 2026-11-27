@@ -135,6 +135,7 @@ def catalog(session):
 
     values = []
     def visit(items, depth=0):
+        nonlocal default_effort
         if not isinstance(items, list) or depth > 8:
             return
         for item in items[:600]:
@@ -163,10 +164,10 @@ def catalog(session):
                     model_efforts = tuple(e for e in ("low", "medium", "high", "xhigh", "max") if e in me_list)
                     configurable = len(model_efforts) > 1
                 elif "(medium)" in lower_label:
-                    model_efforts = ()
+                    model_efforts = ("medium",)
                     configurable = False
                 elif "(thinking)" in lower_label:
-                    model_efforts = ()
+                    model_efforts = ("high",)
                     configurable = False
                 elif global_efforts:
                     model_efforts = tuple(global_efforts)
