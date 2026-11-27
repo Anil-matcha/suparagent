@@ -1,7 +1,10 @@
 "use client";
 
-import { Check, ChevronRight, Copy, GitBranch, Loader2, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { Check, ChevronRight, Copy, CornerUpLeft, Ellipsis, GitBranch, Loader2, Quote, Reply, SmilePlus, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import type { ReactionKind } from "@/lib/reactions";
+import { buildAnnotatedMessage, citationAttachment, createCitationTextSelector, splitMessageAnnotations, type CitationAttachment } from "@/lib/citations";
+import { Menu, MenuItem } from "@/components/ui/Menu";
+import { CitationBadge } from "./CitationUI";
 import { useState } from "react";
 import { canAlwaysAllow, isScreenInput } from "@/lib/approvals";
 import { can } from "@/lib/permissions";
@@ -101,23 +104,31 @@ export function UserMessage({
   item,
   threadId = null,
   onBranch,
+  onReply,
+  onCite,
+  onNavigateSource,
 }: {
   item: Item<"user">;
   threadId?: number | null;
   // Edit this message and resend it in a new branch; resolves false on failure.
   onBranch?: (turnId: number, text: string) => Promise<boolean>;
+  onReply?: () => void;
+  onCite?: (citation: CitationAttachment) => void;
+  onNavigateSource?: (itemKey: string, citation?: CitationAttachment) => boolean;
 }) {
   const t = useT();
   const timeStr = formatMessageTime(item.ts, t);
+  const parsed = splitMessageAnnotations(item.text);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(item.text);
+  const [draft, setDraft] = useState(parsed.display || item.text);
   const [busy, setBusy] = useState(false);
   const canBranch = onBranch !== undefined && canBranchFrom(item);
   if (editing && canBranch) {
     const submit = async () => {
       if (!draft.trim() || busy) return;
       setBusy(true);
-      const ok = await onBranch(item.turnId as number, draft);
+      const nextText = buildAnnotatedMessage(draft, { replyTo: parsed.reply, citations: parsed.citations });
+      const ok = await onBranch(item.turnId as number, nextText);
       setBusy(false);
       if (ok) setEditing(false);
     };
@@ -131,7 +142,7 @@ export function UserMessage({
           className="w-full max-w-[88%] rounded-2xl border border-line bg-surface px-4 py-2.5 text-[15px] leading-relaxed text-ink sm:max-w-[80%]"
         />
         <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => { setEditing(false); setDraft(item.text); }} disabled={busy}>
+          <Button variant="ghost" onClick={() => { setEditing(false); setDraft(parsed.display || item.text); }} disabled={busy}>
             {t("branch.cancel")}
           </Button>
           <Button onClick={submit} disabled={busy || !draft.trim()}>
@@ -141,26 +152,81 @@ export function UserMessage({
       </div>
     );
   }
+  const citeSnippet = () => {
+    if (!onCite) return;
+    const raw = (parsed.display || item.text).trim();
+    if (!raw) return;
+    const sel = createCitationTextSelector(raw, 0, Math.min(raw.length, 400));
+    if (sel) onCite(citationAttachment({ threadId: String(threadId ?? 0), itemKey: item.key }, sel));
+  };
   return (
-    <div className="group/msg flex flex-col items-end gap-1">
+    <div data-message-key={item.key} className="group/msg flex flex-col items-end gap-1">
       <MessageAttachments threadId={threadId} items={item.attachments ?? []} />
-      <div className="flex max-w-[88%] items-end gap-1.5 sm:max-w-[80%]">
-        {item.text && <CopyButton text={item.text} />}
-        {canBranch && (
-          <button
-            type="button"
-            onClick={() => { setDraft(item.text); setEditing(true); }}
-            aria-label={t("branch.edit")}
-            title={t("branch.edit")}
-            className="mb-1 shrink-0 rounded-md p-1 text-muted/60 opacity-0 transition hover:text-ink focus-visible:opacity-100 group-hover/msg:opacity-100"
+      {parsed.reply && (
+        <button
+          type="button"
+          onClick={() => onNavigateSource?.(parsed.reply!.itemKey)}
+          className="flex max-w-[88%] cursor-pointer items-center gap-1.5 rounded-full border border-line/70 bg-surface px-2.5 py-0.5 text-[11px] text-muted hover:border-accent/50 hover:text-ink sm:max-w-[80%]"
+          title={parsed.reply.excerpt}
+        >
+          <CornerUpLeft size={11} className="shrink-0" aria-hidden="true" />
+          <span className="truncate">{parsed.reply.excerpt}</span>
+        </button>
+      )}
+      <div className="flex max-w-[88%] items-end gap-1 sm:max-w-[80%]">
+        <div className="mb-0.5 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/msg:opacity-100">
+          {onReply && (
+            <button
+              type="button"
+              onClick={onReply}
+              aria-label="Reply to message"
+              title="Reply"
+              className="inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-muted hover:bg-hover hover:text-ink touch:size-9"
+            >
+              <Reply size={14} aria-hidden="true" />
+            </button>
+          )}
+          {(parsed.display || item.text) && <CopyButton text={parsed.display || item.text} />}
+          {(canBranch || onCite) && (
+            <Menu
+              align="end"
+              trigger={
+                <button
+                  type="button"
+                  aria-label="More message actions"
+                  title="More"
+                  className="inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-muted hover:bg-hover hover:text-ink touch:size-9"
+                >
+                  <Ellipsis size={14} aria-hidden="true" />
+                </button>
+              }
+            >
+              {onCite && <MenuItem onSelect={citeSnippet}>Cite quote</MenuItem>}
+              {canBranch && <MenuItem onSelect={() => { setDraft(parsed.display || item.text); setEditing(true); }}>{t("branch.edit")}</MenuItem>}
+            </Menu>
+          )}
+        </div>
+        {parsed.display && (
+          <p
+            data-citation-source={item.key}
+            data-citation-thread={String(threadId ?? 0)}
+            className="min-w-0 whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-bubble px-4 py-2.5 text-[15px] leading-relaxed text-ink"
           >
-            <GitBranch size={14} aria-hidden="true" />
-          </button>
+            {parsed.display}
+          </p>
         )}
-        <p className="min-w-0 whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-bubble px-4 py-2.5 text-[15px] leading-relaxed text-ink">
-          {item.text}
-        </p>
       </div>
+      {parsed.citations.length > 0 && (
+        <div className="flex max-w-[88%] flex-wrap justify-end gap-1.5 sm:max-w-[80%]">
+          {parsed.citations.map((citation) => (
+            <CitationBadge
+              key={citation.id}
+              citation={citation}
+              onNavigate={() => onNavigateSource?.(citation.source.itemKey, citation) ?? false}
+            />
+          ))}
+        </div>
+      )}
       {(timeStr || item.person) && (
         <time
           dateTime={item.ts ?? undefined}
@@ -180,72 +246,149 @@ export function UserMessage({
 }
 
 export function AssistantMessage({
+  itemKey = undefined,
   text,
   incomplete = false,
   live = false,
   ts = null,
   reaction = null,
   onReact,
+  onReply,
+  onCite,
   disabled = false,
   threadId = null,
   workspacePath = null,
 }: {
+  itemKey?: string;
   text: string;
   incomplete?: boolean;
   live?: boolean;
   ts?: string | null;
   reaction?: ReactionKind | null;
   onReact?: (reaction: ReactionKind) => void;
+  onReply?: () => void;
+  onCite?: (citation: CitationAttachment) => void;
   disabled?: boolean;
   threadId?: number | null;
   workspacePath?: string | null;
 }) {
   const t = useT();
   const timeStr = formatMessageTime(ts, t);
+  const [reactOpen, setReactOpen] = useState(false);
+  const citeWhole = () => {
+    if (!onCite || !itemKey) return;
+    const raw = text.trim();
+    if (!raw) return;
+    const sel = createCitationTextSelector(raw, 0, Math.min(raw.length, 400));
+    if (sel) onCite(citationAttachment({ threadId: String(threadId ?? 0), itemKey }, sel));
+  };
   return (
-    <div className="group/msg max-w-full text-[15px] leading-relaxed">
-      <Markdown text={text} threadId={live ? null : threadId} workspacePath={live ? null : workspacePath} />
+    <div data-message-key={itemKey} className="group/msg max-w-full text-[15px] leading-relaxed">
+      <div
+        data-citation-source={!live ? itemKey : undefined}
+        data-citation-thread={!live ? String(threadId ?? 0) : undefined}
+      >
+        <Markdown text={text} threadId={live ? null : threadId} workspacePath={live ? null : workspacePath} />
+      </div>
       {live && <span aria-hidden="true" className="animate-pulse text-muted motion-reduce:animate-none">▍</span>}
       {!live && text && (
-        <div className="-ml-1 mt-1 flex flex-wrap items-center gap-1.5">
-          <CopyButton text={text} />
-          <SpeakButton text={text} />
-          {onReact && (
-            <div className="flex items-center gap-1">
+        <div className="-ml-1 mt-1.5 flex flex-wrap items-center gap-1">
+          <div className={cn(
+            "flex items-center gap-0.5 transition-opacity",
+            reaction || reactOpen ? "opacity-100" : "opacity-0 focus-within:opacity-100 group-hover/msg:opacity-100",
+          )}>
+            {onReply && (
               <button
                 type="button"
-                onClick={() => onReact("thumbs_up")}
-                disabled={disabled}
-                aria-label={t("chat.reaction.replyThumbsUp")}
-                aria-pressed={reaction === "thumbs_up"}
-                title={t("chat.reaction.replyThumbsUp")}
-                className={cn(
-                  "inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-xs transition-colors",
-                  reaction === "thumbs_up"
-                    ? "bg-success/20 text-success font-medium"
-                    : "text-muted hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-                )}
+                onClick={onReply}
+                aria-label="Reply to message"
+                title="Reply"
+                className="inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-muted transition-colors hover:bg-hover hover:text-ink touch:size-9"
               >
-                <ThumbsUp size={14} aria-hidden="true" className={reaction === "thumbs_up" ? "fill-current" : undefined} />
+                <Reply size={14} aria-hidden="true" />
               </button>
-              <button
-                type="button"
-                onClick={() => onReact("thumbs_down")}
-                disabled={disabled}
-                aria-label={t("chat.reaction.replyThumbsDown")}
-                aria-pressed={reaction === "thumbs_down"}
-                title={t("chat.reaction.replyThumbsDown")}
-                className={cn(
-                  "inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-xs transition-colors",
-                  reaction === "thumbs_down"
-                    ? "bg-danger/20 text-danger font-medium"
-                    : "text-muted hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+            )}
+            {onReact && (
+              <div className="relative flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => setReactOpen((v) => !v)}
+                  disabled={disabled}
+                  aria-label="React to message"
+                  aria-expanded={reactOpen}
+                  title="React"
+                  className={cn(
+                    "inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-xs transition-colors touch:size-9",
+                    reaction === "thumbs_up"
+                      ? "bg-success/20 text-success font-medium"
+                      : reaction === "thumbs_down"
+                        ? "bg-danger/20 text-danger font-medium"
+                        : "text-muted hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-50",
+                  )}
+                >
+                  {reaction === "thumbs_up" ? (
+                    <ThumbsUp size={14} aria-hidden="true" className="fill-current" />
+                  ) : reaction === "thumbs_down" ? (
+                    <ThumbsDown size={14} aria-hidden="true" className="fill-current" />
+                  ) : (
+                    <SmilePlus size={14} aria-hidden="true" />
+                  )}
+                </button>
+                {reactOpen && (
+                  <div className="flex items-center gap-0.5 rounded-full border border-line bg-raised px-1 py-0.5 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => { setReactOpen(false); onReact("thumbs_up"); }}
+                      disabled={disabled}
+                      aria-label={t("chat.reaction.replyThumbsUp")}
+                      aria-pressed={reaction === "thumbs_up"}
+                      title={t("chat.reaction.replyThumbsUp")}
+                      className={cn(
+                        "inline-flex size-6 cursor-pointer items-center justify-center rounded-full text-xs transition-colors",
+                        reaction === "thumbs_up" ? "bg-success/20 text-success" : "text-muted hover:bg-hover hover:text-ink",
+                      )}
+                    >
+                      <ThumbsUp size={13} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setReactOpen(false); onReact("thumbs_down"); }}
+                      disabled={disabled}
+                      aria-label={t("chat.reaction.replyThumbsDown")}
+                      aria-pressed={reaction === "thumbs_down"}
+                      title={t("chat.reaction.replyThumbsDown")}
+                      className={cn(
+                        "inline-flex size-6 cursor-pointer items-center justify-center rounded-full text-xs transition-colors",
+                        reaction === "thumbs_down" ? "bg-danger/20 text-danger" : "text-muted hover:bg-hover hover:text-ink",
+                      )}
+                    >
+                      <ThumbsDown size={13} aria-hidden="true" />
+                    </button>
+                  </div>
                 )}
+              </div>
+            )}
+            <CopyButton text={text} />
+            <SpeakButton text={text} />
+            {(onReply || onCite) && (
+              <Menu
+                align="start"
+                trigger={
+                  <button
+                    type="button"
+                    aria-label="More message actions"
+                    title="More"
+                    className="inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-muted transition-colors hover:bg-hover hover:text-ink touch:size-9"
+                  >
+                    <Ellipsis size={14} aria-hidden="true" />
+                  </button>
+                }
               >
-                <ThumbsDown size={14} aria-hidden="true" className={reaction === "thumbs_down" ? "fill-current" : undefined} />
-              </button>
-            </div>
-          )}
+                {onReply && <MenuItem onSelect={onReply}>Reply</MenuItem>}
+                {onCite && itemKey && <MenuItem onSelect={citeWhole}>Cite quote</MenuItem>}
+              </Menu>
+            )}
+          </div>
           {timeStr && (
             <time
               dateTime={ts ?? undefined}

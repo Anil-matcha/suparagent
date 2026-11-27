@@ -2,6 +2,9 @@
 
 import { ArrowDown } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
+import { makeReplyTarget, splitMessageAnnotations, type CitationAttachment, type ReplyTarget } from "@/lib/citations";
+import { flashMessageElement, resolveCitationRange } from "@/lib/citations-dom";
+import { CitationSelectionToolbar } from "./CitationUI";
 import { formatReactionReply, isLatestAssistantMessage, loadThreadReactions, saveThreadReaction, type ReactionKind, type ReactionsMap } from "@/lib/reactions";
 import type { Transcript, TranscriptItem } from "@/lib/transcript";
 import { announcement, groupToolRuns } from "@/lib/transcript-view";
@@ -87,6 +90,8 @@ export function Conversation({
   undoneRules = [],
   onUndo,
   onBranch,
+  onReply,
+  onAddCitation,
   threadId = null,
   workspacePath = null,
   emptyHint,
@@ -96,6 +101,8 @@ export function Conversation({
 }: {
   // Edit a past message and resend it in a new branch.
   onBranch?: (turnId: number, text: string) => Promise<boolean>;
+  onReply?: (target: ReplyTarget) => void;
+  onAddCitation?: (citation: CitationAttachment) => void;
   // The conversation the transcript belongs to: attachments are fetched from it.
   threadId?: number | null;
   // The pinned workspace also scopes download links in assistant replies.
@@ -159,6 +166,24 @@ export function Conversation({
     if (!await onReactionReply(formatReactionReply(reaction))) return;
     const next = saveThreadReaction(threadId, itemKey, reaction);
     setThreadReactions({ id: threadId, map: next });
+  };
+
+  const navigateToSource = (itemKey: string, citation?: CitationAttachment): boolean => {
+    const viewport = scroller.current;
+    if (!viewport) return false;
+    const messageEl = viewport.querySelector<HTMLElement>(`[data-message-key="${CSS.escape(itemKey)}"]`);
+    const sourceEl = viewport.querySelector<HTMLElement>(`[data-citation-source="${CSS.escape(itemKey)}"]`) ?? messageEl;
+    if (!sourceEl) return false;
+    flashMessageElement(messageEl ?? sourceEl);
+    if (citation) {
+      const range = resolveCitationRange(sourceEl, citation);
+      if (range) {
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+    }
+    return true;
   };
 
   const working = transcript.runningTurnId !== null && !transcript.typing;
@@ -232,13 +257,28 @@ export function Conversation({
                   node = <ToolRun key={item.key} tools={item.tools as Extract<TranscriptItem, { kind: "tool" }>[]} />;
                   break;
                 case "user":
-                  node = <UserMessage key={item.key} item={item} threadId={threadId} onBranch={onBranch} />;
+                  node = (
+                    <UserMessage
+                      key={item.key}
+                      item={item}
+                      threadId={threadId}
+                      onBranch={onBranch}
+                      onReply={
+                        onReply
+                          ? () => onReply(makeReplyTarget(item.key, "user", splitMessageAnnotations(item.text).display || item.text))
+                          : undefined
+                      }
+                      onCite={onAddCitation}
+                      onNavigateSource={navigateToSource}
+                    />
+                  );
                   break;
                 case "assistant": {
                   const canReplyToMessage = !item.incomplete && isLatestAssistantMessage(item.key, transcript.items);
                   node = (
                     <AssistantMessage
                       key={item.key}
+                      itemKey={item.key}
                       text={item.text}
                       threadId={threadId}
                       workspacePath={workspacePath}
@@ -246,6 +286,8 @@ export function Conversation({
                       ts={item.ts}
                       reaction={reactions[item.key] ?? null}
                       onReact={canReplyToMessage ? (r) => { void handleReact(item.key, r); } : undefined}
+                      onReply={onReply && !item.incomplete ? () => onReply(makeReplyTarget(item.key, "assistant", item.text)) : undefined}
+                      onCite={onAddCitation}
                       disabled={answering !== null || sendingReactionReplyDisabled}
                     />
                   );
@@ -303,6 +345,7 @@ export function Conversation({
           )}
         </div>
       </div>
+      {onAddCitation && <CitationSelectionToolbar viewportRef={scroller} onAdd={onAddCitation} />}
       {away && (
         <button
           type="button"

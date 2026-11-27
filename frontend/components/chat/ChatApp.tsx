@@ -48,6 +48,7 @@ import { collaboration, type TeamState } from "@/lib/collaboration";
 import { WorkspaceSwitcher } from "@/components/shell/WorkspaceSwitcher";
 import { useSession } from "@/components/AuthGate";
 import { can } from "@/lib/permissions";
+import { buildAnnotatedMessage, type CitationAttachment, type ReplyTarget } from "@/lib/citations";
 import { onboarding } from "@/lib/onboarding";
 import { loadDraft } from "@/lib/drafts";
 import { TeamPanel } from "./TeamPanel";
@@ -245,9 +246,16 @@ export function ChatApp() {
   const [todaySnapshot, setTodaySnapshot] = useState<NeedsYouSnapshot | null>(null);
   // Files chosen for the next message, and why one was refused.
   const [attached, setAttached] = useState<File[]>([]);
+  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
+  const [citations, setCitations] = useState<CitationAttachment[]>([]);
   const audioAbort = useRef<AbortController | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
   const [audioConsent, setAudioConsent] = useState(false);
+
+  useEffect(() => {
+    setReplyTo(null);
+    setCitations([]);
+  }, [threadId]);
   const [audioCapability, setAudioCapability] = useState<{ provider_label: string; available: boolean; retention: string } | null>(null);
   useEffect(() => { if (fullAccess) api.audioCapabilities().then(setAudioCapability).catch(() => setAudioCapability(null)); }, [fullAccess]);
   const [attachNotice, setAttachNotice] = useState<string | null>(null);
@@ -760,7 +768,7 @@ export function ChatApp() {
   const send = async () => {
     if (transcript.runningTurnId !== null) {
       if (!canMessageDuringRun || threadId === null) return;
-      const text = draft.trim();
+      const text = buildAnnotatedMessage(draft.trim(), { replyTo, citations });
       if (!text) return;
       if (text.length > MAX_FOLLOW_UP_TEXT_CHARS) {
         setSendError(t("composer.messageTooLong"));
@@ -791,6 +799,8 @@ export function ChatApp() {
         }
         setDraft("");
         setChosenSkills(() => []);
+        setReplyTo(null);
+        setCitations([]);
         setAttachNotice(null);
       } catch (err) {
         setSendError(sendErrorText(err));
@@ -804,9 +814,9 @@ export function ChatApp() {
     // `/name rest` for a skill that is on selects it; anything else is sent as typed.
     const command = parseSkillCommand(draft, agentSkills.filter((s) => s.enabled).map((s) => s.name));
     const usedSkills = command ? toggleSkillOn(chosenSkills, command.name) : chosenSkills;
-    const message = command ? command.rest : draft.trim();
-    const text = message;
-    if (!text) return;
+    const rawMessage = command ? command.rest : draft.trim();
+    const message = buildAnnotatedMessage(rawMessage, { replyTo, citations });
+    if (!message) return;
     setSendError(null);
     setSending(true);
     const processing = new AbortController();
@@ -831,6 +841,8 @@ export function ChatApp() {
       setDraft("");
       setChosenSkills(() => []);
       setAttached([]);
+      setReplyTo(null);
+      setCitations([]);
       setAudioUrl("");
       setAudioConsent(false);
       setAttachNotice(null);
@@ -1420,6 +1432,11 @@ export function ChatApp() {
               undoneRules={undoneRules}
               onUndo={undoRule}
               onBranch={roomId === null && ready && transcript.runningTurnId === null && !sending ? branchFromMessage : undefined}
+              onReply={(target) => {
+                setReplyTo(target);
+                setFocusComposer(true);
+              }}
+              onAddCitation={(citation) => setCitations((prev) => [...prev, citation])}
             />
           )}
 
@@ -1531,6 +1548,15 @@ export function ChatApp() {
             selectedModel={selectedModel}
             selectedEffort={selectedEffort}
             onModelChange={handleDirectModelChange}
+            replyTo={replyTo}
+            onClearReply={() => setReplyTo(null)}
+            citations={citations}
+            onUpdateCitation={(id, next) =>
+              setCitations((prev) => prev.map((item) => (item.id === id ? next : item)))
+            }
+            onRemoveCitation={(id) =>
+              setCitations((prev) => prev.filter((item) => item.id !== id))
+            }
           />
           </>}
         </main>
