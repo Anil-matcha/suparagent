@@ -18,6 +18,7 @@ from app.auth.middleware import AuthMiddleware
 from app.desktop.launch_auth import LaunchAuthMiddleware
 from app.desktop.account_guard import DesktopAccountMiddleware, signed_in as desktop_signed_in
 from app.routers.router import router as app_router
+from app.routers.environment import well_known_router as environment_well_known_router
 from app.routers.composio_hooks import router as composio_hooks_router
 from app.routers.hooks import router as hooks_router
 from app.services import routine_service, schedule_service, task_execution_service
@@ -257,6 +258,7 @@ async def request_validation_handler(request: Request, exc: RequestValidationErr
 
 
 app.include_router(app_router)
+app.include_router(environment_well_known_router)
 # Webhook deliveries for routines, outside /api/v1: authenticated by each
 # routine's own secret (also served alone by app/ingress.py).
 app.include_router(hooks_router)

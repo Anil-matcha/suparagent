@@ -17,6 +17,7 @@ PUBLIC_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
     for methods, path in (
         ({"GET", "HEAD"}, "/health"),
         ({"GET", "HEAD"}, "/version"),
+        ({"GET", "HEAD"}, "/environment"),
         ({"GET", "HEAD"}, "/sandboxes/health"),
         ({"GET", "HEAD"}, "/permissions/health"),
         # Boat sandboxes call this with their own bearer (HOOK_TOKEN), checked by the route.
@@ -31,6 +32,7 @@ PUBLIC_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
         ({"POST"}, "/auth/people/login"),
     )
 ) + (
+    (frozenset({"GET", "HEAD"}), re.compile(r"^/\.well-known/suparagent/environment$")),
     # Routine webhooks: each delivery carries the routine's own secret, checked by the route.
     (frozenset({"POST"}), re.compile(r"^/hooks/[^/]+$")),
     # Room posts: each delivery carries the room's own secret, checked by the route.

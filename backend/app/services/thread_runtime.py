@@ -37,7 +37,7 @@ from app.services.community_mcp_bridge import CommunityMcpBridge
 from app.services.memory_capture import MemoryCapture, Turn as MemoryTurn
 from app.services import thread_store as store
 from app.services import local_claude_runner
-from app.services.workspaces import require_workspace
+from app.services.workspaces import require_workspace, task_workspace, workspace_locations_prompt
 from app.services.codex_login import CodexLogin
 from app.services.claude_login import ClaudeLogin
 from app.services import engine_config
@@ -636,6 +636,7 @@ class ThreadRuntime:
         job_id: int | None = None,
         room_id: int | None = None,
         effort: str | None = None,
+        isolate_workspace: bool | None = None,
         db=None,
     ) -> store.Thread:
         """A new thread for this runtime's owner. With `agent_id` the thread is
@@ -662,8 +663,19 @@ class ThreadRuntime:
             raise UnknownProvider(provider)
         self.check_engine_model(provider, model)
         session_id = adapter.new_session_id()
+        isolate = (
+            isolate_workspace
+            if isolate_workspace is not None
+            else bool(app_settings.resolve("LOCAL_TASK_WORKSPACE_ISOLATION").effective_value)
+        )
         if agent is not None and agent.workspace_path:
             workspace = require_workspace(Path(agent.workspace_path))
+        elif isolate:
+            workspace = task_workspace(
+                agent.id if agent is not None else None,
+                uuid4().hex[:16],
+                base=local_claude_runner.workspace_dir(),
+            )
         elif agent is not None:
             # No folder chosen: the agent gets its own, keyed by id so a rename
             # never moves it and two agents never share files.
@@ -907,6 +919,12 @@ class ThreadRuntime:
             instructions=_with_brief(
                 "\n\n".join(filter(None, (
                     agent_memory.turn_instructions(agent) if agent is not None else None,
+                    workspace_locations_prompt(
+                        agent.id if agent is not None else None,
+                        thread.workspace_path,
+                        agent.workspace_path if agent is not None else None,
+                        base=local_claude_runner.workspace_dir(),
+                    ) if thread.workspace_path and app_settings.resolve("LOCAL_TASK_WORKSPACE_ISOLATION").effective_value else None,
                     explicit_memory,
                 ))) or None, brief,
             ),

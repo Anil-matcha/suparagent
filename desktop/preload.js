@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld("suparagent", {
   openComposioLink: (url) => ipcRenderer.invoke("suparagent:open-composio-link", url),
   nativeControl: (request) => ipcRenderer.invoke("suparagent:native-control", request),
   hostedWorkspace: (action) => ipcRenderer.invoke("suparagent:hosted-workspace", action),
+  environments: (payload) => ipcRenderer.invoke("suparagent:environments", payload),
   copyText: (text) => ipcRenderer.invoke("suparagent:copy-text", text),
   showNotification: (payload) => ipcRenderer.invoke("suparagent:show-notification", payload),
   onNotificationClicked: (listener) => {

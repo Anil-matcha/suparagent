@@ -24,6 +24,7 @@ declare global {
       openComposioLink(url: string): Promise<void>;
       nativeControl(request: import("@/components/chat/NativeComputer").NativeRequest): Promise<import("@/components/chat/NativeComputer").NativeStatus | { held: boolean }>;
       updates?: import("@/components/AppUpdates").UpdatesBridge;
+      environments?: import("@/components/settings/ConnectedWorkspacesSettings").EnvironmentsBridge;
       copyText?(text: string): Promise<boolean>;
     };
   }
@@ -32,6 +33,7 @@ declare global {
 const fields: Record<string, { label: string; help: string; type: "file" | "folder" | "checkbox" | "number"; min?: number; max?: number }> = {
   LOCAL_CLAUDE_CLI_PATH: { label: "Claude executable", help: "Leave empty for automatic detection from PATH. A selected executable runs as your account. Windows npm claude.cmd shims are supported.", type: "file" },
   LOCAL_WORKSPACE_ROOT: { label: "Workspace root", help: "New conversations use a workspace subfolder here. Existing conversations keep their original folder. Leave empty for the app default.", type: "folder" },
+  LOCAL_TASK_WORKSPACE_ISOLATION: { label: "Isolate per-thread folders", help: "Give each new non-project thread its own task-workspaces folder so parallel threads never share files.", type: "checkbox" },
   LOCAL_TOOLS_ENABLED: { label: "Allow local tools", help: "Allows file reads, file changes and commands on this computer. Calls Claude asks about still require Allow or Deny; your existing Claude permission rules also apply. When off, Claude can only chat.", type: "checkbox" },
   LOCAL_TASK_TIMEOUT_SECONDS: { label: "Answer timeout (seconds)", help: "0 disables the hard time limit. Silent turns are still stopped by the inactivity watchdog. Waiting for approval pauses this timer.", type: "number", min: 0, max: 3600 },
   LOCAL_APPROVAL_TIMEOUT_SECONDS: { label: "Approval timeout (seconds)", help: "New approvals use this limit. Questions already waiting keep their deadline. Unanswered questions are denied.", type: "number", min: 30, max: 3600 },
