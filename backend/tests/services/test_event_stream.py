@@ -247,3 +247,29 @@ async def test_oversized_or_malformed_valid_sequence_is_acked(monkeypatch):
     await listener._connected(relay, 0, "route")
     assert relay.acks == [9]
     assert saved == [9]
+
+
+@pytest.mark.asyncio
+async def test_the_default_client_maker_takes_the_api_key_the_listener_passes(monkeypatch):
+    """start() wires the real client maker: reconcile calls make_client(api_key), so it must accept one argument and
+    reach composio_bridge.make_client (a zero-argument factory here raised TypeError on every pass, before any connection)."""
+    from app.services import composio_bridge, routine_service
+
+    made = []
+    monkeypatch.setattr(composio_bridge, "make_client", lambda key: made.append(key) or "client")
+    captured = {}
+
+    class FakeStream:
+        def __init__(self, scheduler, make_client):
+            captured["make_client"] = make_client
+
+        async def run(self):
+            return None
+
+    monkeypatch.setattr(event_stream, "EventStream", FakeStream)
+    monkeypatch.setattr(event_stream, "_task", None)
+    task = event_stream.start(scheduler=routine_service.scheduler)
+    await task
+    assert captured["make_client"]("api-key-1") == "client"
+    assert made == ["api-key-1"]
+    monkeypatch.setattr(event_stream, "_task", None)
