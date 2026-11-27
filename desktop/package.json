@@ -1,6 +1,6 @@
 {
   "name": "suparagent-desktop",
-  "version": "0.8.8",
+  "version": "0.8.9",
   "private": true,
   "description": "Suparagent desktop app: an Electron window around the local backend. Runs from a source checkout or installed.",
   "main": "main.js",
@@ -50,6 +50,14 @@
       {
         "from": "../frontend/out",
         "to": "ui"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "tray.png"
+      },
+      {
+        "from": "build/icon.ico",
+        "to": "tray.ico"
       }
     ],
     "protocols": [

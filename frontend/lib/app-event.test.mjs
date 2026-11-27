@@ -57,6 +57,7 @@ test('only active Gmail accounts the agent may read can be chosen', () => {
   assert.deepEqual(gmailChoices(agent, accounts).map((a) => a.id), ['a']);
   assert.deepEqual(gmailChoices({ ...agent, connector_scopes: { gmail: 'off' } }, accounts), []);
   assert.deepEqual(gmailChoices({ ...agent, connector_scopes: { gmail: 'write' } }, accounts).map((a) => a.id), ['a']);
+  assert.deepEqual(gmailChoices({ ...agent, connector_scopes: { gmail: 'labels' } }, accounts).map((a) => a.id), ['a']);
   assert.deepEqual(gmailChoices(agent, null), []);
   assert.deepEqual(gmailChoices(undefined, accounts), []);
 });

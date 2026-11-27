@@ -1,8 +1,8 @@
 {
   "slug": "levea",
   "name": "Levea AI Video Editor",
-  "version": "0.7.1",
-  "summary": "Hosted autonomous AI video editor MCP: turn natural-language prompts into finished videos with viral clips, 280+ animated caption templates, 9:16 vertical speaker reframing, silence cleanup, B-roll, motion graphics, voiceover, music, and cloud MP4 export. Uses a Levea bearer API key. Grant only the individual tools you want.",
+  "version": "0.7.3",
+  "summary": "Hosted autonomous AI video editor MCP: turn natural-language prompts into finished videos with viral clips, 200+ animated caption templates, 9:16 vertical speaker reframing, silence cleanup, B-roll, motion graphics, voiceover, music, and cloud MP4 export. Uses a Levea bearer API key. Grant only the individual tools you want.",
   "publisher": "LiveCore AI",
   "source_repo": "https://github.com/brajendrak00068/agentic-ai-video-production",
   "endpoint": "https://api.livecore.ai/api/v1/misc/mcp",

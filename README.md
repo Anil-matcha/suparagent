@@ -205,6 +205,9 @@ details](backend/README.md#scheduling) and [environment settings](backend/.env.e
   experimental and opt-in.
 - Desktop installers are unsigned and have limited platform verification. See
   [desktop setup details](docs/SETUP.md#desktop-app-from-a-source-checkout-experimental).
+- Closing the desktop window hides it to a tray icon when supported, so
+  routines and running turns keep going. Quit from the tray or the app to stop
+  them; packaged tray behavior still needs platform verification.
 - Connected apps are reached through Composio and tested against a fake
   Composio service, not yet the real service. Only Claude and Codex agents can
   use them, and changes wait for your approval.

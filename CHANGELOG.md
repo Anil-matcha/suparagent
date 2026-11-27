@@ -4,6 +4,14 @@
 
 ### Added
 
+- Closing the Suparagent desktop window hides it to a tray icon when one can be created, so routines and running turns keep going. Use the tray's Quit item or quit the app to stop the backend. Lifecycle tests cover closing, reopening and quitting; packaged tray behavior across platforms remains unverified.
+
+## 0.8.9 - 2026-11-27
+
+Desktop 0.8.9: a new model picker in the chat composer with real engine usage limits, managed engine installs on Windows with real download progress, the support worker's shadow mode, label controls and Gmail new-mail trigger, plus MuAPI integrations (spoken replies and agent pictures). Installed apps pick it up from Settings → App updates.
+
+### Added
+
 - Let routines add a Gmail new-mail trigger alongside their schedule. Composio filters at the source; the app keeps event identifiers only, follows the routine's existing account grants and mailbox share, and applies debounce, daily caps and quiet hours. A signed-in desktop receives events through the hosted relay. The backend is deployed on staging; a real Composio delivery and installed-desktop qualification remain.
 - Read a reply aloud: each assistant reply has a small speaker button next to Copy that reads it in a voice made through MuAPI, and turns into a stop button while the audio prepares and plays. Nothing is spoken until you press it, and only one reply plays at a time. The reply is made fit for the ear first (Markdown, links and tables become plain sentences, code is left out, anything that looks like a credential is replaced), and a reply longer than the voice allows is cut at a sentence end and says so. It needs the MuAPI key saved under Settings → Integrations, so the desktop app needs no environment setting. Owner only (`POST /speech/speak`, `GET /speech/voices`); a paired phone cannot call it. Tested with stubbed responses, in a browser against a mocked endpoint, and with two real readings in the Windows dev app that returned mp3 audio; how the voices sound and the charged amount were not checked.
 - Saved audio for spoken replies: reading the same reply again in the same voice plays saved audio, makes no MuAPI request and costs nothing (the button says "Played from saved audio"). Clips are kept in a private folder (`speech-audio` beside the attachments, owner-only permissions), keyed by the cleaned text and the voice, newest 50 only; a second press while the first is still preparing waits for it instead of making another request. Settings → Integrations → Spoken replies shows how many are saved and has Clear saved audio (`DELETE /speech/cache`). Up to 20 new readings in 10 minutes per server process; saved replies do not count.
@@ -24,6 +32,7 @@
 
 ### Changed
 
+- boxd computers are now created as isolated machines, with no in-VM boxd CLI, connected integrations or private network. Recreate any boxd computer made before this change.
 - MuAPI lookups are easier for an agent to use: a task that fails on MuAPI's side now returns its status and error text instead of a generic rejection, empty strings and empty lists are dropped from a lookup's input before it is sent (MuAPI refuses them), and inspecting a lookup lists each field's allowed values (for example the four web research modes), which the depth limit used to hide.
 - Templates know which connections this workspace has: `GET /templates` now lists each role's `missing` connections, and a role that needs only Muapi can be added before Muapi is connected (it shows "Needs Muapi · Connect"). No bundled role needs Muapi yet. Tested with backend and frontend unit tests; no real Muapi connector, browser or packaged app was run.
 - Give team setup a versioned review card: the person can revise, approve or decline the specialist plan, and nothing changes before approval. Approval rechecks current team state and records its result and Undo data with the transcript event. The applied card opens each new specialist with an editable, unsent first-task draft. No automated, live-provider or packaged-release verification is claimed for this source change.
@@ -474,6 +483,9 @@ Phone app 0.4.0: chat is now the default screen, with a sidebar of conversations
 - Server and desktop doctors include preset CLI guidance; the server guide documents API-key connections and optional Docker packages. Optional engine image builds were not run.
 - Engine Settings now builds connection forms from engine descriptors and groups ready engines first. Generic endpoint address templates cover Ollama, LM Studio, Groq, Cerebras, Mistral and OpenAI. Desktop setup detects a ready engine and offers advanced model selection. Tested with scripted engine responses; real preset accounts and packaged setup were not run.
 - OpenRouter readiness authenticates the saved key, lists up to 600 models with free labels, and chooses a free default only for a free-tier key. Its address is fixed to OpenRouter; proxy users must use the generic endpoint engine. Keys refused by the service no longer appear ready. Checked with a mock endpoint, including conversation fallback; a real OpenRouter account was not run.
+
+### Fixed
+- Desktop on Linux: on desktops Chromium does not recognise (Hyprland, sway, i3), the app now selects the running GNOME Keyring or KWallet explicitly. Chromium used to fall back to `basic_text` there, so the first start stopped with "This computer's secret storage is not available" even with a keyring running. KDE and an explicit `--password-store` are left alone.
 
 ## v0.2.0 (2026-10-22)
 

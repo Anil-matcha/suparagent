@@ -189,7 +189,7 @@ class Settings(BaseSettings):
     # Image generation (BL-114): any OpenAI-compatible images endpoint. Off until a key is set.
     IMAGE_API_BASE_URL: str = "https://api.openai.com/v1"
     IMAGE_API_KEY: str = ""
-    IMAGE_MODEL: str = "gpt-image-1"
+    IMAGE_MODEL: str = "gpt-image-2.6-flare"
     # Spoken replies (BL-53): the voice a reply is read in. An id from app/services/speech_voices.py.
     SPEECH_VOICE: str = "eleven-daniel"
     AUTH_LIMITS_DIR: str = ""

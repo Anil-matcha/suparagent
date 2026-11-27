@@ -10,11 +10,12 @@
 // Everything that can be tested without Electron is in src/. This file only
 // connects those pieces to Electron.
 
-const { app, BrowserWindow, WebContentsView, Menu, dialog, safeStorage, session, ipcMain, shell, systemPreferences, clipboard, Notification, net } = require("electron");
+const { app, BrowserWindow, WebContentsView, Menu, Tray, dialog, nativeImage, safeStorage, session, ipcMain, shell, systemPreferences, clipboard, Notification, net } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
 
 const { layout, packagedLayout } = require("./src/paths");
+const { choosePasswordStore } = require("./src/password-store");
 const { createKeyStore, KeyStoreError } = require("./src/keystore");
 const { startBackend, backendEnvironment, newToken } = require("./src/backend");
 const { attachTokenTo, lockDown, sameOrigin } = require("./src/origin");
@@ -37,6 +38,15 @@ const { registerHostedWorkspace } = require("./src/hosted-workspace-ipc");
 const { createLocalProfileStore } = require("./src/local-profiles");
 const { ENVIRONMENTS_FILE, createEnvironmentStore, createRemoteWorkspaceManager } = require("./src/environments");
 const { registerEnvironmentsIpc } = require("./src/environments-ipc");
+const { trayIconPath, installTrayLifecycle } = require("./src/tray");
+
+// Chromium fixes its Linux password store before the app is ready. Pick a real
+// keyring on desktops it does not recognise; without this, safeStorage reports
+// encryption as unavailable there even though GNOME Keyring is running.
+if (!app.commandLine.hasSwitch("password-store")) {
+  const passwordStore = choosePasswordStore();
+  if (passwordStore) app.commandLine.appendSwitch("password-store", passwordStore);
+}
 
 const mode = process.argv.includes("--mode=dev") ? "dev" : "start";
 // Running from source: use the app icon for the window and the dock. Installers carry the icon in the
@@ -73,6 +83,7 @@ let environmentStore = null;
 let remoteManager = null;
 let nativeControl = null;
 let updater = null;
+let tray = null;
 
 // Stops what this launch started, once: this app's own connections first (the
 // backend waits for its connected clients, and idle keep-alive sockets held here
@@ -80,6 +91,12 @@ let updater = null;
 function stopEverything() {
   shutdown ??= (async () => {
     quitting = true;
+    try {
+      tray?.destroy();
+    } catch {
+      /* already destroyed */
+    }
+    tray = null;
     await nativeControl?.close();
     try {
       await session.defaultSession?.closeAllConnections?.();
@@ -108,6 +125,49 @@ function fatal({ title, body }) {
   process.exitCode = 1;
   dialog.showErrorBox(title, body);
   return leave();
+}
+
+function showWindow() {
+  if (!window || window.isDestroyed()) return;
+  if (process.platform === "darwin") app.dock?.show();
+  if (!window.isVisible()) window.show();
+  if (window.isMinimized()) window.restore();
+  window.focus();
+}
+
+function createTray() {
+  if (process.env.SUPARAGENT_DISABLE_TRAY === "1") return null;
+  let created = null;
+  try {
+    const iconFile = trayIconPath({
+      appDir: __dirname,
+      resourcesPath: process.resourcesPath,
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+    });
+    if (!iconFile) return null;
+    const image = nativeImage.createFromPath(iconFile);
+    if (image.isEmpty()) return null;
+    created = new Tray(image);
+    installTrayLifecycle({
+      app,
+      window,
+      tray: created,
+      Menu,
+      appName: app.getName(),
+      platform: process.platform,
+      isQuitting: () => quitting,
+      setQuitting: (value) => { quitting = value; },
+    });
+    return created;
+  } catch {
+    try {
+      created?.destroy();
+    } catch {
+      /* nothing to clean up */
+    }
+    return null;
+  }
 }
 
 function createWindow() {
@@ -158,11 +218,7 @@ async function main() {
   // suparagent://chat?thread=<id> opens one chat or room (BL-118). Links that arrive before the app is up wait for it.
   const deepLinks = createDeepLinkHandler({
     navigate: (pagePath) => (window && backendOrigin ? window.loadURL(`${backendOrigin}${pagePath}`) : undefined),
-    focus: () => {
-      if (!window) return;
-      if (window.isMinimized()) window.restore();
-      window.focus();
-    },
+    focus: showWindow,
   });
   deepLinkReady = () => deepLinks.ready();
   try {
@@ -177,9 +233,7 @@ async function main() {
   app.on("second-instance", (_event, argv) => {
     const link = deepLinkFromArgv(argv);
     if (link) deepLinks.open(link);
-    if (!window) return;
-    if (window.isMinimized()) window.restore();
-    window.focus();
+    showWindow();
   });
   const startupLink = deepLinkFromArgv(process.argv);
   if (startupLink) deepLinks.open(startupLink);
@@ -279,6 +333,7 @@ async function main() {
   window.on("closed", () => {
     window = null;
   });
+  tray = createTray();
 
   const localProfileStore = createLocalProfileStore({ userDataDir: userData });
   localProfiles = localProfileStore;

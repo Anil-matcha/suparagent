@@ -135,6 +135,7 @@ def catalog(session):
 
     values = []
     def visit(items, depth=0):
+        nonlocal default_effort
         if not isinstance(items, list) or depth > 8:
             return
         for item in items[:600]:
