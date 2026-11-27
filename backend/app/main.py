@@ -154,6 +154,14 @@ async def _serving(app: FastAPI):
     except Exception:  # noqa: BLE001
         logger.exception("the slack channel could not be started")
 
+    from app.channels.discord.service import get_service as get_discord_service
+
+    discord_service = get_discord_service()
+    try:
+        await discord_service.start()
+    except Exception:  # noqa: BLE001
+        logger.exception("the discord channel could not be started")
+
     event_stream_task = None
     if profile.active():
         from app.services import event_stream
@@ -169,6 +177,7 @@ async def _serving(app: FastAPI):
     await asyncio.gather(*jobs, return_exceptions=True)
     # The chat channel, before the runtime: no new turn may start from Slack while we stop.
     await slack_service.stop()
+    await discord_service.stop()
     # Kill this process's provider processes (and their MCP servers, which
     # share their process group) and interrupt its own turns now, rather than
     # leaving them for the lease to expire.

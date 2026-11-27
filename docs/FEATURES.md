@@ -90,6 +90,9 @@ platform and release qualification limits.
 - **Slack channel.** Talk to one of your agents from a Slack direct message and answer its
   approvals with buttons. Owner only, over an outbound connection, and only while the app is
   running. See [connected apps](CONNECTED_APPS.md#slack-settings--integrations).
+- **Discord channel.** Talk to one of your agents from a Discord direct message and answer its
+  approvals with buttons. Owner only, over an outbound connection, and only while the app is
+  running. See [connected apps](CONNECTED_APPS.md#discord-settings--integrations).
 - **Optional legacy path.** The original Boat sandbox tasks and Telegram bot
   remain separate from the local agent workspace. Neither is needed for local
   chat or routines.

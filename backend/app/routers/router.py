@@ -116,6 +116,8 @@ from app.routers.muapi import router as muapi_router
 router.include_router(muapi_router)
 from app.routers.slack import router as slack_router
 router.include_router(slack_router)
+from app.routers.discord import router as discord_router
+router.include_router(discord_router)
 from app.routers.custom_mcp import router as custom_mcp_router
 router.include_router(custom_mcp_router)
 from app.routers.agent_service import router as agent_service_router

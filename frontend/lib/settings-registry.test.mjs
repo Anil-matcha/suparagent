@@ -22,6 +22,7 @@ const pageMarkupFiles = [
   "../components/settings/IntegrationsSettings.tsx",
   "../components/settings/integrations/blocks.tsx",
   "../components/settings/integrations/SlackPanel.tsx",
+  "../components/settings/integrations/DiscordPanel.tsx",
 ];
 
 const renderedPageMarkup = pageMarkupFiles.map((file) => readFileSync(new URL(file, import.meta.url), "utf8"));
@@ -32,10 +33,13 @@ const literalIds = renderedPageMarkup.flatMap((source) =>
 // anchors only while the panel still renders them, so removing the attribute fails this test.
 const integrationPanel = readFileSync(new URL("../components/settings/integrations/IntegrationPanel.tsx", import.meta.url), "utf8");
 const slackPanel = readFileSync(new URL("../components/settings/integrations/SlackPanel.tsx", import.meta.url), "utf8");
+const discordPanel = readFileSync(new URL("../components/settings/integrations/DiscordPanel.tsx", import.meta.url), "utf8");
 const manifestAnchors = [
   ...(integrationPanel.includes("id={manifest.anchorId}") ? INTEGRATIONS.filter((item) => item.kind === "tools").flatMap(integrationAnchors) : []),
   ...(slackPanel.includes("id={manifest.anchorId}") && slackPanel.includes("id={manifest.chatAnchorId}")
-    ? INTEGRATIONS.filter((item) => item.kind === "channel").flatMap(integrationAnchors) : []),
+    ? INTEGRATIONS.filter((item) => item.id === "slack").flatMap(integrationAnchors) : []),
+  ...(discordPanel.includes("id={manifest.anchorId}") && discordPanel.includes("id={manifest.chatAnchorId}")
+    ? INTEGRATIONS.filter((item) => item.id === "discord").flatMap(integrationAnchors) : []),
 ];
 const idsInMarkup = [...literalIds, ...manifestAnchors];
 const settingIdsInMarkup = idsInMarkup.filter((id) => id.startsWith("setting-"));

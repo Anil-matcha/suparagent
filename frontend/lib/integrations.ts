@@ -105,6 +105,16 @@ export const INTEGRATIONS: readonly IntegrationManifest[] = [
     helpUrl: "https://api.slack.com/apps?new_app=1",
     helpLabel: "Create a Slack app",
   },
+  {
+    kind: "channel",
+    id: "discord",
+    name: "Discord",
+    anchorId: "setting-integration-discord",
+    chatAnchorId: "setting-integration-discord-chat",
+    description: "Talk to one of your agents from a Discord direct message, and answer its approvals with buttons. The connection is outbound and only works while this app is running.",
+    helpUrl: "https://discord.com/developers/applications",
+    helpLabel: "Create a Discord app",
+  },
 ];
 
 /** The anchors every integration puts on the page, for Settings search. */
