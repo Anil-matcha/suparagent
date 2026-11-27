@@ -27,12 +27,12 @@ def ui(tmp_path):
 
 
 def test_defaults_listen_on_loopback_port_8000(ui):
-    options = read_options([], {"OPEN_DOTS_UI_DIR": str(ui)})
+    options = read_options([], {"SUPARAGENT_UI_DIR": str(ui)})
     assert (options.host, options.port, options.ui_dir) == ("127.0.0.1", 8000, ui.resolve())
 
 
 def test_environment_and_flags_are_both_read_and_a_flag_wins(ui):
-    env = {"OPEN_DOTS_UI_DIR": str(ui), "OPEN_DOTS_PORT": "9001", "OPEN_DOTS_HOST": "localhost"}
+    env = {"SUPARAGENT_UI_DIR": str(ui), "SUPARAGENT_PORT": "9001", "SUPARAGENT_HOST": "localhost"}
     assert read_options([], env).port == 9001
     assert read_options(["--port", "9002"], env).port == 9002
 
@@ -40,31 +40,31 @@ def test_environment_and_flags_are_both_read_and_a_flag_wins(ui):
 @pytest.mark.parametrize("port", ["abc", "0", "70000", "-1", ""])
 def test_a_bad_port_says_what_to_change(ui, port):
     with pytest.raises(ServerConfigError, match="port"):
-        read_options([], {"OPEN_DOTS_UI_DIR": str(ui), "OPEN_DOTS_PORT": port})
+        read_options([], {"SUPARAGENT_UI_DIR": str(ui), "SUPARAGENT_PORT": port})
 
 
 @pytest.mark.parametrize("host", ["0.0.0.0", "203.0.113.5", "dots.example.com", "::"])
 def test_listening_beyond_this_machine_needs_an_explicit_opt_in(ui, host):
-    with pytest.raises(ServerConfigError, match="OPEN_DOTS_ALLOW_PUBLIC_BIND"):
-        read_options([], {"OPEN_DOTS_UI_DIR": str(ui), "OPEN_DOTS_HOST": host})
-    allowed = {"OPEN_DOTS_UI_DIR": str(ui), "OPEN_DOTS_HOST": host, "OPEN_DOTS_ALLOW_PUBLIC_BIND": "1"}
+    with pytest.raises(ServerConfigError, match="SUPARAGENT_ALLOW_PUBLIC_BIND"):
+        read_options([], {"SUPARAGENT_UI_DIR": str(ui), "SUPARAGENT_HOST": host})
+    allowed = {"SUPARAGENT_UI_DIR": str(ui), "SUPARAGENT_HOST": host, "SUPARAGENT_ALLOW_PUBLIC_BIND": "1"}
     assert read_options([], allowed).host == host
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "127.0.0.2", "::1", "[::1]", "localhost", "LOCALHOST"])
 def test_loopback_hosts_need_no_opt_in(ui, host):
-    assert read_options([], {"OPEN_DOTS_UI_DIR": str(ui), "OPEN_DOTS_HOST": host}).host == host
+    assert read_options([], {"SUPARAGENT_UI_DIR": str(ui), "SUPARAGENT_HOST": host}).host == host
 
 
 def test_the_pages_folder_is_required_and_must_hold_a_build(tmp_path):
-    with pytest.raises(ServerConfigError, match="OPEN_DOTS_UI_DIR"):
+    with pytest.raises(ServerConfigError, match="SUPARAGENT_UI_DIR"):
         read_options([], {})
     with pytest.raises(ServerConfigError, match="no index.html"):
-        read_options([], {"OPEN_DOTS_UI_DIR": str(tmp_path)})
+        read_options([], {"SUPARAGENT_UI_DIR": str(tmp_path)})
 
 
 def test_main_reports_a_bad_setting_and_exits_without_starting(capsys, tmp_path):
-    assert main([], {"OPEN_DOTS_UI_DIR": str(tmp_path)}) == EXIT_USAGE
+    assert main([], {"SUPARAGENT_UI_DIR": str(tmp_path)}) == EXIT_USAGE
     assert "no index.html" in capsys.readouterr().err
 
 
@@ -105,8 +105,8 @@ def test_a_real_server_serves_pages_and_keeps_the_api_closed(ui, tmp_path):
         "ATTACHMENTS_DIR": str(tmp_path / "attachments"),
         "ENGINE_PROCESS_DIR": str(tmp_path / "engines"),
         "LOCAL_WORKSPACE_ROOT": str(tmp_path / "workspace"),
-        "OPEN_DOTS_UI_DIR": str(ui),
-        "OPEN_DOTS_PORT": str(port),
+        "SUPARAGENT_UI_DIR": str(ui),
+        "SUPARAGENT_PORT": str(port),
         "PYTHONUTF8": "1",
     }
     # The test must not depend on how the machine's .env sets local execution.

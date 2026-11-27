@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass, field
 
 from app.computers import docker_cli
+from app.core import host_exec
 
 
 @dataclass(repr=False)
@@ -15,21 +16,23 @@ class Ticket:
     lease: str
     identity: tuple
     until: float
+    mode: str = "control"  # "view" streams only: it takes no lease and relays no input
 
 
 @dataclass
 class Viewers:
     tickets: dict[str, Ticket] = field(default_factory=dict, repr=False)
     active: dict[str, tuple[int, object]] = field(default_factory=dict, repr=False)
+    view_only: set[str] = field(default_factory=set, repr=False)  # idents in `active` that hold no control
 
-    def issue(self, computer_id, lease, identity):
+    def issue(self, computer_id, lease, identity, mode="control"):
         now = time.monotonic()
         self.tickets = {k: v for k, v in self.tickets.items() if v.until > now}
         # A signed-in client cannot fill unbounded memory by minting tickets.
         if len(self.tickets) >= 256:
             raise ValueError("Too many pending viewers. Wait 30 seconds.")
         token = secrets.token_hex(32)
-        self.tickets[token] = Ticket(computer_id, lease, identity, now+30)
+        self.tickets[token] = Ticket(computer_id, lease, identity, now+30, mode)
         return token
 
     def consume(self, token, computer_id, identity):
@@ -56,6 +59,7 @@ async def bridge(websocket, spec, docker, valid):
     """Bounded binary messages, backpressure, first-byte timeout and revalidation."""
     # No browser credentials or engine API keys reach the child process.
     env = {k: v for k, v in os.environ.items() if k in {"PATH", "HOME", "SYSTEMROOT", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "SSH_AUTH_SOCK"}}
+    host_exec.ensure_allowed("a Docker command")
     proc = await asyncio.create_subprocess_exec(
         docker or docker_cli.docker_executable() or "docker", *docker_cli.rfb_args(spec.name, spec.run_as),
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,

@@ -21,15 +21,15 @@ function cleanEnvironment(environment) {
     !["python", "python3", "python.exe"].some((name) => fs.existsSync(path.join(dir, name)))
   ).join(path.delimiter);
   for (const name of Object.keys(env)) {
-    if (/^(VIRTUAL_ENV|PYTHON.*|UV_.*|ELECTRON_RUN_AS_NODE|OPEN_DOTS_.*)$/i.test(name)) delete env[name];
+    if (/^(VIRTUAL_ENV|PYTHON.*|UV_.*|ELECTRON_RUN_AS_NODE|SUPARAGENT_.*)$/i.test(name)) delete env[name];
   }
   return env;
 }
 
 async function runSmoke({ executable, args = [], timeoutMs = 90_000, environment = process.env, keep = false } = {}) {
   if (!executable || !fs.existsSync(executable)) throw new Error(`Packaged executable missing: ${executable}. Run npm run package first.`);
-  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "open-dots-packaged-smoke-"));
-  const env = { ...cleanEnvironment(environment), OPEN_DOTS_DATA_DIR: dataRoot };
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "suparagent-packaged-smoke-"));
+  const env = { ...cleanEnvironment(environment), SUPARAGENT_DATA_DIR: dataRoot };
   let child;
   let failure;
   let finished;
@@ -56,12 +56,22 @@ async function runSmoke({ executable, args = [], timeoutMs = 90_000, environment
     const origin = `http://127.0.0.1:${port}`;
     // No token is available outside Electron. Both the page and API must refuse.
     for (const pathname of ["/chat/", "/api/v1/threads"]) {
-      const response = await fetch(origin + pathname, { redirect: "manual", signal: AbortSignal.timeout(remaining()) });
+      let response;
+      const probeEnd = Math.min(Date.now() + 15_000, deadline);
+      while (Date.now() < probeEnd) {
+        try {
+          response = await fetch(origin + pathname, { redirect: "manual", signal: AbortSignal.timeout(remaining()) });
+          break;
+        } catch (err) {
+          if (Date.now() >= probeEnd) throw err;
+          await pause();
+        }
+      }
       await response.body?.cancel();
       if (response.status !== 401) throw new Error(`${pathname}: expected unauthenticated HTTP 401, got ${response.status}.`);
     }
     if (finished) throw failure;
-    if (!fs.existsSync(path.join(dataRoot, "data", "open-dots.db"))) throw new Error("Packaged backend did not create its SQLite database.");
+    if (!fs.existsSync(path.join(dataRoot, "data", "suparagent.db"))) throw new Error("Packaged backend did not create its SQLite database.");
     return { origin, dataRoot };
   } catch (error) {
     error.message += ` Profile: ${dataRoot}`;
@@ -73,7 +83,12 @@ async function runSmoke({ executable, args = [], timeoutMs = 90_000, environment
       await Promise.race([exited, new Promise((resolve) => { timer = setTimeout(resolve, 5000); })]);
       clearTimeout(timer);
     }
-    if (!keep) fs.rmSync(dataRoot, { recursive: true, force: true });
+    if (!keep) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      try {
+        fs.rmSync(dataRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      } catch {}
+    }
   }
 }
 

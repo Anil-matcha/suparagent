@@ -23,7 +23,7 @@ has no notes, no recall and no proposals (compaction still applies).
 └── capture-pending.json               ids of turns waiting when the app quit
 ```
 
-The data folder is `~/.open-dots` by default (the desktop app's own data
+The data folder is `~/.suparagent` by default (the desktop app's own data
 folder in the desktop app). The journal and the proposals live outside the
 agent's folder on purpose: an agent with file tools works in its own folder,
 and a record it could rewrite would not be a record.
@@ -124,7 +124,12 @@ its other conversations.
   title, aliases and body (not their expired or superseded entries, and never `archive.md`); conversation passages are messages (yours and the
   agent's) in this agent's other, non-archived conversations, found with the
   same portable query as conversation search (OR instead of AND; works the same
-  on SQLite and PostgreSQL, wildcards literal).
+  on SQLite and PostgreSQL, wildcards literal). When the message matches both
+  a topic note and its name, title or aliases, that topic can add a small local
+  candidate bridge to conversation search. Bridge words do not count as extra
+  query matches, and a bridge-only result ranks after passages matching the
+  message itself. This expansion makes no model call and sends no additional
+  text to a provider.
 - **Ranking and limits.** Up to **4 notes** (by words shared, then most
   recently changed; about 600 characters each, starting at the first matching
   line) and **4 conversation passages** (by words shared, then newest; at most
@@ -433,10 +438,11 @@ A stretch with no person's words (only other agents) is skipped. Entries are
 sourced to the room: `- 2026-10-23 · from room "Launch" (noticed) · The launch
 moved to Friday`. The switch, the room and the agent's membership are checked
 again when the batch is captured, and the turns still waiting at a normal
-shutdown are kept as ids and rebuilt from the room at the next start. This app has
-one owner, so another person's lines appear only when a room message carries
-`owner: false` in its author; a room that fewer people can see than the agent
-cannot exist here, so that check has nothing to do. Never read: room hand-offs
+shutdown are kept as ids and rebuilt from the room at the next start. In a
+workspace shared with teammates, another person's lines are the room posts of members
+and non-owner admins: they carry `owner: false` in their author, and the owner's own
+posts do not. A room that fewer people can see than the agent cannot exist here, so
+that check has nothing to do. Never read: room hand-offs
 that carry no person's words, turns that did not succeed and agents whose notes
 or upkeep are off.
 
@@ -616,14 +622,15 @@ adds `agent.memory_upkeep`, `a5c3e8b1d7f2` adds `agent.compaction_summary` and
 ## Not covered
 
 - The model-written compaction summary needs an engine with a quick call here (an OpenAI-compatible endpoint or OpenRouter), or, for an ACP agent, a helper model; without either the excerpt summary stands.
-- About me is one text for the whole installation; there is no per-person profile (the app has one owner).
+- About me is one text for the whole installation; there is no per-person profile. In a workspace shared with teammates everyone shares the same notes, and agents do not learn facts from anyone else's one-to-one chats, only from the owner's (and from chats with no signed-in person behind them, such as the desktop app or a paired phone).
 - Noticed facts need an engine with a quick call here (Claude, OpenAI-compatible, OpenRouter), or a helper model set for Codex and ACP agents; without either they are not read.
 - There is one helper for the installation, not one per agent or per engine; token counts of a helper call are recorded only when its engine reports them (an OpenAI-compatible endpoint does, the Claude CLI's text output does not).
 - Noticed facts come from one conversation at a time, one call each; several quiet conversations are not batched into one call.
 - Rooms are read for facts only with **Learn from group chats** on, and only a member agent's own turns.
 - Past-conversation search is a tool on Claude, Codex and ACP agents; an OpenAI-compatible endpoint has the brief and recall (it has no tool-call loop).
-- Recall ranks by shared words only (no stemming, no embeddings), so a
-  question worded differently from the note can miss it.
+- Recall remains lexical (no stemming or embeddings). Saved topic aliases can
+  bridge related conversations when the current message matches that topic, but
+  arbitrary paraphrases with no shared word or saved alias can still miss.
 - Proposals are found when the queue is looked at, not pushed.
 
 ## Explicit private remember requests (2026-10-25)

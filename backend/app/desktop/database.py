@@ -24,7 +24,7 @@ from app.db.sqlite_baseline import SqliteNotReady, sqlite_file_state
 from app.desktop import profile
 
 BACKUPS_KEPT = 5
-BACKUP_PREFIX = "open-dots-"
+BACKUP_PREFIX = "suparagent-"
 ALEMBIC_DIR = Path(__file__).resolve().parents[2] / "alembic"
 
 

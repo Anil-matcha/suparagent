@@ -1,6 +1,6 @@
 # Features
 
-Open Duet is a workspace for named AI agents, durable conversations, teams,
+Suparagent is a workspace for named AI agents, durable conversations, teams,
 and recurring work. This page describes the repository's current source;
 features added after a desktop release tag may not be in that installer. See
 the [README](../README.md) for install options and the [roadmap](ROADMAP.md)
@@ -13,12 +13,13 @@ platform and release qualification limits.
   instructions, engine/model, workspace, approval mode, notes and skills. Use
   the bundled, searchable role gallery to start an agent; the person reviews
   and saves the configuration. Agent files can be exported and imported with
-  safer defaults. See [templates](TEMPLATES.md), [skills](SKILLS.md), and
+  safer defaults. An agent's picture can be made from a description. See [templates](TEMPLATES.md), [skills](SKILLS.md), and
   [setup](SETUP.md#the-chat-page).
 - **Chat and files.** Conversations persist across reloads, stream answers and
   tool activity, and support stop, search, text/image attachments, workspace
-  file browsing and downloads, and reported token/cost visibility. See
-  [everyday features](EVERYDAY.md).
+  file browsing and downloads, reported token/cost visibility, and a speaker
+  button that reads a reply aloud through MuAPI. See
+  [everyday features](EVERYDAY.md#reading-a-reply-aloud).
 - **Memory.** Agents can use private notes, topic notes, cross-chat recall,
   past-conversation search, memory proposals and upkeep, compaction, and a
   journal with undo. Availability of model-powered upkeep depends on the
@@ -26,8 +27,9 @@ platform and release qualification limits.
 - **Teams and rooms.** A Claude or Codex lead can delegate to specialists and manage
   shared rooms with member mentions, shared instructions, responder settings,
   queued replies, approvals and run status. Team tools are gated and require
-  Claude or Codex. Room members are selected at creation and cannot yet be
-  changed afterward. See [teams](TEAMS.md).
+  Claude or Codex. Room settings can add or remove members, change the shared
+  instructions and the default responder, and rename the room; a phone paired
+  with *Chat, files and agents* can do the same. See [teams](TEAMS.md).
 - **Skills.** Save or import reviewed Markdown instructions for an agent and
   choose them explicitly for a message. Skills do not execute scripts or grant
   permissions. See [skills](SKILLS.md).
@@ -40,7 +42,7 @@ platform and release qualification limits.
   Engine capabilities differ: for example,
   attachments, teams, memory tools and computers are not available on every
   engine. See [engine setup and capabilities](ENGINES.md).
-- **Approvals.** Ask, Accept edits and Plan modes, saved command rules, a safety
+- **Approvals.** Ask, Accept edits, Approve for me (native Claude/Codex/Cursor reviewer) and Plan modes, saved command rules, a safety
   floor, a redacted decision log and a read-only health scan. Computer actions
   use the same approval boundary. See [setup and approvals](SETUP.md#approval-modes-saved-rules-and-the-decision-log).
 - **Agent computers.** An agent can run in its own Docker shell or Linux
@@ -51,6 +53,12 @@ platform and release qualification limits.
   features remain experimental; remote SSH computers and enforceable egress
   allowlists are not implemented. See [computers](COMPUTERS.md),
   [browser tools](BROWSER.md) and [native desktop](NATIVE-DESKTOP.md).
+- **Connected apps.** Browse Composio's apps on the Apps page and connect them
+  through your own Composio key, then allow them per Claude or Codex agent.
+  GitHub, Gmail and Google Calendar have their own bounded tools; any other app
+  is used through a general search-and-run pair where you approve every call.
+  Changes ask on a card and are never retried. See
+  [connected apps](CONNECTED_APPS.md).
 
 ## Routines, access and distribution
 
@@ -58,11 +66,21 @@ platform and release qualification limits.
   durable history, missed/interrupted states, approval handling, notifications
   and configurable retry of failed runs. A routine never approves actions by
   itself. See [routines](ROUTINES.md).
-- **Owner access and self-hosting.** Use a local desktop, or run a personal
+- **Owner access, teammates and self-hosting.** Use a local desktop, or run a
   server with owner sign-in, paired-device scopes, HTTPS proxy guidance,
-  backups and updates. This is a single-owner product; multi-user organization
-  hosting is not implemented. See [authentication](AUTH.md) and
-  [self-hosting](SELF-HOSTING.md).
+  backups and updates. On a server the owner can invite teammates by one-time
+  link. Each signs in as themselves with a role (owner, admin, member, viewer)
+  and, for a member, chosen permissions: reply, read files, answer commands,
+  save standing rules, manage agents. A self-hosted server is one workspace that
+  everyone shares. A hosted deployment can put an account service in front of
+  many such workspaces (one per company) and sign people in with a signed token;
+  the app then shows a workspace switcher and the account service's list of
+  people. See [authentication](AUTH.md#members), [hosted workspace
+  grants](AUTH.md#hosted-workspace-grants) and [self-hosting](SELF-HOSTING.md).
+- **Phone app.** An early, source-only app pairs with your server as a chat-only
+  device to list and start conversations, follow answers live, stop one, and
+  allow or deny tool calls. No push notifications, no store release, and not yet
+  tried on iOS or a physical phone. See [the phone app guide](MOBILE.md).
 - **Desktop app.** The app has first-run setup, engine settings, a doctor
   command, SQLite storage and unsigned Windows/macOS installers. The `v0.3.0`
   prerelease has a Windows x64 installer; the newest macOS arm64 DMG is

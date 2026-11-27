@@ -17,8 +17,8 @@ to the database file (`app/core/data_lease.py`) for as long as it runs. A
 second backend on the same file refuses to start and names the process that
 holds it:
 
-    Another Open Duet backend (process 4242 on mac.local) is already using the
-    database /Users/me/.open-dots/open-dots.db. Stop it first, or point this one
+    Another Suparagent backend (process 4242 on mac.local) is already using the
+    database /Users/me/.suparagent/suparagent.db. Stop it first, or point this one
     at a different database (SQLITE_PATH).
 
 - The lock belongs to the operating system (`flock`, or `LockFileEx` on
@@ -132,10 +132,10 @@ no typing) for `TURN_STALL_SECONDS` (default 600, `0` turns it off), with
 the engine the way Stop does, and if the adapter still does not return within
 five seconds, stops waiting for it. A turn waiting on an approval is never
 stalled (the approval has its own timeout), and the clock starts after the
-agent's computer is attached. The default is longer than
-`LOCAL_TASK_TIMEOUT_SECONDS`, so the watchdog only catches an engine whose own
-time limit did not end it. An engine process that dies ends its turn at once,
-without the watchdog.
+agent's computer is attached. This inactivity limit is separate from the
+optional active-time answer limit, which is disabled by default
+(`LOCAL_TASK_TIMEOUT_SECONDS=0`). An engine process that dies ends its turn
+at once, without the watchdog.
 
 ### A broken engine blocks nothing
 

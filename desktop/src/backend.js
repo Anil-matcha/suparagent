@@ -15,7 +15,7 @@ const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 
-const READY_PREFIX = "OPEN_DOTS_READY ";
+const READY_PREFIX = "SUPARAGENT_READY ";
 const PROTOCOL_VERSION = 1;
 const READY_TIMEOUT_MS = 120_000; // the first start imports everything and migrates
 const STOP_GRACE_MS = 25_000; // the backend's own backstop is 20 s
@@ -24,7 +24,7 @@ const LOG_LIMIT_BYTES = 5 * 1024 * 1024;
 // Variables that would change which Python or which modules the backend runs, and
 // the launcher's own. Everything else is passed on: the Claude CLI needs the user's
 // PATH and its own settings (including ANTHROPIC_*).
-const NOT_PASSED_ON = /^(ELECTRON_RUN_AS_NODE|PYTHONHOME|PYTHONPATH|PYTHONSTARTUP|OPEN_DOTS_.*)$/i;
+const NOT_PASSED_ON = /^(ELECTRON_RUN_AS_NODE|PYTHONHOME|PYTHONPATH|PYTHONSTARTUP|SUPARAGENT_.*)$/i;
 
 // Where the engines' CLIs are usually installed (per-user installers, npm prefixes,
 // Homebrew). An app opened from Finder, the Dock or a desktop launcher gets only the

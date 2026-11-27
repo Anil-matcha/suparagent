@@ -2,7 +2,7 @@
 
 The desktop launcher makes a random token for each launch and hands it to the
 backend before the backend listens. Every request must then carry it in the
-`X-Open-Dots-Token` header. Nothing is public: the page's own files need it too,
+`X-Suparagent-Token` header. Nothing is public: the page's own files need it too,
 because the launcher's browser window attaches the header to every request it
 makes to this server.
 
@@ -25,8 +25,10 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.desktop import profile
 
-HEADER = "x-open-dots-token"
+HEADER = "x-suparagent-token"
 _HEADER_BYTES = HEADER.encode("ascii")
+COMPUTER_CAPABILITY_HEADER = b"x-suparagent-computer-capability"
+_COMPUTER_TOOL_PATH = re.compile(r"^/api/v1/computers/(\d+)/provider-tool$")
 
 MIN_TOKEN_LENGTH = 32
 _TOKEN_PATTERN = re.compile(r"[\x21-\x7e]+")  # visible ASCII: safe to carry in a header
@@ -73,11 +75,29 @@ def _authorized(scope: Scope) -> bool:
     return len(presented) == 1 and hmac.compare_digest(presented[0], _token)
 
 
+def _computer_tool_authorized(scope: Scope) -> bool:
+    """Only the exact tool bridge route accepts a scoped MCP turn token."""
+    if scope.get("method") != "POST":
+        return False
+    match = _COMPUTER_TOOL_PATH.fullmatch(scope.get("path", ""))
+    if not match:
+        return False
+    presented = [value for name, value in scope["headers"] if name == COMPUTER_CAPABILITY_HEADER]
+    if len(presented) != 1:
+        return False
+    from app.desktop import computer_capabilities
+
+    try:
+        return computer_capabilities.allows(int(match.group(1)), presented[0].decode("ascii")) is not None
+    except (ValueError, UnicodeDecodeError):
+        return False
+
+
 _REFUSAL_PAGE = (
-    "<!doctype html><meta charset=utf-8><title>Open Duet</title>"
+    "<!doctype html><meta charset=utf-8><title>Suparagent</title>"
     "<body style=\"font:16px system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem\">"
-    "<h1 style=\"font-size:1.2rem\">Open this from the Open Duet app</h1>"
-    "<p>This address only works inside the Open Duet window, which keeps your conversations "
+    "<h1 style=\"font-size:1.2rem\">Open this from the Suparagent app</h1>"
+    "<p>This address only works inside the Suparagent window, which keeps your conversations "
     "private to it. Use that window instead of a browser tab.</p>"
 )
 
@@ -108,7 +128,7 @@ def _refusal(scope: Scope) -> Response:
         content={
             "detail": {
                 "error_code": "launch_token_required",
-                "message": "This address only works from inside the Open Duet app.",
+                "message": "This address only works from inside the Suparagent app.",
             }
         },
     )
@@ -124,7 +144,7 @@ class LaunchAuthMiddleware:
             await self.app(scope, receive, send)
             return
         if scope["type"] == "http":
-            if _authorized(scope):
+            if _authorized(scope) or _computer_tool_authorized(scope):
                 await self.app(scope, receive, send)
             else:
                 await _refusal(scope)(scope, receive, send)

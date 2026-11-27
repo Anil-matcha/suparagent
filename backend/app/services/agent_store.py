@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Agent, Thread
 from app.db.models.agent import APPROVAL_MODES
 from app.db.transactions import begin_write
+from app.services import agent_history
 
 # The longest name the API and an agent file accept.
 NAME_MAX_CHARS = 80
@@ -27,6 +28,7 @@ _EDITABLE = (
     "instructions",
     "provider",
     "model",
+    "effort",
     "workspace_path",
     "approval_mode",
     "pinned",
@@ -37,6 +39,10 @@ _EDITABLE = (
     "use_helper",
     "fallback_provider",
     "fallback_model",
+    "claude_account",
+    "connector_scopes",
+    "connector_account_scopes",
+    "connector_shares",
 )
 
 
@@ -82,6 +88,7 @@ async def create_agent(
     instructions: str = "",
     provider: str = "claude",
     model: str | None = None,
+    effort: str | None = None,
     workspace_path: str | None = None,
     approval_mode: str = "ask",
     pinned: bool = False,
@@ -93,6 +100,7 @@ async def create_agent(
     make_lead: bool = False,
     fallback_provider: str | None = None,
     fallback_model: str | None = None,
+    claude_account: str | None = None,
 ) -> Agent:
     """Raises ValueError (blank name, unknown approval mode) or AgentNameTaken."""
     name = name.strip()
@@ -109,6 +117,7 @@ async def create_agent(
         instructions=instructions,
         provider=provider,
         model=model,
+        effort=effort,
         workspace_path=workspace_path,
         approval_mode=approval_mode,
         pinned=pinned,
@@ -119,6 +128,7 @@ async def create_agent(
         use_helper=use_helper,
         fallback_provider=fallback_provider,
         fallback_model=fallback_model,
+        claude_account=claude_account,
         created_at=now,
         updated_at=now,
     )
@@ -138,7 +148,8 @@ async def create_agent(
 
 
 async def update_agent(
-    db: AsyncSession, agent_id: int, *, archived: bool | None = None, make_lead: bool | None = None, **changes
+    db: AsyncSession, agent_id: int, *, archived: bool | None = None, make_lead: bool | None = None,
+    revision_source: str = "edit", restored_from: int | None = None, **changes
 ) -> Agent:
     """Change the given fields. Raises AgentNotFound, ValueError, or
     AgentNameTaken (also when un-archiving into a name now in use)."""
@@ -156,6 +167,7 @@ async def update_agent(
     if agent is None:
         await db.rollback()
         raise AgentNotFound(agent_id)
+    before = agent_history.profile_of(agent)
     for field, value in changes.items():
         setattr(agent, field, value)
     if "instructions" in changes:
@@ -165,6 +177,7 @@ async def update_agent(
         agent.archived_at = _utcnow() if archived else None
         if archived:
             await _leave_team(db, agent)
+            await _pause_agent_routines(db, agent, "archived")
     if make_lead is True:
         if agent.archived_at is not None:
             raise ValueError('Restore this agent before making it lead.')
@@ -181,6 +194,7 @@ async def update_agent(
     name = agent.name  # read now: after a rollback the row is expired
     try:
         await db.flush()
+        await agent_history.record(db, agent, before, source=revision_source, restored_from=restored_from)
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -211,9 +225,11 @@ async def free_name(db: AsyncSession, owner_id: str, base: str, tag: str = "") -
     return name
 
 
-async def duplicate_agent(db: AsyncSession, agent_id: int) -> Agent:
+async def duplicate_agent(db: AsyncSession, agent_id: int, *, safe: bool = False) -> Agent:
     """A copy with the same settings, named "<name> copy" (then "copy 2", ...).
     The copy is live and unpinned, and starts with no notes of its own.
+    With `safe`, the copy is never looser than the source: it gets its own folder
+    instead of the source's `workspace_path`, and "accept_edits" becomes "ask".
     Raises AgentNotFound."""
     source = await db.get(Agent, agent_id)
     if source is None:
@@ -228,8 +244,9 @@ async def duplicate_agent(db: AsyncSession, agent_id: int) -> Agent:
         instructions=source.instructions,
         provider=source.provider,
         model=source.model,
-        workspace_path=source.workspace_path,
-        approval_mode=source.approval_mode,
+        effort=source.effort,
+        workspace_path=None if safe else source.workspace_path,
+        approval_mode="ask" if safe and source.approval_mode == "accept_edits" else source.approval_mode,
         memory_enabled=source.memory_enabled,
         recall_enabled=source.recall_enabled,
         memory_upkeep=source.memory_upkeep,
@@ -237,7 +254,40 @@ async def duplicate_agent(db: AsyncSession, agent_id: int) -> Agent:
         use_helper=source.use_helper,
         fallback_provider=source.fallback_provider,
         fallback_model=source.fallback_model,
+        claude_account=source.claude_account,
     )
+
+
+async def _pause_agent_routines(db: AsyncSession, agent: Agent, reason_verb: str) -> None:
+    from app.db.models.routine import Routine, RoutineRun
+    now = _utcnow()
+    routine_ids = list((await db.execute(select(Routine.id).where(Routine.agent_id == agent.id))).scalars().all())
+    if routine_ids:
+        if reason_verb == "deleted":
+            err = "Its agent no longer exists."
+            reason = "Its agent no longer exists. Choose another agent, then resume."
+        else:
+            err = "Its agent is archived."
+            reason = "Its agent is archived. Unarchive it or choose another agent, then resume."
+        await db.execute(
+            update(RoutineRun)
+            .where(RoutineRun.routine_id.in_(routine_ids), RoutineRun.state == "queued")
+            .values(
+                state="failed",
+                finished_at=now,
+                error=err,
+            )
+        )
+        await db.execute(
+            update(Routine)
+            .where(Routine.id.in_(routine_ids))
+            .values(
+                paused=True,
+                paused_reason=reason,
+                next_run_at=None,
+                updated_at=now,
+            )
+        )
 
 
 async def _leave_team(db: AsyncSession, agent: Agent) -> None:
@@ -263,6 +313,7 @@ async def delete_agent(db: AsyncSession, agent_id: int) -> None:
         await db.rollback()
         raise AgentNotFound(agent_id)
     await _leave_team(db, agent)
+    await _pause_agent_routines(db, agent, "deleted")
     await db.execute(
         update(Thread)
         .where(Thread.agent_id == agent_id)

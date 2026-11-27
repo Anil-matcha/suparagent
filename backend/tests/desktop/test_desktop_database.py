@@ -20,21 +20,21 @@ def make_database(path: Path, rows: int = 3) -> None:
 
 
 def test_a_backup_holds_what_the_database_held_and_the_original_is_untouched(tmp_path):
-    source = tmp_path / "open-dots.db"
+    source = tmp_path / "suparagent.db"
     make_database(source)
     before = sqlite3.connect(source).execute("SELECT count(*) FROM note").fetchone()[0]
 
     copy = database.backup_before_migration(source, tmp_path / "backups", "abc123")
 
     assert copy.parent == tmp_path / "backups"
-    assert copy.name.startswith("open-dots-abc123-") and copy.suffix == ".db"
+    assert copy.name.startswith("suparagent-abc123-") and copy.suffix == ".db"
     assert sqlite3.connect(copy).execute("SELECT count(*) FROM note").fetchone()[0] == before == 3
     assert sqlite3.connect(source).execute("SELECT count(*) FROM note").fetchone()[0] == 3
     assert not list((tmp_path / "backups").glob("*.part"))
 
 
 def test_a_backup_is_a_snapshot_not_a_link(tmp_path):
-    source = tmp_path / "open-dots.db"
+    source = tmp_path / "suparagent.db"
     make_database(source)
     copy = database.backup_before_migration(source, tmp_path / "backups", "abc123")
     connection = sqlite3.connect(source)
@@ -45,7 +45,7 @@ def test_a_backup_is_a_snapshot_not_a_link(tmp_path):
 
 
 def test_a_failed_backup_leaves_no_partial_file_and_raises(tmp_path, monkeypatch):
-    source = tmp_path / "open-dots.db"
+    source = tmp_path / "suparagent.db"
     make_database(source)
 
     real_connect = sqlite3.connect
@@ -63,13 +63,13 @@ def test_a_failed_backup_leaves_no_partial_file_and_raises(tmp_path, monkeypatch
 def test_only_the_newest_backups_are_kept_and_nothing_else_is_touched(tmp_path):
     backups = tmp_path / "backups"
     backups.mkdir()
-    names = [f"open-dots-rev-2026010{n}T000000000000Z.db" for n in range(1, 9)]
+    names = [f"suparagent-rev-2026010{n}T000000000000Z.db" for n in range(1, 9)]
     for name in names:
         (backups / name).write_bytes(b"x")
     (backups / "notes.txt").write_text("mine", encoding="utf-8")
     (backups / "other.db").write_bytes(b"x")
-    (backups / "open-dots-rev-20260101T000000000000Z.db.part").write_bytes(b"x")
-    live = tmp_path / "open-dots.db"
+    (backups / "suparagent-rev-20260101T000000000000Z.db.part").write_bytes(b"x")
+    live = tmp_path / "suparagent.db"
     live.write_bytes(b"live")
 
     database.prune_backups(backups)

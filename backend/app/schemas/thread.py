@@ -12,24 +12,27 @@ class ThreadCreateRequest(BaseModel):
     # What the person asked for; omitted means the engine's default. Checked
     # against the engine (422 `unknown_model`).
     model: str | None = Field(default=None, max_length=200)
+    effort: str | None = Field(default=None, max_length=64)
     # Omitted: set from the first prompt.
     title: str | None = Field(default=None, max_length=200)
-    # Start the conversation from a named agent: its provider is used (naming a
-    # different one is a 422), its workspace (or its own folder under the
-    # default root) is pinned, and each message uses its
-    # current instructions, approval mode and, unless `model` is set here, model.
+    # Start the conversation from a named agent: its workspace (or its own
+    # folder under the default root) is pinned, and each message uses its
+    # current instructions and approval mode. The provider defaults to the
+    # agent's engine; an explicit provider overrides it for this conversation.
     agent_id: int | None = None
 
 
 class ThreadUpdateRequest(BaseModel):
-    """Rename, archive and/or change the model. Send at least one field.
+    """Rename, archive and/or change the model or reasoning effort. Send at least one field.
     `model` takes an explicit null to follow the agent's model (on the same
     engine), otherwise the engine default. The engine stays the one the
-    conversation started on."""
+    conversation started on. `effort` takes an explicit null to use the
+    model's default reasoning effort."""
 
     title: str | None = Field(default=None, max_length=200)
     archived: bool | None = None
     model: str | None = Field(default=None, max_length=200)
+    effort: str | None = Field(default=None, max_length=64)
 
     @field_validator("title")
     @classmethod
@@ -43,8 +46,8 @@ class ThreadUpdateRequest(BaseModel):
 
     @model_validator(mode="after")
     def _something_to_change(self):
-        if self.title is None and self.archived is None and "model" not in self.model_fields_set:
-            raise ValueError("send a title, archived, model, or several")
+        if self.title is None and self.archived is None and "model" not in self.model_fields_set and "effort" not in self.model_fields_set:
+            raise ValueError("send a title, archived, model, effort, or several")
         return self
 
 
@@ -55,6 +58,7 @@ class ThreadResponse(BaseModel):
     title: str | None
     provider: str
     model: str | None
+    effort: str | None = None
     workspace_path: str | None = None
     # The agent this conversation was started from; null if none, or if it
     # was deleted.
@@ -64,6 +68,8 @@ class ThreadResponse(BaseModel):
     kind: str = "chat"
     room_id: int | None = None
     job_id: int | None = None
+    # The conversation this one was branched from, if any.
+    branched_from_thread_id: int | None = None
     computer: ComputerSummary | None = None
     # new | active | broken | none. `broken` means a resume failed and the
     # session must be reset before the thread can take another message.
@@ -91,6 +97,10 @@ class TurnResponse(BaseModel):
     usage: dict | None
     # Who started it: person, routine, outside, peer; null for older turns.
     origin: str | None = None
+    # The member who sent it, when one did; null for older turns, routines and the owner's own
+    # sessions from before people existed.
+    person_id: int | None = None
+    person_label: str | None = None
     started_at: datetime
     finished_at: datetime | None
 
@@ -115,6 +125,38 @@ class TurnCreateRequest(BaseModel):
         if not value.strip():
             raise ValueError("prompt_text must not be blank")
         return value
+
+
+class ThreadBranchRequest(BaseModel):
+    """Branch from one past message: `turn_id` is the turn whose message is
+    being edited, `prompt_text` the edited message to send in the new branch."""
+
+    turn_id: int
+    prompt_text: str = Field(min_length=1, max_length=100_000)
+
+    @field_validator("prompt_text")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("prompt_text must not be blank")
+        return value
+
+
+class TurnSteerRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=100_000)
+
+    @field_validator("text")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("text must not be blank")
+        return value
+
+
+class TurnSteerResponse(BaseModel):
+    status: Literal["steered"] = "steered"
+    turn_id: int
 
 
 class EventResponse(BaseModel):
@@ -150,6 +192,8 @@ class ApprovalResponse(BaseModel):
     status: str
     created_at: datetime
     decided_at: datetime | None
+    # The member who answered it, when one did.
+    decided_by_label: str | None = None
 
 
 class StopResponse(BaseModel):

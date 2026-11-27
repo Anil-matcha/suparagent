@@ -41,6 +41,11 @@ def learn_from_rooms() -> bool:
     return _read().get("learn_from_rooms") is True
 
 
+def keep_cache_warm() -> bool:
+    """Off unless the person turned it on here or CACHE_KEEP_WARM=1 (docs/ENGINES.md)."""
+    return _read().get("keep_cache_warm") is True or bool(settings.CACHE_KEEP_WARM)
+
+
 def tidy_hour() -> int:
     """The local hour after which the daily tidy-up may run; 24 means never."""
     saved = _hour(_read().get("tidy_hour"))
@@ -70,6 +75,7 @@ def read() -> dict:
     active = side_jobs.configured()
     return {
         "learn_from_rooms": learn_from_rooms(),
+        "keep_cache_warm": keep_cache_warm(),
         "tidy_hour": tidy_hour(),
         "helper_models": helper_models(),
         "helper": helper(),
@@ -101,7 +107,7 @@ def _clean_helper(value) -> dict | None:
     return {"engine": engine, "model": model}
 
 
-def update(*, learn_from_rooms=None, tidy_hour=None, helper_models=None, **more) -> dict:
+def update(*, learn_from_rooms=None, tidy_hour=None, helper_models=None, keep_cache_warm=None, **more) -> dict:
     """Change the given settings. `helper_models` replaces the whole map; an
     empty model name removes that engine's entry. Raises InvalidSetting."""
     data = _read()
@@ -109,6 +115,10 @@ def update(*, learn_from_rooms=None, tidy_hour=None, helper_models=None, **more)
         if not isinstance(learn_from_rooms, bool):
             raise InvalidSetting("Learn from group chats is on or off.")
         data["learn_from_rooms"] = learn_from_rooms
+    if keep_cache_warm is not None:
+        if not isinstance(keep_cache_warm, bool):
+            raise InvalidSetting("Keeping the cache warm is on or off.")
+        data["keep_cache_warm"] = keep_cache_warm
     if tidy_hour is not None:
         if _hour(tidy_hour) is None:
             raise InvalidSetting("The tidy-up hour is a whole hour from 0 to 23, or 24 to switch it off.")

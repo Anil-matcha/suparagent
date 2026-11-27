@@ -29,6 +29,7 @@ from pathlib import Path
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.desktop import profile
+from app.core import tenant_paths
 
 logger = get_logger(__name__)
 
@@ -74,13 +75,31 @@ def redact(text: str) -> str:
     return text
 
 
+def contains_credential(text: str) -> bool:
+    """Whether text contains a credential that must not be saved in a rule.
+
+    The final log-redaction pattern also catches generic long tokens and allows
+    `/` for base64 values. That makes it match long Unix paths too, so rule
+    validation ignores those matches when they contain a path separator. Named
+    assignments and known credential formats remain covered by the patterns
+    before the generic fallback.
+    """
+    if any(pattern.search(text) for pattern in _SECRET_PATTERNS[:-1]):
+        return True
+    generic = _SECRET_PATTERNS[-1]
+    return any("/" not in match.group(0) for match in generic.finditer(text))
+
+
 def log_dir() -> Path:
+    mine = tenant_paths.root()
+    if mine is not None:
+        return mine / "decisions"
     desktop = profile.current()
     if desktop is not None:
         return desktop.data_dir / "decisions"
     if settings.DECISION_LOG_DIR.strip():
         return Path(settings.DECISION_LOG_DIR).expanduser()
-    return Path.home() / ".open-dots" / "decisions"
+    return Path.home() / ".suparagent" / "decisions"
 
 
 def _next_id() -> str:

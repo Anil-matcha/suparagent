@@ -56,7 +56,7 @@ def stop(proc: subprocess.Popen, sig=signal.SIGTERM) -> None:
 
 
 def test_second_process_is_refused_and_told_who_holds_it(tmp_path):
-    database = tmp_path / "data" / "open-dots.db"
+    database = tmp_path / "data" / "suparagent.db"
     holder = start_holding(database)
     try:
         second = run_holder(database, hold=False)
@@ -74,7 +74,7 @@ def test_second_process_is_refused_and_told_who_holds_it(tmp_path):
 
 @pytest.mark.parametrize("sig", [signal.SIGKILL, signal.SIGTERM])
 def test_a_dead_holder_leaves_no_stale_lock(tmp_path, sig):
-    database = tmp_path / "open-dots.db"
+    database = tmp_path / "suparagent.db"
     holder = start_holding(database)
     stop(holder, sig)
     # The lease file is still there, naming the dead process; it is not a lock.
@@ -88,7 +88,7 @@ def test_a_dead_holder_leaves_no_stale_lock(tmp_path, sig):
 
 
 def test_acquire_is_shared_within_one_process_and_released_last(tmp_path):
-    database = tmp_path / "open-dots.db"
+    database = tmp_path / "suparagent.db"
     first = data_lease.acquire(database)
     second = data_lease.acquire(database)
     assert first is second

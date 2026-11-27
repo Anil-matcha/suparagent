@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end smoke test of the server run mode (`python -m app.server`).
 
-Walks through what a person does when they put Open Duet on a server behind a
+Walks through what a person does when they put Suparagent on a server behind a
 reverse proxy, against a real process and a scratch SQLite database: migrate, set
 the owner passphrase, start the server, load the pages, sign in as a visitor
 arriving through a proxy (by hand-written forwarded headers), pair a phone, and
@@ -70,7 +70,7 @@ def free_port() -> int:
 
 def make_stand_in_ui(folder: Path) -> Path:
     """Just enough pages for the checks, for a run with no web build."""
-    for page in ("", "login", "pair", "chat", "settings"):
+    for page in ("", "login", "pair", "join", "chat", "settings"):
         target = folder / page
         target.mkdir(parents=True, exist_ok=True)
         (target / "index.html").write_text(f"<html><title>{page or 'home'}</title></html>")
@@ -82,7 +82,7 @@ class Server:
     def __init__(self, root: Path, ui_dir: Path) -> None:
         self.root = root
         self.ui_dir = ui_dir
-        self.database = root / "data" / "open-dots.db"
+        self.database = root / "data" / "suparagent.db"
         self.port = free_port()
         self.url = f"http://127.0.0.1:{self.port}"
         self.process: subprocess.Popen | None = None
@@ -107,9 +107,9 @@ class Server:
             "ATTACHMENTS_DIR": str(self.root / "attachments"),
             "ENGINE_PROCESS_DIR": str(self.root / "engines"),
             "LOCAL_WORKSPACE_ROOT": str(self.root / "work"),
-            "OPEN_DOTS_UI_DIR": str(self.ui_dir),
-            "OPEN_DOTS_PORT": str(self.port),
-            "OPEN_DOTS_PUBLIC_URL": PUBLIC_URL,
+            "SUPARAGENT_UI_DIR": str(self.ui_dir),
+            "SUPARAGENT_PORT": str(self.port),
+            "SUPARAGENT_PUBLIC_URL": PUBLIC_URL,
             "LOCAL_EXECUTION_ENABLED": "true",  # a server install sets this in its settings file; the agents API needs it
             **extra,
         }
@@ -201,13 +201,13 @@ def sets_passphrase(server: Server) -> None:
 
 @check("the server will not listen beyond this machine without being told to")
 def refuses_public_bind(server: Server) -> None:
-    result = server.run("-m", "app.server", OPEN_DOTS_HOST="0.0.0.0")
-    assert result.returncode == 2 and "OPEN_DOTS_ALLOW_PUBLIC_BIND" in result.stderr, (result.returncode, result.stderr)
+    result = server.run("-m", "app.server", SUPARAGENT_HOST="0.0.0.0")
+    assert result.returncode == 2 and "SUPARAGENT_ALLOW_PUBLIC_BIND" in result.stderr, (result.returncode, result.stderr)
 
 
 @check("the pages load without signing in; a missing page is a 404")
 def pages_load(server: Server) -> None:
-    for path in ("/", "/login/", "/pair/", "/chat/", "/settings/", "/tasks/"):
+    for path in ("/", "/login/", "/pair/", "/join/", "/chat/", "/settings/", "/tasks/"):
         response = server.client.get(path, headers=PROXY)
         assert response.status_code == 200 and "text/html" in response.headers["content-type"], (path, response.status_code)
     assert server.client.get("/no-such-page/", headers=PROXY).status_code == 404
@@ -272,6 +272,43 @@ def pairs_phone(server: Server) -> None:
     assert again.status_code in (400, 401, 403, 404, 410), "a pairing code must work only once"
 
 
+@check("a teammate joins by invitation, works as a member, and is cut off when removed")
+def member_joins_and_is_removed(server: Server) -> None:
+    owner, csrf = signed_in(server)
+    write = {**owner, "X-CSRF-Token": csrf}
+    email = "teammate@example.com"
+    # Reply and read files, but not manage agents: what the invitation carries is what the member gets.
+    made = server.client.post("/api/v1/people/invites", headers=write,
+                              json={"email": email, "role": "member", "permissions": ["chat", "files"]})
+    assert made.status_code == 201, made.text
+    token = made.json()["token"]
+    assert server.client.get("/join/", headers=PROXY).status_code == 200
+    with httpx.Client(base_url=server.url, timeout=10) as other:
+        wrong = other.post("/api/v1/auth/invites/accept", headers=PROXY, json={
+            "token": token, "email": "someone-else@example.com", "display_name": "Mallory", "password": "a member password 123"})
+        assert wrong.status_code == 400 and wrong.json()["detail"]["error_code"] == "invite_invalid", wrong.text
+        joined = other.post("/api/v1/auth/invites/accept", headers=PROXY, json={
+            "token": token, "email": email, "display_name": "Teammate", "password": "a member password 123"})
+        assert joined.status_code == 200 and joined.json()["role"] == "member", joined.text
+        assert joined.json()["permissions"] == ["chat", "files"], joined.json()
+        cookie = joined.headers["set-cookie"].split(";")[0]
+        assert "HttpOnly" in joined.headers["set-cookie"] and "Secure" in joined.headers["set-cookie"]
+        member = {**PROXY, "Cookie": cookie}
+        assert other.get("/api/v1/agents", headers=member).status_code == 200
+        refused = other.get("/api/v1/settings", headers=member)
+        assert refused.status_code == 403, f"a member must not read settings: {refused.status_code}"
+        assert other.get("/api/v1/auth/devices", headers=member).status_code == 403
+        no_agents = other.post("/api/v1/agents", json={"name": "nope"}, headers={**member, "X-CSRF-Token": joined.json()["csrf_token"]})
+        assert no_agents.status_code == 403, f"a member without the agents permission created an agent: {no_agents.status_code}"
+        assert other.post("/api/v1/auth/login", json={"passphrase": "not the passphrase"}, headers=PROXY).status_code == 401
+        person_id = joined.json()["person_id"]
+        removed = server.client.delete(f"/api/v1/people/{person_id}", headers=write)
+        assert removed.status_code == 204, removed.text
+        assert other.get("/api/v1/agents", headers=member).status_code == 401, "a removed member must be signed out"
+        again = other.post("/api/v1/auth/people/login", json={"email": email, "password": "a member password 123"}, headers=PROXY)
+        assert again.status_code == 401
+
+
 @check("a proxy that omits forwarded headers is reported once in the log; one that sends them is not")
 def warns_about_proxy(server: Server) -> None:
     server.client.get("/login/", headers={"Host": PUBLIC_HOST})
@@ -285,7 +322,7 @@ def warns_about_proxy(server: Server) -> None:
 @check("a second server on the same data is refused")
 def second_server_refused(server: Server) -> None:
     other = subprocess.Popen(
-        [sys.executable, "-m", "app.server"], cwd=server.root, env=server.env(OPEN_DOTS_PORT=str(free_port())),
+        [sys.executable, "-m", "app.server"], cwd=server.root, env=server.env(SUPARAGENT_PORT=str(free_port())),
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     try:
@@ -325,7 +362,7 @@ def main() -> int:
     if not args.ui_dir and not args.stand_in_ui:
         parser.error("give --ui-dir, or --stand-in-ui for a run with no web build")
 
-    root = Path(tempfile.mkdtemp(prefix="open-dots-smoke-server-"))
+    root = Path(tempfile.mkdtemp(prefix="suparagent-smoke-server-"))
     ui_dir = make_stand_in_ui(root / "ui") if args.stand_in_ui else Path(args.ui_dir).resolve()
     if not (ui_dir / "login" / "index.html").is_file():
         print(f"{ui_dir} has no login page; build the pages first (node scripts/build-ui.js).", file=sys.stderr)
@@ -346,6 +383,7 @@ def main() -> int:
         signs_in(server)
         agent_id = uses_api(server)
         pairs_phone(server)
+        member_joins_and_is_removed(server)
         warns_about_proxy(server)
         second_server_refused(server)
         stops_on_sigterm(server)

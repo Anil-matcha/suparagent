@@ -71,8 +71,13 @@ def test_mounting_data_parent_or_symlink_to_home_refused(monkeypatch, fake_linux
     workspace = fake_linux / 'workspace'
     workspace.mkdir()
     link = fake_linux / 'home-link'
-    link.symlink_to(Path.home(), target_is_directory=True)
-    for granted in (fake_linux, link):
+    paths_to_test = [fake_linux]
+    try:
+        link.symlink_to(Path.home(), target_is_directory=True)
+        paths_to_test.append(link)
+    except OSError:
+        pass
+    for granted in paths_to_test:
         with pytest.raises(box.SandboxUnavailable, match='application data'):
             box.command(['codex'], cwd=workspace, env={}, writable=[granted])
 
@@ -159,11 +164,11 @@ def test_claude_reports_sandbox_refusal_without_generic_runner_error():
 def test_builtin_resolver_symlink_mounts_only_trusted_file(monkeypatch, fake_linux, target):
     # Simulate Ubuntu's resolver layout on every platform, including macOS.
     resolve, exists, is_file = Path.resolve, Path.exists, Path.is_file
-    monkeypatch.setattr(Path, 'resolve', lambda self, *a, **kw: Path(target) if str(self) == '/etc/resolv.conf' else resolve(self, *a, **kw))
-    monkeypatch.setattr(Path, 'exists', lambda self: True if str(self) == '/etc/resolv.conf' else exists(self))
-    monkeypatch.setattr(Path, 'is_file', lambda self: True if str(self) == target else is_file(self))
+    monkeypatch.setattr(Path, 'resolve', lambda self, *a, **kw: Path(target) if str(self).replace('\\', '/') == '/etc/resolv.conf' else resolve(self, *a, **kw))
+    monkeypatch.setattr(Path, 'exists', lambda self: True if str(self).replace('\\', '/') == '/etc/resolv.conf' else exists(self))
+    monkeypatch.setattr(Path, 'is_file', lambda self: True if str(self).replace('\\', '/') == target else is_file(self))
     args = box._base()
-    mounts = [args[index + 1:index + 3] for index, arg in enumerate(args) if arg in ('--ro-bind', '--bind')]
+    mounts = [[arg.replace('\\', '/') for arg in args[index + 1:index + 3]] for index, arg in enumerate(args) if arg in ('--ro-bind', '--bind')]
     assert [target, '/etc/resolv.conf'] in mounts
     assert all(source != '/run' and destination != '/run' for source, destination in mounts)
     assert [mount for mount in mounts if mount[0].startswith('/run/')] == [[target, '/etc/resolv.conf']]
@@ -180,9 +185,9 @@ def test_builtin_resolver_symlink_mounts_only_trusted_file(monkeypatch, fake_lin
 ])
 def test_resolver_symlink_rejects_unrelated_run_paths_or_nonfiles(monkeypatch, fake_linux, target, regular_file):
     resolve, exists, is_file = Path.resolve, Path.exists, Path.is_file
-    monkeypatch.setattr(Path, 'resolve', lambda self, *a, **kw: Path(target) if str(self) == '/etc/resolv.conf' else resolve(self, *a, **kw))
-    monkeypatch.setattr(Path, 'exists', lambda self: True if str(self) == '/etc/resolv.conf' else exists(self))
-    monkeypatch.setattr(Path, 'is_file', lambda self: regular_file if str(self) == target else is_file(self))
+    monkeypatch.setattr(Path, 'resolve', lambda self, *a, **kw: Path(target) if str(self).replace('\\', '/') == '/etc/resolv.conf' else resolve(self, *a, **kw))
+    monkeypatch.setattr(Path, 'exists', lambda self: True if str(self).replace('\\', '/') == '/etc/resolv.conf' else exists(self))
+    monkeypatch.setattr(Path, 'is_file', lambda self: regular_file if str(self).replace('\\', '/') == target else is_file(self))
     with pytest.raises(box.SandboxUnavailable):
         box._base()
     with pytest.raises(box.SandboxUnavailable):

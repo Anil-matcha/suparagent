@@ -127,6 +127,16 @@ async def test_create_list_edit_pause_resume_delete(api, agent):
     assert (await api.get(f"/api/v1/routines/{created['id']}")).status_code == 404
 
 
+async def test_waiting_route_is_scoped_to_an_agent_and_needs_local_access(api, agent, scheduler):
+    created = await make(api, agent)
+    empty = await api.get(f"/api/v1/routines/waiting?agent_id={agent.id}")
+    assert empty.status_code == 200 and empty.json() == []
+    assert (await api.get("/api/v1/routines/waiting")).status_code == 422
+    assert created["id"]
+    async with client_for(app_for(scheduler), client=("203.0.113.9", 4000)) as remote:
+        assert (await remote.get(f"/api/v1/routines/waiting?agent_id={agent.id}")).status_code == 403
+
+
 async def test_bad_definitions_answer_422_with_a_code(api, agent):
     response = await api.post("/api/v1/routines", json={
         "agent_id": agent.id, "name": "x", "prompt": "y", "schedule_kind": "cron",
@@ -203,6 +213,13 @@ async def test_webhook_secret_is_returned_once_and_rotation_replaces_it(api, age
     off = await api.delete(f"/api/v1/routines/{created['id']}/webhook")
     assert off.json()["webhook_enabled"] is False
     assert (await api.post(hook, headers={"Authorization": f"Bearer {second['secret']}"}, content="{}")).status_code == 401
+
+
+async def test_webhook_base_makes_the_shown_address_absolute(api, agent, monkeypatch):
+    monkeypatch.setattr(settings, "SUPARAGENT_WEBHOOK_BASE", "https://dots.example.com/hooks/a/abc/")
+    created = await make(api, agent)
+    first = (await api.post(f"/api/v1/routines/{created['id']}/webhook")).json()
+    assert first["path"] == f"https://dots.example.com/hooks/a/abc/{created['id']}"
 
 
 async def test_webhook_auth_size_and_encoding(api, agent, scheduler, monkeypatch, sessions):
@@ -285,3 +302,58 @@ async def test_webhook_receipt_retries_when_full_and_secret_revocation(api, agen
     assert (await api.delete(endpoint)).status_code == 200
     denied = await api.post(hook, headers=current, content="payload")
     assert denied.status_code == 401 and "run_id" not in denied.json()
+
+
+async def test_routine_on_off_done_lifecycle_and_spent_schedule_409(api, agent, scheduler):
+    from datetime import datetime, timedelta, UTC
+    future = (datetime.now(UTC) + timedelta(days=2)).isoformat()
+    past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+
+    # 1. Previewing a past date returns 422 with invalid_schedule
+    preview_past = await api.post("/api/v1/routines/preview", json={
+        "schedule_kind": "once",
+        "schedule_spec": {"at": past},
+        "timezone": "UTC",
+    })
+    assert preview_past.status_code == 422
+    assert preview_past.json()["detail"]["error_code"] == "invalid_schedule"
+
+    # 2. Creating a routine with a future date gives status == "on"
+    created = await make(api, agent, schedule_kind="once", schedule_spec={"at": future}, timezone="UTC")
+    assert created["status"] == "on"
+    assert created["paused"] is False
+
+    # 3. Pausing routine gives status == "off"
+    paused = (await api.post(f"/api/v1/routines/{created['id']}/pause")).json()
+    assert paused["status"] == "off"
+    assert paused["paused"] is True
+
+    # 4. Resuming gives status == "on"
+    resumed = (await api.post(f"/api/v1/routines/{created['id']}/resume")).json()
+    assert resumed["status"] == "on"
+    assert resumed["paused"] is False
+
+    # 5. When edited directly to a past date (simulate spent one-time schedule in DB)
+    async with scheduler.session() as db:
+        from app.db.models import Routine
+        rt_obj = await db.get(Routine, created["id"])
+        rt_obj.schedule_spec = {"at": past}
+        rt_obj.next_run_at = None
+        await db.commit()
+
+    # 6. Reading the spent routine returns status == "done"
+    spent = (await api.get(f"/api/v1/routines/{created['id']}")).json()
+    assert spent["status"] == "done"
+
+    # 7. Resuming a spent schedule returns 409 Conflict with spent_schedule
+    resumed_spent = await api.post(f"/api/v1/routines/{created['id']}/resume")
+    assert resumed_spent.status_code == 409
+    assert resumed_spent.json()["detail"]["error_code"] == "spent_schedule"
+
+    # 8. Re-arming with a new future date sets status == "on"
+    far_future = (datetime.now(UTC) + timedelta(days=5)).isoformat()
+    rearmed = (await api.patch(f"/api/v1/routines/{created['id']}", json={
+        "schedule_spec": {"at": far_future}
+    })).json()
+    assert rearmed["status"] == "on"
+    assert rearmed["next_run_at"] is not None

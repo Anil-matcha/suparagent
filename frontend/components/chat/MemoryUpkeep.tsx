@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/Select";
+
 // Memory upkeep for one agent (switch, tidy up now, the hour, the helper model,
 // learning from group chats) and the About me text every agent reads
 // (docs/MEMORY.md). Shown inside the memory panel under an agent's notes.
@@ -168,7 +170,7 @@ export function UpkeepCard({
           {result && <p role="status">{result}</p>}
           <div className="flex flex-wrap items-center gap-2">
             <label htmlFor={`tidy-hour-${agent.id}`}>Tidy up each night after</label>
-            <select
+            <Select
               id={`tidy-hour-${agent.id}`}
               value={settings?.tidy_hour ?? status?.tidy_hour ?? 3}
               disabled={busy || !settings}
@@ -180,7 +182,7 @@ export function UpkeepCard({
                   {tidyHourLabel(h)}
                 </option>
               ))}
-            </select>
+            </Select>
             <span className="text-muted">Applies to every agent; never while the agent is working.</span>
           </div>
           <div className="space-y-1">
@@ -211,7 +213,7 @@ export function UpkeepCard({
             <p className="font-medium">Helper on another provider (off unless you set it)</p>
             <div className="flex flex-wrap items-center gap-2">
               <label htmlFor={`helper-engine-${agent.id}`}>Engine</label>
-              <select
+              <Select
                 id={`helper-engine-${agent.id}`}
                 value={helperEngine}
                 disabled={busy || !settings || settings.helper_active?.source === "environment"}
@@ -226,7 +228,7 @@ export function UpkeepCard({
                       {e.label}
                     </option>
                   ))}
-              </select>
+              </Select>
               <label htmlFor={`helper-engine-model-${agent.id}`}>Model</label>
               <input
                 id={`helper-engine-model-${agent.id}`}
@@ -294,6 +296,25 @@ export function UpkeepCard({
                 too: your own lines count as yours; another person&apos;s lines give only facts about the shared work
                 and never reach About me; another agent&apos;s lines give only an outcome it verified or a decision you
                 agreed to. Entries are marked with the room.
+              </span>
+            </span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-2">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={settings?.keep_cache_warm ?? false}
+              disabled={busy || !settings}
+              onChange={() => settings && void change({ keep_cache_warm: !settings.keep_cache_warm })}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="font-medium">Keep recent chats fast</span>
+              <span className="block text-muted">
+                Off by default. Claude and Codex remember a long chat for only a few minutes, so a chat you left for a
+                while is slow and costs more to continue. When on, up to 3 chats you used in the last 2 hours get one
+                tiny message every few minutes (it shows in the chat, uses your plan, and never runs while the chat is
+                busy). Chats you stop using are left alone after 2 hours.
               </span>
             </span>
           </label>

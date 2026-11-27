@@ -21,11 +21,14 @@ from app.schemas.thread import (
     ApprovalResponse,
     EventsPageResponse,
     StopResponse,
+    ThreadBranchRequest,
     ThreadCreateRequest,
     ThreadDetailResponse,
     ThreadResponse,
     ThreadUpdateRequest,
     TurnCreateRequest,
+    TurnSteerRequest,
+    TurnSteerResponse,
     TurnResponse,
 )
 from app.services import approval_allowlist, attachments
@@ -40,9 +43,11 @@ from app.services.thread_runtime import (
     SessionNotResettable,
     ThreadRuntime,
     TurnNotHere,
+    TurnNotSteerable,
+    SteerRejected,
+    SteerIndeterminate,
     UnknownProvider,
     AgentArchived,
-    AgentProviderMismatch,
     EngineModelInvalid,
     ImagesUnsupported,
     UnknownAgent,
@@ -55,6 +60,13 @@ router = APIRouter(
     tags=["Threads"],
     dependencies=[Depends(require_local_access)],
 )
+
+
+def _setup_allowed(principal) -> bool:
+    """Manage-agent members may use the safe team setup tools, but not broader configuration tools."""
+    if principal is None or principal.is_admin:
+        return True
+    return "manage" in principal.scopes and (principal.permissions is None or "agents" in principal.permissions)
 
 
 def get_runtime() -> ThreadRuntime:
@@ -98,6 +110,7 @@ async def create_thread(payload: ThreadCreateRequest, rt: ThreadRuntime = Depend
             # Omitted means the agent's provider, or Claude without an agent.
             provider=payload.provider if "provider" in payload.model_fields_set else None,
             model=payload.model,
+            effort=payload.effort,
             title=payload.title,
             agent_id=payload.agent_id,
         )
@@ -109,10 +122,6 @@ async def create_thread(payload: ThreadCreateRequest, rt: ThreadRuntime = Depend
         raise _error(422, "agent_not_found", "No such agent.") from None
     except AgentArchived:
         raise _error(409, "agent_archived", "This agent is archived; unarchive it first.") from None
-    except AgentProviderMismatch:
-        raise _error(
-            422, "agent_provider_mismatch", "The provider must match the agent's, or be omitted."
-        ) from None
     except (OSError, ValueError) as exc:
         raise _error(409, "workspace_unavailable", str(exc)) from None
     return (await _with_computers(rt, [thread]))[0]
@@ -172,9 +181,11 @@ async def update_thread(
         if payload.title is not None:
             async with rt.session() as db:
                 thread = await store.rename_thread(db, thread_id, payload.title)
-        if "model" in payload.model_fields_set:
+        if "model" in payload.model_fields_set or "effort" in payload.model_fields_set:
+            effort = payload.effort if "effort" in payload.model_fields_set else (current.provider_state or {}).get("effort")
+            model = payload.model if "model" in payload.model_fields_set else current.model
             async with rt.session() as db:
-                thread = await store.set_model(db, thread_id, payload.model)
+                thread = await store.set_model(db, thread_id, model, effort=effort)
     except store.ThreadNotFound:
         raise HTTPException(status_code=404, detail="Thread not found")
     except store.ThreadBusy:
@@ -220,6 +231,10 @@ async def send_turn(
         return await rt.send_turn(
             thread_id, payload.prompt_text, attachment_ids=payload.attachment_ids, skills=payload.skills,
             configuration_allowed=principal is None or principal.is_admin,
+            setup_allowed=_setup_allowed(principal),
+            person_id=principal.person_id if principal else None,
+            person_label=principal.label if principal and principal.person_id is not None else None,
+            person_is_owner=principal is None or principal.person_id is None or principal.role == "owner",
         )
     except SkillError as error:
         raise _error(error.status, error.code, error.message)
@@ -247,6 +262,51 @@ async def send_turn(
         raise _error(409, "unknown_provider", f"No provider is registered for {exc}.")
 
 
+@router.post("/{thread_id}/branch", response_model=ThreadResponse, status_code=201)
+async def branch_thread(
+    thread_id: int, payload: ThreadBranchRequest, request: Request, rt: ThreadRuntime = Depends(get_runtime)
+):
+    """Edit a past message and resend it in a new conversation that keeps the
+    history before it. The original is not changed. Workspace files are not
+    copied; the branch works in the same folder."""
+    from app.services import thread_branch
+
+    await _thread_or_404(rt, thread_id)
+    try:
+        branch = await thread_branch.branch_thread(rt, thread_id, payload.turn_id)
+    except thread_branch.BranchError as error:
+        raise _error(error.status, error.code, error.message)
+    except store.ThreadNotFound:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    try:
+        from app.auth.middleware import principal_of
+        principal = principal_of(request.scope)
+        await rt.send_turn(
+            branch.id, payload.prompt_text,
+            configuration_allowed=principal is None or principal.is_admin,
+            setup_allowed=_setup_allowed(principal),
+            person_id=principal.person_id if principal else None,
+            person_label=principal.label if principal and principal.person_id is not None else None,
+            person_is_owner=principal is None or principal.person_id is None or principal.role == "owner",
+        )
+    except Exception as exc:
+        # Never leave an empty branch behind when the resend could not start.
+        try:
+            async with rt.session() as db:
+                await store.delete_thread(db, branch.id)
+            rt.hub.close(branch.id)
+        except Exception:
+            pass
+        if isinstance(exc, ProviderUnavailable):
+            raise _error(503, "provider_unavailable", str(exc))
+        if isinstance(exc, (store.ThreadBusy, SessionBroken)):
+            raise _error(409, "branch_failed", "Could not start the branch. Try again.")
+        raise
+    async with rt.session() as db:
+        branch = await store.get_thread(db, branch.id)
+    return (await _with_computers(rt, [branch]))[0]
+
+
 @router.post("/{thread_id}/stop", response_model=StopResponse, status_code=202)
 async def stop_turn(thread_id: int, rt: ThreadRuntime = Depends(get_runtime)):
     """Stop the running answer. Claude is stopped, what it had written is kept
@@ -265,6 +325,28 @@ async def stop_turn(thread_id: int, rt: ThreadRuntime = Depends(get_runtime)):
             "This answer is running in another process, so it cannot be stopped from here. "
             "It ends by itself, or is marked stopped within a minute if that process is gone.",
         )
+
+
+@router.post("/{thread_id}/steer", response_model=TurnSteerResponse, status_code=202)
+async def steer_turn(
+    thread_id: int, payload: TurnSteerRequest, rt: ThreadRuntime = Depends(get_runtime)
+):
+    """Send a text message into a running turn when its provider supports it."""
+    thread = await _thread_or_404(rt, thread_id)
+    if thread.kind in ("room", "room_member"):
+        raise _error(409, thread.kind + "_thread", "Talk to this agent in the room.")
+    try:
+        return TurnSteerResponse(turn_id=await rt.steer_turn(thread_id, payload.text))
+    except NoRunningTurn:
+        raise _error(409, "no_running_turn", "Nothing is running in this conversation.")
+    except TurnNotHere:
+        raise _error(409, "turn_not_steerable", "This turn is running in another process and cannot be steered here.")
+    except TurnNotSteerable:
+        raise _error(409, "steer_unsupported", "This engine cannot accept messages during a running turn. Queue it for the next turn instead.")
+    except SteerRejected:
+        raise _error(409, "steer_rejected", "The engine rejected the message. It was not added to the running turn.")
+    except SteerIndeterminate:
+        raise _error(504, "steer_uncertain", "The engine did not confirm whether it received the message. Check the conversation before retrying.")
 
 
 @router.post("/{thread_id}/session/reset", response_model=ThreadResponse)
@@ -359,19 +441,38 @@ async def answer_approval(
     thread_id: int,
     approval_id: str,
     payload: ApprovalAnswerRequest,
+    request: Request,
     rt: ThreadRuntime = Depends(get_runtime),
 ):
     """Allow or deny one tool call. The first answer wins. An approval already
     answered, cancelled or expired, or whose turn is no longer running, answers
     409 and authorizes nothing."""
+    from app.auth.middleware import principal_of
+    from app.auth.policy import has_permission
+
+    principal = principal_of(request.scope)
+    if not has_permission(principal, "approve"):
+        raise _error(403, "permission_denied", "You do not have permission to answer commands. Ask an admin.")
     await _thread_or_404(rt, thread_id)
     async with rt.session() as db:
         approval = await store.get_approval(db, approval_id)
     if approval is None or approval.thread_id != thread_id:
         raise HTTPException(status_code=404, detail="Approval not found")
-    if not await rt.answer_approval(approval_id, payload.decision, remember=payload.remember):
+    # A standing "always allow" rule applies to the whole workspace, so it needs its own permission.
+    # Without it the answer still counts, just once.
+    may_remember = has_permission(principal, "rules")
+    named = principal is not None and principal.person_id is not None
+    if not await rt.answer_approval(
+        approval_id, payload.decision, remember=payload.remember and may_remember,
+        person_id=principal.person_id if named else None, person_label=principal.label if named else None,
+    ):
         raise _error(
             409, "approval_not_waiting", "That request is no longer waiting for an answer."
+        )
+    if payload.remember and payload.decision == "allow" and not may_remember:
+        return ApprovalAnswerResponse(
+            decision=payload.decision,
+            remember_error="Allowed this once. Saving a standing rule needs the owner's permission.",
         )
     if not (payload.remember and payload.decision == "allow"):
         return ApprovalAnswerResponse(decision=payload.decision)

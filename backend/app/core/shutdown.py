@@ -16,7 +16,7 @@ import signal
 import threading
 
 _stopping = threading.Event()
-_HOOK_MARK = "_open_dots_stopping_hook"
+_HOOK_MARK = "_suparagent_stopping_hook"
 
 
 def stopping() -> bool:

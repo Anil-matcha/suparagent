@@ -50,11 +50,12 @@ test("absence of a CLI does not prevent configuring an API engine in a ready app
 test("finding a CLI does not execute it or expose credential environment values", () => {
   ready();
   const bin = path.join(root, "bin");
-  const executable = path.join(bin, "claude");
+  const isWin = process.platform === "win32";
+  const executable = path.join(bin, isWin ? "claude.cmd" : "claude");
   const marker = path.join(root, "ran");
-  write(executable, `#!/bin/sh\ntouch '${marker}'\n`);
+  write(executable, isWin ? `@echo off\r\ntype nul > "${marker}"\r\n` : `#!/bin/sh\ntouch '${marker}'\n`);
   fs.chmodSync(executable, 0o755);
-  const result = diagnose({ layout: paths, nodeVersion: "v24.0.0", platform: "darwin", env: { PATH: bin, TOKEN_ENCRYPTION_KEYS: "DOCTOR_TEST_SECRET", CLAUDE_CODE_OAUTH_TOKEN: "DOCTOR_TEST_SECRET" } });
+  const result = diagnose({ layout: paths, nodeVersion: "v24.0.0", platform: process.platform, env: { PATH: bin, TOKEN_ENCRYPTION_KEYS: "DOCTOR_TEST_SECRET", CLAUDE_CODE_OAUTH_TOKEN: "DOCTOR_TEST_SECRET" } });
   assert.equal(result.engines[0].executable, executable);
   assert.equal(result.engines[0].installed, true);
   assert.equal(fs.existsSync(marker), false);
@@ -96,6 +97,6 @@ test("doctor finds preset CLIs without running them and gates experimental OpenC
   assert.equal(result.engines.find((e) => e.id === "gemini").installed, true);
   assert.equal(result.engines.find((e) => e.id === "cursor").installed, true);
   assert.equal(result.engines.some((e) => e.id === "opencode"), false);
-  const experimental = diagnose({ layout: paths, nodeVersion: "v24.0.0", platform: "darwin", env: { PATH: bin, OPEN_DOTS_PRESET_ENGINES: "opencode" } });
+  const experimental = diagnose({ layout: paths, nodeVersion: "v24.0.0", platform: "darwin", env: { PATH: bin, SUPARAGENT_PRESET_ENGINES: "opencode" } });
   assert.equal(experimental.engines.find((e) => e.id === "opencode").installed, true);
 });

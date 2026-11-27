@@ -2,17 +2,23 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.background import run_every
+from app.core.tenant_jobs import for_each, per_tenant
+from app.db import tenant_schema
 from app.core.config import settings
 from app.core import app_settings, data_lease, engine_processes, scheduler_lock, shutdown
 from app.desktop import profile
 from app.core.logging import configure_logging, get_logger
 from app.auth.middleware import AuthMiddleware
 from app.desktop.launch_auth import LaunchAuthMiddleware
+from app.desktop.account_guard import DesktopAccountMiddleware, signed_in as desktop_signed_in
 from app.routers.router import router as app_router
+from app.routers.composio_hooks import router as composio_hooks_router
 from app.routers.hooks import router as hooks_router
 from app.services import routine_service, schedule_service, task_execution_service
 from app.services.thread_runtime import runtime as thread_runtime
@@ -26,6 +32,26 @@ THREAD_SWEEP_INTERVAL_SECONDS = 15
 
 configure_logging()
 logger = get_logger(__name__)
+
+
+_keep_warm = None
+
+
+async def _keep_warm_tick() -> None:
+    """Off unless the person turned it on (app/services/cache_keep_warm.py)."""
+    global _keep_warm
+    if _keep_warm is None:
+        from app.services import cache_keep_warm
+
+        _keep_warm = cache_keep_warm.build(thread_runtime)
+    await _keep_warm.tick()
+
+
+def _desktop_account_job(job):
+    async def run():
+        if await desktop_signed_in():
+            await job()
+    return run
 
 
 @asynccontextmanager
@@ -45,6 +71,23 @@ async def lifespan(app: FastAPI):
             lease.release()
 
 
+def _configure_auth_limits() -> None:
+    """Keep sign-in lockouts across restarts, next to the data they protect."""
+    from pathlib import Path
+
+    from app.auth import limiter
+
+    if settings.AUTH_LIMITS_DIR.strip():
+        folder = Path(settings.AUTH_LIMITS_DIR).expanduser()
+    elif profile.active():
+        folder = profile.current().data_dir
+    elif settings.DATABASE_KIND == "sqlite":
+        folder = settings.SQLITE_FILE.parent
+    else:
+        return
+    limiter.configure_persistence(folder)
+
+
 @asynccontextmanager
 async def _serving(app: FastAPI):
     # Event streams end as soon as a stop signal arrives, so the server's wait
@@ -52,6 +95,7 @@ async def _serving(app: FastAPI):
     shutdown.reset()
     shutdown.install_signal_hooks()
     thread_runtime.reopen()
+    _configure_auth_limits()
     if profile.active():
         from app.db.session import AsyncSessionLocal
         try:
@@ -73,32 +117,43 @@ async def _serving(app: FastAPI):
     guard = scheduler_lock.SchedulerLock(settings.DATABASE_KIND)
     routines = _GuardedRoutines(app, guard)
     await routines.ensure()
+    # A hosted deployment (TENANT_SCHEMAS_ENABLED) runs every job below once per account schema;
+    # otherwise per_tenant returns the job unchanged (app/core/tenant_jobs.py).
     jobs = [
         asyncio.create_task(
-            run_every(BACKGROUND_INTERVAL_SECONDS, schedule_service.poll_due_schedules)
+            run_every(BACKGROUND_INTERVAL_SECONDS, per_tenant(_desktop_account_job(schedule_service.poll_due_schedules)))
         ),
         asyncio.create_task(
-            run_every(BACKGROUND_INTERVAL_SECONDS, task_execution_service.sync_active_tasks)
+            run_every(BACKGROUND_INTERVAL_SECONDS, per_tenant(task_execution_service.sync_active_tasks))
         ),
         asyncio.create_task(
-            run_every(BACKGROUND_INTERVAL_SECONDS, schedule_service.report_finished_runs)
+            run_every(BACKGROUND_INTERVAL_SECONDS, per_tenant(schedule_service.report_finished_runs))
         ),
         # Runs once at startup, then periodically.
-        asyncio.create_task(run_every(THREAD_SWEEP_INTERVAL_SECONDS, thread_runtime.sweep_stale)),
+        asyncio.create_task(run_every(THREAD_SWEEP_INTERVAL_SECONDS, per_tenant(thread_runtime.sweep_stale))),
         # Agent computers: finish interrupted removals, remove orphans once
         # Docker answers, stop idle ones. Does nothing while Docker is down.
-        asyncio.create_task(run_every(BACKGROUND_INTERVAL_SECONDS, thread_runtime.computers.upkeep)),
+        asyncio.create_task(run_every(BACKGROUND_INTERVAL_SECONDS, per_tenant(thread_runtime.computers.upkeep))),
         # The nightly memory tidy-up for agents that are due and idle (memory_capture.py).
-        asyncio.create_task(run_every(600, thread_runtime.capture.tick)),
+        asyncio.create_task(run_every(600, per_tenant(_desktop_account_job(thread_runtime.capture.tick)))),
         # The Needs you card: refreshed once a minute, started only for something
         # that needs the person (app/team/needs_you.py).
-        asyncio.create_task(run_every(60, _needs_you_tick)),
+        asyncio.create_task(run_every(60, per_tenant(_desktop_account_job(_needs_you_tick)))),
+        # Optional: keep the prompt cache of recently used chats warm (off by default).
+        asyncio.create_task(run_every(60, per_tenant(_desktop_account_job(_keep_warm_tick)))),
         # Local routines: due occurrences, starts, approvals, run limits, endings.
-        asyncio.create_task(run_every(settings.ROUTINE_POLL_SECONDS, routines.tick)),
+        asyncio.create_task(run_every(settings.ROUTINE_POLL_SECONDS, per_tenant(routines.tick))),
     ]
+    event_stream_task = None
+    if profile.active():
+        from app.services import event_stream
+        event_stream_task = event_stream.start()
     yield
     # Stopping (SIGTERM, Ctrl+C, the desktop launcher going away). First the
     # background jobs, so no routine starts a new turn while we stop.
+    if event_stream_task is not None:
+        from app.services import event_stream
+        await event_stream.stop()
     for job in jobs:
         job.cancel()
     await asyncio.gather(*jobs, return_exceptions=True)
@@ -110,7 +165,7 @@ async def _serving(app: FastAPI):
     # their notification, instead of at the next start. Only the scheduler's
     # holder settles runs; then it lets another backend take over.
     if guard.held:
-        await routine_service.scheduler.shutdown()
+        await for_each(routine_service.scheduler.shutdown)
     await guard.release()
 
 
@@ -130,12 +185,18 @@ class _GuardedRoutines:
     def __init__(self, app: FastAPI, guard: scheduler_lock.SchedulerLock) -> None:
         self.app = app
         self.guard = guard
-        self.recovered = False
+        # Accounts (schemas) whose leftover runs were settled; None is the default schema.
+        self.recovered: set[str | None] = set()
 
     async def ensure(self) -> bool:
+        if not await desktop_signed_in():
+            routine_service.scheduler.enabled = False
+            self.app.state.routines_run_here = False
+            return False
         held = await self.guard.ensure()
-        if held and not self.recovered:
-            self.recovered = True
+        here = tenant_schema.current_schema()
+        if held and here not in self.recovered:
+            self.recovered.add(here)
             try:
                 await routine_service.scheduler.recover()
             except Exception:  # noqa: BLE001
@@ -143,7 +204,7 @@ class _GuardedRoutines:
         elif not held:
             # Recover again when the lock comes back: runs may have been left
             # by the backend that held it meanwhile.
-            self.recovered = False
+            self.recovered.clear()
         routine_service.scheduler.enabled = held
         self.app.state.routines_run_here = held
         return held
@@ -163,6 +224,7 @@ app = FastAPI(lifespan=lifespan)
 # Innermost: under the desktop profile LaunchAuthMiddleware has already demanded
 # the launch token, and this one then steps aside.
 app.add_middleware(AuthMiddleware)
+app.add_middleware(DesktopAccountMiddleware)
 
 # Desktop launches only (a no-op otherwise). Added before CORS, which makes it the
 # inner of the two: a preflight is answered by CORS without a token, and a refusal
@@ -183,7 +245,20 @@ async def boat_not_configured_handler(request: Request, exc: BoatNotConfigured):
     return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 
+@app.exception_handler(RequestValidationError)
+async def request_validation_handler(request: Request, exc: RequestValidationError):
+    # FastAPI's default validation body includes the rejected input. Never let
+    # an invalid bearer-token payload echo a credential back to the caller.
+    if (request.method == "PUT" and "/integrations/marketplace/connections/" in request.url.path
+            and request.url.path.endswith("/credential")):
+        return JSONResponse(status_code=422, content={"detail": {"error_code": "invalid_marketplace_request"}},
+                            headers={"Cache-Control": "no-store"})
+    return await request_validation_exception_handler(request, exc)
+
+
 app.include_router(app_router)
 # Webhook deliveries for routines, outside /api/v1: authenticated by each
 # routine's own secret (also served alone by app/ingress.py).
 app.include_router(hooks_router)
+# Composio's signed trigger events (BL-177): authenticated by the signature, not by the local access check.
+app.include_router(composio_hooks_router)

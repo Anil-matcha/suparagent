@@ -1,10 +1,10 @@
-# Open Duet as a server: the backend and its web pages in one image.
+# Suparagent as a server: the backend and its web pages in one image.
 #
-#   docker build -t open-dots .
-#   docker build --build-arg ENGINES="@anthropic-ai/claude-code @openai/codex" -t open-dots .
-#   docker build --build-arg ENGINES="@google/gemini-cli opencode-ai" -t open-dots .
+#   docker build -t suparagent .
+#   docker build --build-arg ENGINES="@anthropic-ai/claude-code @openai/codex" -t suparagent .
+#   docker build --build-arg ENGINES="@google/gemini-cli opencode-ai" -t suparagent .
 # OpenRouter needs no CLI. Cursor is installed separately (not an npm package).
-# OpenCode remains experimental: set OPEN_DOTS_PRESET_ENGINES=gemini,cursor,openrouter,opencode
+# OpenCode remains experimental: set SUPARAGENT_PRESET_ENGINES=gemini,cursor,openrouter,opencode
 # only after checking its approval behavior against your own CLI configuration.
 #
 # The image listens on 0.0.0.0:8000 inside the container (the container's own address; nothing is
@@ -65,8 +65,8 @@ FROM ${PYTHON_IMAGE} AS runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends tini git ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && useradd --uid 10001 --create-home --home-dir /data --shell /bin/bash opendots \
- && chown opendots:opendots /data
+ && useradd --uid 10001 --create-home --home-dir /data --shell /bin/bash suparagent \
+ && chown suparagent:suparagent /data
 COPY --from=backend /opt/venv /opt/venv
 COPY --from=engines /out /opt/engines
 COPY backend /app/backend
@@ -78,12 +78,12 @@ ENV PATH=/opt/venv/bin:/opt/engines/bin:$PATH \
     HOME=/data \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    OPEN_DOTS_HOST=0.0.0.0 \
-    OPEN_DOTS_PORT=8000 \
-    OPEN_DOTS_ALLOW_PUBLIC_BIND=1 \
-    OPEN_DOTS_UI_DIR=/app/ui \
+    SUPARAGENT_HOST=0.0.0.0 \
+    SUPARAGENT_PORT=8000 \
+    SUPARAGENT_ALLOW_PUBLIC_BIND=1 \
+    SUPARAGENT_UI_DIR=/app/ui \
     DATABASE_BACKEND=sqlite \
-    SQLITE_PATH=/data/open-dots.db \
+    SQLITE_PATH=/data/suparagent.db \
     ATTACHMENTS_DIR=/data/attachments \
     DECISION_LOG_DIR=/data/decisions \
     LOCAL_WORKSPACE_ROOT=/data/workspace \
@@ -91,7 +91,7 @@ ENV PATH=/opt/venv/bin:/opt/engines/bin:$PATH \
 WORKDIR /app/backend
 VOLUME ["/data"]
 EXPOSE 8000
-USER opendots
+USER suparagent
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD ["python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=4).status == 200 else 1)"]

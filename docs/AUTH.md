@@ -1,9 +1,9 @@
-# Authentication: owner, sessions and paired devices
+# Authentication: owner, members, sessions and paired devices
 
-Open Duet runs agents with access to your machine, so the server must know who
+Suparagent runs agents with access to your machine, so the server must know who
 is asking. This document is the design and the operating guide for a
-self-hosted, single-owner install. The desktop app keeps its own launch-token
-model (below) and is not changed by any of this.
+self-hosted install with one owner, who can also invite other people (Members below). The desktop app requires an app account as
+well as its local launch-token boundary (see Desktop app below).
 
 ## Principals
 
@@ -12,8 +12,9 @@ Every request acts as exactly one of these, decided by the auth middleware
 
 | Principal | How it is proven | Scopes |
 |---|---|---|
-| `desktop` | The desktop launcher's per-launch token (`X-Open-Dots-Token`), checked by `LaunchAuthMiddleware` | admin + chat |
+| `desktop` | The desktop launcher's per-launch token (`X-Suparagent-Token`), checked by `LaunchAuthMiddleware` | admin + chat |
 | `browser` | The owner signed in with the passphrase, or a browser paired with a code; an `HttpOnly` session cookie | admin + chat, or chat |
+| `member` | A person who joined by invitation and signed in with email and password; an `HttpOnly` session cookie | by role and permissions, never `admin` unless they are an admin |
 | `device` | A paired device (phone, script, another computer); `Authorization: Bearer ods_…` | admin + chat, or chat |
 | `loopback` | Only when `LOOPBACK_TRUST` allows it: a request from this machine directly to this server | admin + chat |
 
@@ -27,6 +28,20 @@ bearer header, so a token copied out of one cannot be replayed as the other.
 - `chat`: conversations (create, send, stop, read events, answer approvals) and
   the reads the chat page needs. The list is in `backend/app/auth/policy.py`
   and is an allowlist: a route added later is admin-only until it is listed.
+- `files`: opt-in, chosen when the pairing code is made (**Chat and files**; `--scope files`
+  on the CLI). It is chat plus reading a conversation's workspace files: list, preview,
+  image and download, not the folder zip. `admin` includes it. A chat-only device never
+  gains it; the phone must be paired again with a code that has it.
+- `manage`: opt-in, chosen when the pairing code is made (**Chat, files and agents**; `--scope manage`
+  on the CLI). It is chat and files plus creating, editing, duplicating and archiving agents
+  (`POST /agents`, `PATCH /agents/{id}`, `POST /agents/{id}/duplicate`), and creating, editing and deleting
+  rooms (`POST /rooms`, `PATCH` and `DELETE /rooms/{id}`) and holding or resuming a room member
+  (`PATCH /rooms/{id}/members/{agent_id}`). It does not delete agents.
+  The server also refuses, for any device without `admin`,
+  an agent's workspace folder, the "Accept edits" approval mode (a device may choose "Ask first" or
+  "Plan only", or move an agent to either), connected apps and the team lead role, with `403
+  field_requires_admin`. A duplicate made by such a device gets its own folder and "Ask first" in place
+  of "Accept edits". Import, export, notes, skills, computers and team routes stay admin-only.
 
 ## The owner
 
@@ -42,7 +57,8 @@ Setting it:
   anywhere else, because whoever reached a fresh remote server first would
   otherwise own it.
 - **From the server's shell**, at any time (this also replaces a forgotten
-  passphrase and signs every browser out; paired devices keep working):
+  passphrase and signs the owner's browsers out; paired devices and invited
+  members keep working):
 
   ```sh
   cd backend
@@ -53,6 +69,82 @@ Setting it:
 The same CLI opens pairing codes (`pairing-code [--scope chat]`), lists devices
 (`devices`) and revokes one (`revoke ID`). A shell on the server is the
 authority, as it already is for `backend/.env`.
+
+## Members
+
+A server install can be shared. Besides the owner, other people join by invitation and work in the
+same workspace: they see the same agents, rooms and conversations, each signed in as themselves.
+Members are for server installs. The desktop app is one person on their own machine and refuses
+every `/people` route (`409 people_unavailable`). Everything here lives in the workspace's own
+database; there is no separate account service.
+
+### Roles and permissions
+
+| Role | Can |
+|---|---|
+| `owner` | Everything. Set the install up; the only one who can make an admin, allow standing rules, or hand the workspace over. One per workspace. |
+| `admin` | Everything the owner can, except the owner-only items above. Manages people, devices and settings. |
+| `member` | What they were invited with (below). Never `admin`, so their messages stay "restricted" like any other non-admin sign-in, and agent configuration is refused as for a paired device without `admin`. |
+| `viewer` | Reads conversations and rooms. Every write is refused (`403 read_only`), except their own name and password. |
+
+A member's permissions are chosen when they are invited and can be changed later; the change applies
+on their next request, because their rights are read from the database on every request, not from
+the session.
+
+| Permission | Allows | Scope it maps to |
+|---|---|---|
+| `chat` | Send messages to agents and in rooms. Without it the member is read-only. | `chat` |
+| `files` | Read a conversation's workspace files. | `files` |
+| `approve` | Allow or deny a command an agent asks about, one at a time. | (checked by the approval route) |
+| `rules` | Save a standing "always allow" rule. It applies to everyone in the workspace. **Only the owner can grant it.** | (checked by the approval route) |
+| `agents` | Create and edit agents and rooms. | `manage` |
+
+The presets are **Member** (`chat`, `files`, `approve`, `agents`), **Reply only** (`chat`), **Viewer**
+(none) and **Admin** (all). Without a choice a member gets the Member preset. Without `rules`, a
+member's "always allow" still counts once but saves no rule. Paired devices are a separate system and
+keep the scopes they were paired with.
+
+### Joining and signing in
+
+1. An admin creates an invitation (Settings → Account & privacy → People). The server returns a link
+   once, `…/join/#token=…&email=…`; only a hash of the token is stored. Send it to the person yourself:
+   the server sends no email. The secret is in the URL fragment, so it never reaches a server log, and
+   the page removes it from the address bar.
+2. The invitation is bound to that email address, works once, expires after seven days, and can be
+   revoked. A new invitation for the same address replaces the open one. An expired, used, revoked or
+   wrong-email invitation all fail the same way (`400 invite_invalid`), and a wrong email does not
+   use the invitation up.
+3. The person chooses a name and a password (at least 10 characters) and is signed in. They sign in
+   again with their email and password ("Team member? Sign in with your email" on the sign-in page).
+   Wrong passwords are rate-limited and locked out like the owner passphrase.
+
+The owner still signs in with the passphrase and appears in the roster as a person. To hand the
+workspace over later, the owner first adds an email and password to their own account (Settings →
+People → Your account, confirmed with the passphrase).
+
+### Removing, changing and handing over
+
+- **Removing** a person revokes all their sessions and ends their open event streams at once (and,
+  with several server processes, at the next recheck, within 15 seconds). Their history keeps their
+  name. Inviting the same email again brings the same person back.
+- A member changes their own password (other sessions are signed out) and name; nobody changes their
+  own role or permissions, and nobody removes themselves or the owner.
+- **Handing over** (`POST /people/transfer`, owner only, confirmed with the passphrase) makes another
+  member the owner and the old owner an admin. The owner passphrase is replaced with one nobody
+  knows, so the old owner's passphrase cannot sign in as the new owner; whoever runs the server sets
+  a new one with `python -m app.auth.cli set-passphrase`. Both people need an email and password
+  first, because the passphrase is no way back in for either.
+- Membership changes are recorded: invitations, joins, role and permission changes, removals,
+  password and credential changes, and hand-overs (`GET /people/audit`, admins only).
+
+### What members see
+
+Admin-only pages are hidden from members and their requests are refused: routines, workflows, apps,
+usage, notifications and "needs you" items, memory, settings, devices and people management.
+Notification settings are one setting for the whole workspace, so only an admin changes them. Agents
+are told whose message they are answering once more than one person is in the workspace (rooms always
+carry the author), and agent memory does not learn from anyone but the owner as if they were the owner.
+Each turn and each approval records which member sent or answered it, by the name they had then.
 
 ## Sessions
 
@@ -89,11 +181,16 @@ without a preflight. That closes login CSRF.
    **Create pairing code** (or runs the CLI). The server returns an 8-character
    code from a 31-symbol alphabet without look-alikes (about 2^39.6), shown as
    `ABCD-EFGH`, with a QR code of `<web UI>/pair#code=ABCD-EFGH`. The code is
-   carried in the URL fragment, so it never reaches a server log.
+   carried in the URL fragment, so it never reaches a server log. For a
+   chat-only, chat-and-files or chat, files and agents code the screen shows a second QR code and link for the
+   [phone app](MOBILE.md), `suparagent://pair?server=<API address>#code=ABCD-EFGH`. The address is the web UI's when the
+   backend serves the UI, and the API's own address when the UI is a separate dev server.
 2. On the device, scan the QR or open `/pair` and type the code. A browser
    exchanges it for its own session cookie; any other client
    (`POST /api/v1/auth/pair` without `"cookie": true`) receives a bearer token
-   **once**, to keep in its own secret storage.
+   **once**, to keep in its own secret storage. The phone app takes the token
+   path. It accepts a chat-only or chat-and-files session: for one with `admin` it calls
+   `POST /api/v1/auth/logout` with the new token, which revokes it, and refuses.
 3. The code is single use (consumed atomically: of two simultaneous
    redemptions only one wins), expires after 5 minutes, and is stored only as
    a SHA-256 digest. At most 5 codes are open at a time.
@@ -150,12 +247,65 @@ scripts, and is the default.
 
 ## Desktop app
 
-Unchanged. The desktop profile is switched on only by the launcher, which
-attaches its per-launch token to every request. `LaunchAuthMiddleware` refuses
-anything without it; the auth middleware then marks the request `desktop` and
-adds no checks. The web UI detects the desktop (`GET /api/v1/auth/status`
-says `desktop: true`) and never shows the sign-in screen or the Devices
-section there.
+The launcher still attaches a per-launch token to every request. The token
+keeps the local API private to that app window; it does not identify an email
+account. `DesktopAccountMiddleware` separately requires a verified app account
+before allowing workspace API requests. Account status and email-code routes
+remain reachable inside the token-protected app window so the user can sign in.
+
+The local proxy contacts the account service over HTTPS, keeps its device token
+encrypted using the profile key, and returns account status without the token.
+A profile is bound to its first verified account after explicit confirmation;
+a different account cannot open that profile's agents and conversations.
+
+**Sign in with Google.** `POST /desktop-account/google` opens the person's own browser (Google refuses
+embedded windows) at the account service, and waits up to 10 minutes. Before it opens the browser the
+proxy starts a one-shot listener on `127.0.0.1` (random port; `Host` must name that address, `GET` only,
+one path, a fixed page that never repeats the request) and sends the port, a PKCE challenge and a random
+nonce. After Google, the service redirects the browser to that listener with a signed grant that is valid
+for 2 minutes and works once. The proxy trades the grant plus its secret verifier, which never leaves the
+process, for the same device session an email code gives, so a link sent to someone else cannot hand its
+session to the sender. The same profile-binding and local-data confirmation rules apply.
+`POST /desktop-account/google/cancel` ends a wait. If the account service has Google turned off, the
+button reports that and the email code remains.
+Returning to the same account preserves those local files. "Reset this profile" and "Delete my account" (typed confirmation, refused while a task runs) are the only paths that erase them: local data first, then the account binding; deletion first deletes the cloud account via `DELETE /accounts/desktop/account` and fails closed. Engine CLI credentials outside the profile are not touched. Sign-out clears the
+local session and attempts remote revocation; existing agents and engine
+credentials are retained. Active turns must be stopped before sign-out. Scheduled
+local work and memory upkeep are paused while signed out or unable to validate
+the account. Session validation is cached for at most 60 seconds and never beyond
+expiry; after that, an unavailable account service fails closed.
+
+**Hosted workspace in the desktop app.** The desktop window can show a paid
+account's cloud workspace (`https://suparagent.ai/app`) next to the local one:
+Settings → Account → "Open hosted workspace", or Workspace → Hosted workspace
+(Cmd/Ctrl+2; Cmd/Ctrl+1 returns to local). It is a separate sandboxed view with
+no preload, Node access, launch token or IPC, and its own persistent session
+partition, so hosted cookies never mix with the local app. The desktop account
+token is never sent to it: you sign in to the hosted workspace separately with
+your hosted account email and password, and the hosted service keeps deciding
+plan, usage limits, sleep and wake. Hosted sign-out (Workspace menu) clears only
+that partition. It does not sign out the desktop account or touch local data,
+and signing out of the desktop account or resetting the profile does not touch
+the hosted workspace or account. Nothing is copied between local and hosted.
+While the hosted view is shown, the app reads the hosted status endpoint about
+once a minute (read-only; it never wakes the sandbox). The feature is on by
+default; set `SUPARAGENT_HOSTED_WORKSPACE=0` to turn it off. Single sign-on from
+the desktop account is not built. See the
+[plan](https://github.com/Anil-matcha/open-dots-cloud/blob/main/docs/specs/hosted/desktop-hosted-workspace-plan.md).
+
+**Exporting history.** Settings has "Export my history", which downloads a ZIP
+from `GET /api/v1/history/export` (agents, conversations as per-thread event
+files, attachment names and hashes, and a manifest with a format version). It
+is owner scoped, needs a signed-in account like every other `/api/v1/` route,
+is limited to 256 MB of JSON and 120 seconds, and runs one at a time. It leaves
+out engine credentials, the desktop device token, provider session state,
+approval records and attachment file contents. Tool output inside conversations
+is included as stored, so treat the file as private. There is no import yet.
+
+This requires the matching account-service endpoints to be deployed. The account
+service is separate from the standalone self-hosted passphrase flow, which
+retains its existing policy. See [first-run setup](specs/onboarding/first-run.md)
+for the user flow and deployment/qualification limits.
 
 ## Web identity (Telegram and guest ids)
 
@@ -183,6 +333,28 @@ browser migrated first), the server's wins and the local key is simply
 removed. Only the signed-in owner can do this; in a single-owner install every
 id on the server is the owner's anyway.
 
+## Hosted workspace grants
+
+A hosted deployment can put a control plane in front of this server that signs people in and owns who belongs to
+which workspace. Set `HOSTED_WORKSPACE_ID` and `HOSTED_GRANT_PUBLIC_KEYS` (JSON: key id to base64url Ed25519 public
+key, or `kid=key,kid=key`) and every request must then carry `X-Dots-Grant`: a token of at most 60 seconds, signed by the control plane
+for exactly this workspace (`aud`), naming the person (`sub`, `name`, `email`), their `role` and, for a member,
+`perms`. The server holds only public keys, so it cannot mint grants. A missing, expired, tampered, wrong-workspace
+or wrong-key grant is refused with 401; cookies, device tokens and loopback trust are not consulted (health and
+routine-webhook routes stay public, each with its own secret).
+
+The person is mirrored into the people table by `external_id`, so attribution, the roster and history work as for
+local people, and rights follow the grant's role and permissions on every request. Inviting, role changes, removal,
+ownership transfer and member passwords return 409 (`managed_by_workspace_owner`): the control plane is
+authoritative. The server cannot see a removal, so the control plane ends a removed person's open streams. With
+neither setting present nothing changes for self-hosted installs or the desktop app.
+
+In this mode `GET /auth/session` reports `kind: "grant"`. Settings shows the control plane's list of people (names and roles) instead of the local people controls, and hides device pairing, because a pairing code could not be used without a grant. A hosted build also shows a workspace switcher at the top of the sidebar: it asks the account service (`/api/v1/accounts/workspaces`, same origin) which workspaces the person belongs to, with their role; choosing one asks the service to switch, then reopens the page last open in that workspace. It is hidden when the service does not answer, so the desktop app and self-hosted installs never show it. Unsent drafts and the last page are kept per workspace in browser storage.
+
+**Keys.** `HOSTED_GRANT_PUBLIC_KEYS` is JSON (`{"k1": "<key>"}`) or `kid=key,kid=key` (easier in an env file). A key is the base64url raw 32-byte Ed25519 public key. The server accepts several key ids at once, so a rotation does not lock anyone out: publish the new key next to the old one, wait until every workspace trusts both, switch the account service to sign with the new id, and remove the old id once tokens signed with it have expired (at most 60 seconds plus a 30-second skew allowance).
+
+**What a grant contains.** `iss` (`dots-control`), `aud` (the workspace id, which must equal `HOSTED_WORKSPACE_ID`), `sub` (the person's id in the account service), `role`, `name`, `email`, `iat`, `exp`, `jti`, and for a member optionally `perms`. The header is `{"v": 1, "kid": ...}`; the algorithm is not read from the token.
+
 ## Endpoints
 
 All under `/api/v1`.
@@ -200,6 +372,15 @@ All under `/api/v1`.
 | `GET /auth/devices` | admin | list sessions and devices |
 | `DELETE /auth/devices/{id}` | admin | revoke |
 | `PUT`/`DELETE /auth/identity` | admin | set or clear the web identity |
+| `POST /auth/invites/accept` | public | invitation token, email, name, password → member session |
+| `POST /auth/people/login` | public | email and password → member session |
+| `GET /people` | chat | the roster (names and roles; addresses only for admins) |
+| `PATCH /people/me`, `POST /people/me/password` | chat | rename yourself, change your password |
+| `POST`/`GET /people/invites`, `DELETE /people/invites/{id}` | admin | invite, list and revoke invitations |
+| `PATCH`/`DELETE /people/{id}` | admin | change a member's role or permissions, remove a member |
+| `POST /people/transfer` | owner | hand the workspace to another member |
+| `GET /people/audit` | admin | the membership history |
+| `GET`, `PUT`, `DELETE /integrations/composio…` | admin | the owner's Composio key, and connecting, listing and disconnecting apps |
 
 Also public, with their own credential: `POST /permissions/check/…` (Boat's
 `HOOK_TOKEN`) and `POST /hooks/{id}` (a routine's webhook secret). Everything
@@ -207,13 +388,13 @@ else, including `/docs`, needs a session.
 
 Errors are `{"detail": {"error_code": …, "message": …}}`. The codes a client
 acts on: `auth_required`, `session_invalid` (sign in or pair again),
-`csrf_failed` (reload), `scope_denied`, `untrusted_host`, `untrusted_origin`,
+`csrf_failed` (reload), `scope_denied`, `read_only`, `permission_denied`, `owner_only`, `invite_invalid`, `untrusted_host`, `untrusted_origin`,
 `locked_out` and `rate_limited` (with `Retry-After`).
 
 ## Self-hosting checklist
 
 For one server that serves its own pages (`python -m app.server`), follow [SELF-HOSTING.md](SELF-HOSTING.md): set
-`OPEN_DOTS_PUBLIC_URL=https://dots.example.com` and that name is trusted, with no `FRONTEND_ORIGINS` needed because the
+`SUPARAGENT_PUBLIC_URL=https://dots.example.com` and that name is trusted, with no `FRONTEND_ORIGINS` needed because the
 pages and the API share one origin. Forwarded headers (`X-Forwarded-For`, `X-Forwarded-Proto`) are believed only from the
 addresses in `TRUSTED_PROXIES`, which is loopback unless you name more (see "Who is believed to be the proxy" there). The list below is for the older layout where the web UI and the API are
 served separately.
@@ -231,12 +412,22 @@ served separately.
 
 ## Limits
 
-- One owner. No multiple accounts, no per-user data separation; every
-  principal acts as the owner (within its scope). The `user_id` that older
-  routes take as a parameter is not cross-checked against the session.
-- Lockout and rate-limit counters are in memory, per process: a restart
-  forgets them, and several worker processes each count separately. Run one
-  backend process, or put a rate limit in the proxy too.
+- One workspace and one owner. The owner can invite other people as members
+  (see Members above), but there is still no per-person data separation: they
+  share the same agents, conversations, files and memory, and an install has
+  no separate workspaces to switch between. There is no per-agent visibility,
+  no invitation email and no password recovery for a member (an admin removes
+  and re-invites them). Paired devices and the desktop app act as the owner
+  within their scope. The `user_id` that older routes take as a parameter is
+  not cross-checked against the session.
+- Sign-in and pairing lockouts are saved to small files next to the database
+  (desktop profile folder, SQLite folder, or `AUTH_LIMITS_DIR`), so a restart
+  keeps them; with PostgreSQL and no `AUTH_LIMITS_DIR` they stay in memory. The
+  per-minute request limit is always in memory, and several worker processes
+  each count separately. Run one backend process, or put a rate limit in the
+  proxy too.
+- Session length: `AUTH_SESSION_DAYS` (default 30, 1 to 90) sets how long a
+  session lasts without use; each use renews it, up to a 180-day cap.
 - No email sign-in, no passkeys, no second factor.
 - A paired `admin` device is as powerful as the owner. Pair phones with `chat`
   unless they need settings, and revoke a lost device at once.

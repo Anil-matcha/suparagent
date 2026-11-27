@@ -24,6 +24,8 @@ logger = get_logger(__name__)
 
 PROBE_TIMEOUT_SECONDS = 12.0
 PROBE_CACHE_SECONDS = 15.0
+# A probe older than this is awaited again; younger than this, a stale one is served while a new one runs.
+STALE_PROBE_SECONDS = 600.0
 
 # A model id is an argument value for a CLI or a field in a request, never a
 # flag or shell text: one line, no spaces, not starting with "-".
@@ -69,8 +71,30 @@ class UnavailableAdapter:
         return TurnOutcome("failed", error=self.reason, error_code="engine_unavailable")
 
 
+HOSTED_REASON = "This hosted service runs agents in your own private sandbox. Choose the Claude engine."
+
+
+def hosted_adapters() -> dict:
+    """What a hosted deployment offers (HOST_EXECUTION_DISABLED): Claude, run in the account's
+    Boat sandbox. Every other engine would start a process or call out from this server, so it is
+    listed as unavailable with the reason, and keeps its key so stored agents still resolve."""
+    from app.services.boat_adapter import BoatClaudeAdapter, SdkBoatBoxes
+
+    labels = {"codex": "Codex", "cursor": "Cursor", "gemini": "Gemini CLI",
+              "antigravity": "Google Gemini (Antigravity)", "opencode": "OpenCode (experimental)",
+              "openrouter": "OpenRouter", "acp": "ACP agent", "openai_compat": "OpenAI-compatible"}
+    adapters: dict = {"claude": BoatClaudeAdapter(SdkBoatBoxes())}
+    for key, label in labels.items():
+        adapters[key] = UnavailableAdapter(key, label, HOSTED_REASON)
+    return adapters
+
+
 def default_adapters() -> dict:
     """Every built-in engine. One that cannot be built is kept as unavailable."""
+    from app.core.config import settings
+
+    if settings.HOST_EXECUTION_DISABLED:
+        return hosted_adapters()
     from app.services.acp_adapter import AcpAdapter
     from app.services.antigravity_adapter import AntigravityAdapter
     from app.services.acp_presets import GeminiAdapter, CursorAdapter, OpenCodeAdapter
@@ -90,7 +114,7 @@ def default_adapters() -> dict:
         ("acp", "ACP agent", AcpAdapter),
         ("openai_compat", "OpenAI-compatible", OpenAIChatAdapter),
     ):
-        selected = os.environ.get("OPEN_DOTS_PRESET_ENGINES")
+        selected = os.environ.get("SUPARAGENT_PRESET_ENGINES")
         enabled = {name.strip() for name in selected.split(",")} if selected is not None else {"gemini", "cursor", "openrouter", "antigravity"}
         if key in {"gemini", "cursor", "opencode", "openrouter", "antigravity"} and key not in enabled:
             continue
@@ -172,6 +196,7 @@ class EngineRegistry:
     probe_timeout: float = PROBE_TIMEOUT_SECONDS
     cache_seconds: float = PROBE_CACHE_SECONDS
     _cache: dict = field(default_factory=dict)
+    _refreshing: dict = field(default_factory=dict)
 
     @property
     def adapters(self) -> dict:
@@ -219,12 +244,36 @@ class EngineRegistry:
     async def _probe(self, engine_id: str, adapter, refresh: bool) -> EngineProbe:
         loop = asyncio.get_running_loop()
         cached = self._cache.get(engine_id)
-        if not refresh and cached is not None and loop.time() - cached[0] < self.cache_seconds and cached[2] is adapter:
-            return cached[1]
+        if not refresh and cached is not None and cached[2] is adapter:
+            age = loop.time() - cached[0]
+            if age < self.cache_seconds:
+                return cached[1]
+            if age < STALE_PROBE_SECONDS:
+                # Answer from the last probe now and look again in the background: opening the app must not
+                # wait on every CLI being checked. A sign-in or sign-out calls forget() or refresh=true.
+                self._refresh_in_background(engine_id, adapter)
+                return cached[1]
+        return await self._probe_now(engine_id, adapter)
+
+    async def _probe_now(self, engine_id: str, adapter) -> EngineProbe:
+        loop = asyncio.get_running_loop()
         await self.runtime.prepare_adapter(engine_id, adapter)
         result = await run_probe(adapter, self.probe_timeout)
         self._cache[engine_id] = (loop.time(), result, adapter)
         return result
+
+    def _refresh_in_background(self, engine_id: str, adapter) -> None:
+        task = self._refreshing.get(engine_id)
+        if task is not None and not task.done():
+            return
+
+        async def refresh() -> None:
+            try:
+                await self._probe_now(engine_id, adapter)
+            except Exception:  # noqa: BLE001 - the stale answer stays until the next try
+                pass
+
+        self._refreshing[engine_id] = asyncio.get_running_loop().create_task(refresh())
 
     async def describe(self, *, refresh: bool = False, only: str | None = None) -> list[dict]:
         items = [(k, a) for k, a in self.adapters.items() if only is None or k == only]
@@ -253,7 +302,7 @@ class EngineRegistry:
             "signed_in": probe.signed_in,
             "available": bool(probe.ready),
             "reason": None if probe.ready else (probe.reason or "This engine is not ready."),
-            "models": [{"id": m.id, "label": m.label, "default": m.default} for m in models],
+            "models": [{"id": m.id, "label": m.label, "default": m.default, "default_reasoning_effort": getattr(m, "default_reasoning_effort", None), "supported_reasoning_efforts": list(getattr(m, "supported_reasoning_efforts", ())), "reasoning_effort_configurable": getattr(m, "reasoning_effort_configurable", True)} for m in models],
             "default_model": default,
             "custom_models": accepts_custom_models(adapter),
             "capabilities": capabilities_of(adapter).as_dict(),

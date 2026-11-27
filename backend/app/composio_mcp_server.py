@@ -1,0 +1,116 @@
+"""A small stdio MCP server giving a turn the person's connected apps, at the
+level the agent was allowed (Composio; .internal/design/composio-integration.md).
+
+It holds no key and makes no network call. Each tool call is a request file in
+the turn's private mailbox folder; the backend checks it against the agent's
+app scope, claims the matching one-use approval, runs it with the person's key
+and writes the reply beside it (app/services/composio_bridge.py). The same
+transport as the memory and team tools. The apps listed with --apps, as
+app=level pairs, are the only ones whose tools it shows, at that level.
+"""
+import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+from uuid import uuid4
+
+from app import composio_tools
+
+
+# Kept here, not imported from the services, so this small process loads no app settings.
+READ_TOOL = "read_saved_result"
+READ_TOOL_SPEC = {
+    "name": READ_TOOL,
+    "description": ("Read part of a large tool result that was saved because it was too long to show. "
+                    "Pass the ref from the earlier reply. Give offset and length to read a slice, or query "
+                    "to find a word or phrase (up to 20 matches with surrounding text). Replies are short; "
+                    "read in several steps."),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "ref": {"type": "string", "description": "The saved_ref from the earlier reply."},
+            "offset": {"type": "integer", "minimum": 0},
+            "length": {"type": "integer", "minimum": 1, "maximum": 8000},
+            "query": {"type": "string", "maxLength": 200},
+        },
+        "required": ["ref"],
+        "additionalProperties": False,
+    },
+}
+
+
+class Server:
+    def __init__(self, mailbox, levels, exact_tools=None, *, uninterrupted=False, connect=False):
+        self.mailbox = Path(mailbox)
+        self.tools = composio_tools.mcp_tools(levels, routine_tools=exact_tools is not None, uninterrupted=uninterrupted, connect=connect)
+        if exact_tools is not None:
+            self.tools = [t for t in self.tools if t["name"] in exact_tools]
+        if any(t["name"] not in ("list_accounts", composio_tools.CONNECT) for t in self.tools):
+            self.tools = self.tools + [READ_TOOL_SPEC]
+        self.names = {tool["name"] for tool in self.tools}
+
+    def call(self, name, arguments):
+        if name not in self.names or not isinstance(arguments, dict):
+            return {"error": "Unknown tool or invalid arguments."}
+        token = uuid4().hex
+        path = self.mailbox / f"req-{token}.json"
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"name": name, "arguments": arguments}), encoding="utf-8")
+        os.replace(temporary, path)
+        response = self.mailbox / f"resp-{token}.json"
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:
+            if response.exists():
+                result = json.loads(response.read_text(encoding="utf-8"))
+                response.unlink(missing_ok=True)
+                return result
+            time.sleep(0.05)
+        return {"error": "The app did not answer in time. It may still have been read; check before repeating."}
+
+    def handle(self, message):
+        method, identifier = message.get("method"), message.get("id")
+        if identifier is None:
+            return None
+        if method == "initialize":
+            result = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
+                      "serverInfo": {"name": "composio", "version": "1"}}
+        elif method == "ping":
+            result = {}
+        elif method == "tools/list":
+            result = {"tools": self.tools}
+        elif method == "tools/call":
+            params = message.get("params") or {}
+            body = self.call(params.get("name"), params.get("arguments") or {})
+            result = {"content": [{"type": "text", "text": json.dumps(body, ensure_ascii=False)}],
+                      "isError": bool(body.get("error"))}
+        else:
+            return {"jsonrpc": "2.0", "id": identifier, "error": {"code": -32601, "message": "Unknown method"}}
+        return {"jsonrpc": "2.0", "id": identifier, "result": result}
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mailbox", required=True)
+    parser.add_argument("--apps", default="")
+    parser.add_argument("--exact-tools", default=None)
+    parser.add_argument("--uninterrupted", action="store_true")
+    parser.add_argument("--connect", action="store_true")
+    arguments = parser.parse_args()
+    levels = dict(pair.split("=", 1) for pair in arguments.apps.split(",") if "=" in pair)
+    server = Server(arguments.mailbox, levels, arguments.exact_tools.split(",") if arguments.exact_tools is not None else None,
+                    uninterrupted=arguments.uninterrupted, connect=arguments.connect)
+    for line in sys.stdin:
+        try:
+            if len(line) > 100000:
+                continue
+            result = server.handle(json.loads(line))
+            if result is not None:
+                print(json.dumps(result), flush=True)
+        except (ValueError, OSError, TypeError):
+            continue
+
+
+if __name__ == "__main__":
+    main()

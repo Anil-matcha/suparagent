@@ -4,8 +4,13 @@
 // quiet conversations, and the history of changes with Undo (docs/MEMORY.md).
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type Agent, type MemoryJournalRow, type MemoryProposal, type TopicDoc, type TopicList } from "@/lib/api";
+import { useT } from "@/lib/use-i18n";
 import { journalLabel, topicFileName } from "@/lib/memory";
+import { profileTabLabel } from "@/lib/business-profile";
 import { AboutMeTab, UpkeepCard } from "./MemoryUpkeep";
+import { BusinessProfileForm } from "./BusinessProfileForm";
+import { ProfileProposals } from "./ProfileProposals";
+import { EmptyPanel, ErrorState, LoadingState } from "./PanelState";
 
 const FIELD =
   "w-full rounded-md border border-line bg-transparent px-3 py-1.5 text-sm placeholder:text-muted";
@@ -14,7 +19,7 @@ const SMALL =
 const PRIMARY_SMALL =
   "cursor-pointer rounded-md px-3 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 bg-accent text-accent-fg hover:opacity-90";
 
-type Tab = "topics" | "proposed" | "about" | "history";
+type Tab = "topics" | "proposed" | "about" | "business" | "history";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -31,6 +36,9 @@ export function MemoryPanel({
   const [tab, setTab] = useState<Tab>("topics");
   const [proposed, setProposed] = useState<MemoryProposal[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Changes workers suggested to the business profile, shown as a count on its tab.
+  const [profilePending, setProfilePending] = useState(0);
+  const [profileKey, setProfileKey] = useState(0);
 
   const loadProposed = useCallback(async () => {
     try {
@@ -39,6 +47,14 @@ export function MemoryPanel({
       setError(errorText(err));
     }
   }, [agentId]);
+
+  useEffect(() => {
+    // The count on the Business profile tab, before the tab is opened.
+    api
+      .profileProposals()
+      .then((r) => setProfilePending(r.items.length))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     // Reading the queue also reads any conversation that went quiet since.
@@ -50,6 +66,7 @@ export function MemoryPanel({
     ["topics", "Topic notes"],
     ["proposed", `Proposed${proposed && proposed.length ? ` (${proposed.length})` : ""}`],
     ["about", "About me"],
+    ["business", profileTabLabel(profilePending)],
     ["history", "History"],
   ];
   return (
@@ -68,7 +85,7 @@ export function MemoryPanel({
           </button>
         ))}
       </div>
-      {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+      {error && <ErrorState message={error} />}
       {tab === "topics" && <Topics agentId={agentId} onError={setError} />}
       {tab === "proposed" && (
         <Proposed
@@ -82,6 +99,12 @@ export function MemoryPanel({
         />
       )}
       {tab === "about" && <AboutMeTab onError={setError} />}
+      {tab === "business" && (
+        <div className="space-y-3">
+          <ProfileProposals onCount={setProfilePending} onApplied={() => setProfileKey((n) => n + 1)} />
+          <BusinessProfileForm key={profileKey} />
+        </div>
+      )}
       {tab === "history" && <History agentId={agentId} onError={setError} onUndone={onNotesChanged} />}
     </section>
   );
@@ -90,6 +113,7 @@ export function MemoryPanel({
 type Open = { doc: TopicDoc; text: string; conflict: boolean; saved: string | null };
 
 function Topics({ agentId, onError }: { agentId: number; onError: (e: string | null) => void }) {
+  const t = useT();
   const [list, setList] = useState<TopicList | null>(null);
   const [open, setOpen] = useState<Open | null>(null);
   const [newName, setNewName] = useState("");
@@ -179,7 +203,7 @@ function Topics({ agentId, onError }: { agentId: number; onError: (e: string | n
         />
         {open.conflict && (
           <div role="alert" className="rounded-md border border-warning/60 p-3 text-xs">
-            <p>The agent changed this note while you were editing. Load its version, or keep yours and overwrite it.</p>
+            <p>{t("agentTeam.topicNotesConflict")}</p>
             <div className="mt-2 flex gap-2">
               <button onClick={() => openTopic(open.doc.name)} disabled={busy} className={SMALL}>
                 Load its version
@@ -211,14 +235,12 @@ function Topics({ agentId, onError }: { agentId: number; onError: (e: string | n
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted">
-        Longer notes about one subject each, in{" "}
-        <span className="font-mono break-all">{list?.folder ?? "memory/"}</span>. Only their names load into every
-        conversation; passages that match a message are recalled in front of it.
+        {t("agentTeam.topicListGuidance", { folder: list?.folder ?? "memory/" })}
       </p>
       {list === null ? (
-        <p className="text-xs text-muted">Loading…</p>
+        <LoadingState rows={3} />
       ) : list.topics.length === 0 ? (
-        <p className="text-xs text-muted">No topic notes yet.</p>
+        <EmptyPanel title={t("agentTeam.topicsEmptyTitle")} description={t("agentTeam.topicsEmptyDescription")} />
       ) : (
         <ul className="space-y-1">
           {list.topics.map((t) => (
@@ -276,7 +298,7 @@ function Proposed({
       setBusy(null);
     }
   };
-  if (items === null) return <p className="text-xs text-muted">Loading…</p>;
+  if (items === null) return <LoadingState rows={3} />;
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted">
@@ -349,7 +371,7 @@ function History({
     }
   };
 
-  if (rows === null) return <p className="text-xs text-muted">Loading…</p>;
+  if (rows === null) return <LoadingState rows={3} />;
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted">
@@ -357,7 +379,7 @@ function History({
         Edits the agent makes with its own file tools are not listed.
       </p>
       {rows.length === 0 ? (
-        <p className="text-xs text-muted">No changes yet.</p>
+        <EmptyPanel title="No changes yet" description="Accepted proposals and undo actions are listed here." />
       ) : (
         <ul className="space-y-1">
           {rows.map((row) => (

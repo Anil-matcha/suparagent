@@ -6,10 +6,15 @@ check, so a sender elsewhere can reach it through the ingress
 is size-limited while it is read.
 """
 
+import re
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+from app.core import tenant_jobs
 from app.core.config import settings
+from app.db import tenant_schema
+from app.services import room_webhook
 from app.services import routine_service as service
 
 router = APIRouter(tags=["Webhooks"])
@@ -43,6 +48,31 @@ async def _read_limited(request: Request, limit: int) -> bytes | None:
 async def receive(
     routine_id: int, request: Request, scheduler: service.RoutineScheduler = Depends(service.get_scheduler)
 ):
+    return await _deliver(routine_id, request, scheduler)
+
+
+@router.post("/hooks/t/{tenant_hex}/{routine_id}", status_code=202)
+async def receive_for_account(
+    tenant_hex: str, routine_id: int, request: Request,
+    scheduler: service.RoutineScheduler = Depends(service.get_scheduler),
+):
+    """A hosted deployment's webhook: the address names the account (its schema), because this route
+    is public and routine ids repeat across accounts. The routine's own secret still decides; a
+    malformed or unknown account, a routine that is not there and a wrong secret all answer the
+    same 401, and with TENANT_SCHEMAS_ENABLED off the route does not exist."""
+    if not settings.TENANT_SCHEMAS_ENABLED:
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    unknown = _refuse(401, "Unknown webhook or wrong secret")
+    if not re.fullmatch(r"[0-9a-f]{32}", tenant_hex):
+        return unknown
+    tenant = f"u_{tenant_hex}"
+    if tenant not in await tenant_jobs.tenants():
+        return unknown
+    with tenant_schema.use_tenant(tenant):
+        return await _deliver(routine_id, request, scheduler)
+
+
+async def _deliver(routine_id: int, request: Request, scheduler: service.RoutineScheduler):
     secret = _bearer(request)
     async with scheduler.session() as db:
         try:
@@ -69,4 +99,38 @@ async def receive(
     if getattr(request.app.state, "routines_run_here", False):
         scheduler.kick()
     return JSONResponse(status_code=202, content={"accepted": True, "run_id": run.id},
+                        headers={"Cache-Control": "no-store"})
+
+
+@router.post("/hooks/room/{room_id}", status_code=201)
+async def receive_room_post(
+    room_id: int, request: Request, scheduler: service.RoutineScheduler = Depends(service.get_scheduler)
+):
+    """Post a message into a room. Authenticated by the room's own bearer secret, size-limited,
+    and it never starts an agent. Not offered on the account-addressed hosted route."""
+    secret = _bearer(request)
+    if not secret:
+        return _refuse(401, "Unknown webhook or wrong secret")
+    body = await _read_limited(request, settings.ROUTINE_WEBHOOK_MAX_BYTES)
+    if body is None:
+        return _refuse(413, f"Body larger than {settings.ROUTINE_WEBHOOK_MAX_BYTES} bytes")
+    try:
+        payload = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return _refuse(415, "The body must be UTF-8 text")
+    async with scheduler.session() as db:
+        try:
+            seq, thread_id, created = await room_webhook.accept(
+                db, room_id, secret, payload, request.headers.get("content-type"),
+                delivery_id=request.headers.get("idempotency-key"),
+            )
+        except room_webhook.RoomWebhookRejected as exc:
+            return _refuse(exc.status_code, exc.message)
+    if created:
+        # Only the backend that holds the live runtime can wake open room views.
+        if getattr(request.app.state, "routines_run_here", False):
+            from app.routers.threads import default_runtime
+
+            default_runtime.hub.notify(thread_id)
+    return JSONResponse(status_code=201 if created else 200, content={"seq": seq, "duplicate": not created},
                         headers={"Cache-Control": "no-store"})

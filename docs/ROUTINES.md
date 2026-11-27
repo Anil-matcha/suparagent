@@ -106,7 +106,7 @@ of the work. A routine with `retry_limit` 2 makes at most three attempts.
 
 ### Unattended approvals
 
-A routine run never approves anything by itself:
+A routine run uses the person’s saved permissions:
 
 - The turn runs with the stricter of the routine's and the agent's approval
   mode. Every request the engine would ask about creates the usual approval
@@ -246,3 +246,107 @@ And outside `/api/v1`: `POST /hooks/{id}` (bearer secret).
   runs are, and only when the routine has `retry_limit` above 0.
 - Webhook deliveries are not de-duplicated: a sender that retries a delivery
   starts another run.
+
+## Connected apps
+
+The editor lets you authorize exact actions and connected accounts once per
+routine. **Select all available actions** grants the actions allowed by the
+selected agent's active connected accounts, including writes only when that
+agent already has write access; **Clear all actions** removes these routine
+grants. The agent must also have matching app and account access. Scheduled,
+manual and Gmail event runs can use granted reads, send a one-recipient
+plain-text Gmail email, create a new GitHub `campaign/` branch, or commit a
+file on that branch without repeated action approvals. Plan mode refuses
+writes. Custom webhook and retry runs receive no app tools. Computer-backed
+runs receive them only with the Uninterrupted access setting described below.
+
+### Gmail new-mail event
+
+The routine editor can add a Gmail new-mail trigger alongside the schedule.
+Composio applies the account's label or search filter before it sends an event.
+The event only wakes the routine: the app keeps validated provider identifiers,
+not message text, and the agent reads mail through the routine's existing
+Gmail grants and mailbox-share rule. The default debounce is five minutes and
+the default cap is twelve event-started runs per day; quiet hours are optional.
+
+A hosted install with a public endpoint receives signed Composio webhooks
+directly. A desktop uses the Suparagent account relay and one outbound stream;
+the schedule remains in place if the event path is unavailable. The backend
+is deployed on staging; the real event path and an installed desktop build
+remain unqualified.
+
+New grants apply on the next run and revocations stop subsequent calls. Writes
+are reserved before dispatch and the same exact request cannot be replayed in
+that run. Run history shows receipts and uncertain outcomes. A new manual,
+scheduled or Gmail event run can perform the work again; check the app before
+rerunning after an uncertain result. External changes are not covered by file
+Undo. Other writes remain unavailable except for the separate confined draft
+mode below. See [Connected apps](CONNECTED_APPS.md#routine-specific-app-access).
+
+## Uninterrupted access
+
+Enable **Uninterrupted access** in the routine editor to authorize the selected
+agent's configured capabilities for scheduled, manual and Gmail event runs.
+This is a broad routine permission: it includes app actions within the
+agent's selected read/write app and account scopes, its exact granted
+marketplace tools, and the screen, browser, command and file tools on its
+attached isolated computer.
+For a daily browser task, the attached Boat desktop can navigate and interact
+without an **Allow this turn** card on every occurrence.
+
+The routine records its available accounts, tools and computer at run start.
+New capabilities apply to the next run; removing the routine permission or an
+agent permission blocks subsequent calls, including during an active run.
+Provider authorization and exact account selection still apply. Plan mode,
+command safety checks and the isolation of the person's native desktop remain
+in force. Unsupported actions are refused without leaving the routine waiting
+for an approval. A login challenge, CAPTCHA, missing credential or inaccessible
+source is handled by instructing the agent to stop and report incomplete.
+Raw desktop control does not enforce detection of these page states.
+Permission is checked again before a tool allowance reaches the provider.
+A call already delivered may finish after revocation; subsequent calls are blocked.
+Connected-app writes and marketplace calls have per-run no-replay receipts.
+Marketplace effects are treated as unknown, so an identical call is attempted
+at most once in a run. Check the external service before starting a new run
+after an uncertain result.
+
+This setting changes only the routine. Ordinary chats continue to use their
+existing approvals. New, imported and chat-created routines start with the
+setting off, and exports do not carry it. Keep the backend running and its
+machine awake for daily scheduling; leaving the Boat computer online does not
+keep a stopped desktop scheduler running.
+
+The source and automated checks cover this permission flow. A real scheduled
+AppSumo research run and a rebuilt installed package have not yet been qualified.
+
+
+## Quiet results
+
+The editor's quiet reporting setting is off by default. A scheduled run may
+suppress its completion notification only after an explicit no-change request
+and successful, complete receipts for every configured read action/account.
+Empty output, failed or truncated reads, questions, approvals, writes and useful
+reports cannot silently count as no change. Manual runs remain visible, and
+history retains the outcome and checked-source receipt references. Reporting a
+source failure keeps partial output visible. The explicit outcome tool currently
+uses the team tool bridge; engines without that bridge retain visible unknown
+outcomes. This checks read coverage, not semantic accuracy of the agent's answer.
+
+## Checked-message draft mode
+
+Select Prepare checked reply draft with Read message and Read Gmail profile for
+the same account. Combine it only with compatible Gmail reads, never send or
+repository writes. The agent must have Gmail write scope. Execution uses a fresh
+Claude conversation with built-in host tools, memory, skills, team tools and
+fallback disabled. Unsupported engines refuse this mode; exact read and draft
+grants remain required.
+
+The routine reads the exact message, then supplies message ID, thread ID,
+subject and plain-text body. The server rechecks authoritative Gmail headers,
+derives the single From address, refuses ambiguous/different Reply-To or self
+addresses, and verifies current grants before dispatch. Missing provider header
+shapes fail closed. The one draft attempt is reserved durably before dispatch;
+changed body text, concurrent requests, restart or an unknown response cannot
+obtain another attempt in the same run. Check Gmail before starting a new run
+after uncertainty. A draft is never a send, and a live Gmail run is still needed
+to qualify provider response shapes and the approval experience.

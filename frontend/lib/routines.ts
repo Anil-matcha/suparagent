@@ -188,7 +188,25 @@ export function formatSchedulePreviewWhen(iso: string | null | undefined, timezo
   }
 }
 
-export function nextRunText(routine: Pick<Routine, "paused" | "next_run_at" | "schedule_kind" | "timezone">): string {
+export type RoutineStatus = "on" | "off" | "done";
+
+export function routineStatus(
+  routine: Pick<Routine, "paused" | "next_run_at" | "schedule_kind"> & { status?: string }
+): RoutineStatus {
+  if (routine.status === "on" || routine.status === "off" || routine.status === "done") {
+    return routine.status;
+  }
+  if (routine.schedule_kind === "once" && !routine.next_run_at) {
+    return "done";
+  }
+  return routine.paused ? "off" : "on";
+}
+
+export function nextRunText(
+  routine: Pick<Routine, "paused" | "next_run_at" | "schedule_kind" | "timezone"> & { status?: string }
+): string {
+  const status = routineStatus(routine);
+  if (status === "done") return "Done";
   if (routine.paused) return "Paused";
   if (routine.schedule_kind === "manual") return "Runs only by hand or webhook";
   if (!routine.next_run_at) return "No upcoming run";
@@ -197,12 +215,14 @@ export function nextRunText(routine: Pick<Routine, "paused" | "next_run_at" | "s
 
 // The full address of a webhook path ("/hooks/12") on the configured backend.
 // A page served by the backend itself is built with a relative API path ("/api/v1"),
-// so the address it was loaded from is the backend's address.
+// so the address it was loaded from is the backend's address. A path that is already a full
+// address (the server was given SUPARAGENT_WEBHOOK_BASE) is returned as it is.
 export function webhookUrl(
   path: string,
   apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1",
   origin = typeof window === "undefined" ? "" : window.location.origin,
 ): string {
+  if (/^https?:\/\//.test(path)) return path;
   const base = apiBase.replace(/\/api\/v1\/?$/, "");
   return (/^https?:\/\//.test(base) ? base : origin + base) + path;
 }
@@ -214,4 +234,16 @@ export function curlExample(url: string, secret: string): string {
 export function badgeText(unread: number): string | null {
   if (unread <= 0) return null;
   return unread > 99 ? "99+" : String(unread);
+}
+
+// Waiting routine questions to show in a chat: only those that belong to
+// another conversation than the one open (the run's own thread already shows
+// its approvals inline), oldest first, with at least one pending approval.
+export function waitingQuestionsFor<T extends { thread_id: number; waiting_since: string | null; approvals: unknown[] }>(
+  waiting: readonly T[],
+  openThreadId: number | null,
+): T[] {
+  return waiting
+    .filter((run) => run.thread_id !== openThreadId && run.approvals.length > 0)
+    .sort((a, b) => (a.waiting_since ?? "").localeCompare(b.waiting_since ?? ""));
 }

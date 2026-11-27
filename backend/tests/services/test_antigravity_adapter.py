@@ -28,7 +28,7 @@ def fixture(monkeypatch, tmp_path):
     monkeypatch.setattr(runtime, "data_root", lambda: tmp_path / "data")
     monkeypatch.setattr(runtime, "installed", lambda: True)
     monkeypatch.setenv("FAKE_ACP_DIR", str(tmp_path))
-    monkeypatch.setenv("OPEN_DOTS_ENGINE_ENV", "FAKE_*,GOOGLE_*,AGY_*,ANTIGRAVITY_*,GEMINI_*")
+    monkeypatch.setenv("SUPARAGENT_ENGINE_ENV", "FAKE_*,GOOGLE_*,AGY_*,ANTIGRAVITY_*,GEMINI_*")
     fake = FakeAcp(tmp_path)
     fake.plan(load=True, agent_info={"name": "antigravity-acp", "version": runtime.VERSION}, auth_methods=[{"id": "oauth-personal"}], session=SESSION)
     adapter = AntigravityAdapter()
@@ -74,10 +74,45 @@ async def test_unknown_model_blocks_prompt(fixture):
     assert (await turn(adapter, fake, model="not-on-this-plan")).error_code == "engine_model_unavailable"
     assert not fake.received("session/prompt")
 
-async def test_account_change_cannot_resume(fixture):
+async def test_account_change_recovers_session(fixture):
     adapter, fake = fixture
-    result = await turn(adapter, fake, resume=True, provider_state={"acp_session_id": "old", "antigravity_profile": uuid4().hex})
-    assert result.error_code == "session_resume_failed" and not fake.received("initialize")
+    async def sample_history():
+        return [
+            {"turn_id": 1, "role": "user", "text": "prior question"},
+            {"turn_id": 2, "role": "assistant", "text": "prior answer"},
+        ]
+    ctx = TurnContext(
+        1, 3, "hello new account", fake.folder, None, None,
+        {"acp_session_id": "old_session", "antigravity_profile": uuid4().hex},
+        True, sample_history, engine_config=adapter.config,
+    )
+    result = await adapter.run_turn(ctx, SimpleNamespace(lost=False, emit=lambda *a: None, delta=lambda *a: None), None)
+    assert result.status == "succeeded"
+    assert result.session_state == "active"
+    assert result.provider_state["antigravity_profile"] == adapter.config["profile"]
+    assert result.provider_state["acp_session_id"].startswith("sess_")
+    assert fake.received("initialize") and fake.received("session/new")
+    assert not fake.received("session/resume")
+    prompts = [e["text"] for e in fake.log() if e.get("event") == "prompt_text"]
+    assert any("prior question" in p and "prior answer" in p and "hello new account" in p for p in prompts)
+
+
+async def test_lost_session_auto_recovers(fixture):
+    adapter, fake = fixture
+    async def sample_history():
+        return [{"turn_id": 1, "role": "user", "text": "remember me"}]
+    ctx = TurnContext(
+        1, 2, "continue please", fake.folder, None, None,
+        {"acp_session_id": "nonexistent_session", "antigravity_profile": adapter.config["profile"]},
+        True, sample_history, engine_config=adapter.config,
+    )
+    result = await adapter.run_turn(ctx, SimpleNamespace(lost=False, emit=lambda *a: None, delta=lambda *a: None), None)
+    assert result.status == "succeeded"
+    assert result.session_state == "active"
+    assert result.provider_state["acp_session_id"].startswith("sess_")
+    assert fake.received("session/resume") and fake.received("session/new")
+    prompts = [e["text"] for e in fake.log() if e.get("event") == "prompt_text"]
+    assert any("remember me" in p and "continue please" in p for p in prompts)
 
 async def test_signed_out_never_spawns(fixture):
     adapter, fake = fixture
@@ -93,13 +128,82 @@ def test_foreign_credentials_removed(fixture, monkeypatch):
     assert "FOREIGN_CANARY" not in str(env)
     assert env["AGY_ACP_FORCE_FILE_STORAGE"] == "1"
     assert env["GEMINI_HOME"] == str(profile_dir(adapter.config))
-    assert profile_dir(adapter.config).stat().st_mode & 0o777 == 0o700
+    if sys.platform != "win32":
+        assert profile_dir(adapter.config).stat().st_mode & 0o777 == 0o700
     assert "TOKEN_CANARY" not in str(adapter.public_config(adapter.config))
     assert not authenticated({"profile": "../../outside"})
 
 def test_catalog_groups_and_malformed_ids():
     assert [m.id for m in catalog(SESSION)] == ["gemini-account", "gemini-other"]
     assert catalog({"configOptions": [{"id": "model", "options": [{"value": "--bad"}, None, {"value": "has spaces"}]}]}) == []
+
+
+def test_catalog_reasoning_effort_discovery():
+    session = {
+        "configOptions": [
+            {
+                "id": "model",
+                "type": "select",
+                "currentValue": "gemini-3.8-flash",
+                "options": [
+                    {"value": "gemini-3.8-flash", "name": "Gemini 3.8 Flash"},
+                    {"value": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6 (Thinking)"},
+                    {"value": "gpt-oss-120b-medium", "name": "GPT-OSS 120B (Medium)"},
+                ],
+            },
+            {
+                "id": "thinking_level",
+                "category": "thought_level",
+                "type": "select",
+                "currentValue": "high",
+                "options": [
+                    {"value": "low", "name": "Low"},
+                    {"value": "medium", "name": "Medium"},
+                    {"value": "high", "name": "High"},
+                ],
+            },
+        ]
+    }
+    models = catalog(session)
+    assert len(models) == 3
+    flash = next(m for m in models if m.id == "gemini-3.8-flash")
+    assert flash.supported_reasoning_efforts == ("low", "medium", "high")
+    assert flash.default_reasoning_effort == "high"
+    assert flash.reasoning_effort_configurable is True
+
+    claude = next(m for m in models if m.id == "claude-sonnet-4-6")
+    assert claude.supported_reasoning_efforts == ("high",)
+    assert claude.reasoning_effort_configurable is False
+
+    gpt = next(m for m in models if m.id == "gpt-oss-120b-medium")
+    assert gpt.supported_reasoning_efforts == ("medium",)
+    assert gpt.reasoning_effort_configurable is False
+
+
+async def test_select_model_sets_thinking_level(fixture):
+    adapter, fake = fixture
+    calls = []
+    async def mock_call(method, params, handle_incoming=True):
+        calls.append((method, params))
+        if method == "session/set_config_option":
+            return {
+                "configOptions": [
+                    {"id": "model", "currentValue": params.get("value") if params.get("configId") == "model" else "gemini-other"},
+                    {"id": "thinking_level", "category": "thought_level", "type": "select", "currentValue": params.get("value") if params.get("configId") == "thinking_level" else "high", "options": [{"value": "low"}, {"value": "medium"}, {"value": "high"}]},
+                ]
+            }
+        return {}
+
+    session = {
+        "configOptions": [
+            {"id": "model", "type": "select", "currentValue": "gemini-account", "options": [{"value": "gemini-account"}, {"value": "gemini-other"}]},
+            {"id": "thinking_level", "category": "thought_level", "type": "select", "currentValue": "high", "options": [{"value": "low"}, {"value": "medium"}, {"value": "high"}]},
+        ]
+    }
+    selected = await adapter.select_model(mock_call, "test-sess", session, model="gemini-other", effort="low")
+    assert selected == "gemini-other"
+    assert ("session/set_config_option", {"sessionId": "test-sess", "configId": "model", "value": "gemini-other"}) in calls
+    assert ("session/set_config_option", {"sessionId": "test-sess", "configId": "thinking_level", "value": "low"}) in calls
 
 def auth_url(**extra):
     return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode({"state": "fixture-state", "redirect_uri": "http://127.0.0.1:45678/", "response_type": "code", **extra})
@@ -130,7 +234,8 @@ def archive(tmp_path, entries):
 def test_verified_extraction(tmp_path):
     path, output, digest = archive(tmp_path, [(name, b"fixture") for name in runtime.MEMBERS])
     assert runtime.extract_archive(path, output, digest) == {name: 7 for name in runtime.MEMBERS}
-    assert (output / runtime.MEMBERS[0]).stat().st_mode & 0o777 == 0o700
+    if sys.platform != "win32":
+        assert (output / runtime.MEMBERS[0]).stat().st_mode & 0o777 == 0o700
 
 @pytest.mark.parametrize("entries", [[("../outside", b"bad")], [("agy_acp_server.par", b"a"), ("agy_acp_server.par", b"b")], [("agy_acp_server.par", b"a"), ("localharness_external", b"b"), ("extra", b"c")]])
 def test_unexpected_archive_members(tmp_path, entries):
@@ -230,7 +335,7 @@ async def test_install_publishes_only_after_validation(tmp_path, monkeypatch, re
     validated = []
     async def validate(candidate):
         assert not runtime.runtime_dir().exists()
-        assert (candidate / "agy_acp_server.par").read_bytes() == b"fixture"
+        assert (candidate / runtime.server_binary()).read_bytes() == b"fixture"
         validated.append(candidate)
         if reject_validation: raise InvalidConfig("Wrong ACP identity")
     if reject_validation:

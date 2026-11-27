@@ -78,19 +78,19 @@ def ui(tmp_path):
 
 
 def test_the_server_options_carry_the_list(ui):
-    assert read_options([], {"OPEN_DOTS_UI_DIR": ui}).trusted_proxies == LOOPBACK
-    options = read_options([], {"OPEN_DOTS_UI_DIR": ui, "TRUSTED_PROXIES": "172.18.0.0/16"})
+    assert read_options([], {"SUPARAGENT_UI_DIR": ui}).trusted_proxies == LOOPBACK
+    options = read_options([], {"SUPARAGENT_UI_DIR": ui, "TRUSTED_PROXIES": "172.18.0.0/16"})
     assert options.trusted_proxies == (*LOOPBACK, "172.18.0.0/16")
 
 
 @pytest.mark.parametrize("bad", ["*", "0.0.0.0/0", "proxy.internal"])
 def test_a_bad_list_stops_the_server_before_it_starts(ui, bad):
     with pytest.raises(ServerConfigError, match="TRUSTED_PROXIES"):
-        read_options([], {"OPEN_DOTS_UI_DIR": ui, "TRUSTED_PROXIES": bad})
+        read_options([], {"SUPARAGENT_UI_DIR": ui, "TRUSTED_PROXIES": bad})
 
 
 def test_main_refuses_a_bad_list_with_the_usage_exit_code(ui, capsys):
-    code = entry.main([], {"OPEN_DOTS_UI_DIR": ui, "TRUSTED_PROXIES": "*"})
+    code = entry.main([], {"SUPARAGENT_UI_DIR": ui, "TRUSTED_PROXIES": "*"})
     assert code == entry.EXIT_USAGE
     assert "TRUSTED_PROXIES" in capsys.readouterr().err
 
@@ -102,11 +102,11 @@ def test_uvicorn_is_started_with_exactly_the_list_and_never_the_environment(ui, 
     monkeypatch.setattr(uvicorn, "run", lambda app, **kwargs: seen.update(kwargs))
     monkeypatch.setattr(entry, "check_schema", lambda: None)
     monkeypatch.setattr(entry, "build_app", lambda options: object())
-    environment = {"OPEN_DOTS_UI_DIR": ui, "TRUSTED_PROXIES": "172.18.0.0/16", "FORWARDED_ALLOW_IPS": "*"}
+    environment = {"SUPARAGENT_UI_DIR": ui, "TRUSTED_PROXIES": "172.18.0.0/16", "FORWARDED_ALLOW_IPS": "*"}
     assert entry.main([], environment) == 0
     assert seen["proxy_headers"] is True
     assert seen["forwarded_allow_ips"] == "127.0.0.1,::1,172.18.0.0/16"  # not "*"
 
     seen.clear()
-    assert entry.main([], {"OPEN_DOTS_UI_DIR": ui}) == 0
+    assert entry.main([], {"SUPARAGENT_UI_DIR": ui}) == 0
     assert seen["forwarded_allow_ips"] == "127.0.0.1,::1"

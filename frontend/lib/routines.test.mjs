@@ -10,6 +10,7 @@ import {
   isActiveRun,
   localInputValue,
   nextRunText,
+  routineStatus,
   runStateLabel,
   runStateTone,
   scheduleDraftOf,
@@ -102,8 +103,16 @@ test('run states and triggers read as words', () => {
 test('next run text covers paused, manual and none', () => {
   assert.equal(nextRunText({ paused: true, next_run_at: null, schedule_kind: 'cron', timezone: 'UTC' }), 'Paused');
   assert.match(nextRunText({ paused: false, next_run_at: null, schedule_kind: 'manual', timezone: 'UTC' }), /by hand/);
-  assert.equal(nextRunText({ paused: false, next_run_at: null, schedule_kind: 'once', timezone: 'UTC' }), 'No upcoming run');
+  assert.equal(nextRunText({ paused: false, next_run_at: null, schedule_kind: 'once', timezone: 'UTC' }), 'Done');
+  assert.equal(nextRunText({ paused: false, next_run_at: null, schedule_kind: 'once', timezone: 'UTC', status: 'done' }), 'Done');
   assert.match(nextRunText({ paused: false, next_run_at: '2026-10-19T07:00:00Z', schedule_kind: 'cron', timezone: 'UTC' }), /^Next: /);
+});
+
+test('routine status covers on, off and done switch semantics', () => {
+  assert.equal(routineStatus({ paused: false, next_run_at: '2026-10-19T07:00:00Z', schedule_kind: 'cron' }), 'on');
+  assert.equal(routineStatus({ paused: true, next_run_at: null, schedule_kind: 'cron' }), 'off');
+  assert.equal(routineStatus({ paused: false, next_run_at: null, schedule_kind: 'once' }), 'done');
+  assert.equal(routineStatus({ paused: true, next_run_at: null, schedule_kind: 'once', status: 'done' }), 'done');
 });
 
 test('webhook url, curl and badge', () => {
@@ -113,6 +122,7 @@ test('webhook url, curl and badge', () => {
   assert.equal(webhookUrl('/hooks/4', '/api/v1', 'http://127.0.0.1:8000'), 'http://127.0.0.1:8000/hooks/4');
   // A full backend address is still used as given, whatever page the browser is on.
   assert.equal(webhookUrl('/hooks/4', 'https://api.example.com/api/v1', 'https://dots.example.com'), 'https://api.example.com/hooks/4');
+  assert.equal(webhookUrl('https://dots.example.com/hooks/a/k/4', '/api/v1', 'http://x'), 'https://dots.example.com/hooks/a/k/4');
   assert.match(curlExample('http://x/hooks/4', 'rt_abc'), /Authorization: Bearer rt_abc/);
   assert.equal(badgeText(0), null);
   assert.equal(badgeText(7), '7');
@@ -136,4 +146,16 @@ test('routine calls use the routine routes', async () => {
     ['POST', '/api/v1/notifications/read-all'],
   ]);
   assert.deepEqual(JSON.parse(calls[1].options.body), { schedule_kind: 'cron', schedule_spec: { expression: '* * * * *' }, timezone: 'UTC' });
+});
+
+import { waitingQuestionsFor } from './routines.ts';
+
+test('waiting routine questions skip the open thread and empty runs, oldest first', () => {
+  const a = { thread_id: 1, waiting_since: '2026-11-09T10:00:00Z', approvals: [{}] };
+  const b = { thread_id: 2, waiting_since: '2026-11-09T09:00:00Z', approvals: [{}] };
+  const c = { thread_id: 3, waiting_since: '2026-11-09T08:00:00Z', approvals: [] };
+  const d = { thread_id: 4, waiting_since: null, approvals: [{}] };
+  assert.deepEqual(waitingQuestionsFor([a, b, c, d], 1), [d, b]);
+  assert.deepEqual(waitingQuestionsFor([a, b], null), [b, a]);
+  assert.deepEqual(waitingQuestionsFor([], 5), []);
 });

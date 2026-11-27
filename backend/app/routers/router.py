@@ -6,6 +6,9 @@ from app.routers.permission import router as permissions_router
 from app.routers.local import router as local_router
 from app.routers.providers import router as providers_router
 from app.routers.agents import router as agents_router
+from app.routers.shadow import router as shadow_router
+from app.routers.worker_labels import router as worker_labels_router
+from app.routers.history_learning import router as history_learning_router
 from app.routers.agent_skills import router as agent_skills_router
 from app.routers.threads import router as threads_router
 from app.routers.settings import router as settings_router
@@ -13,14 +16,24 @@ from app.routers.decisions import router as decisions_router
 from app.routers.approval_rules import router as approval_rules_router
 from app.routers.sentinel import router as sentinel_router
 from app.routers.computers import router as computers_router
+from app.routers.computer_credentials import router as computer_credentials_router, muapi_router as muapi_credentials_router
+from app.routers.computer_credentials import boxd_router as boxd_credentials_router
+from app.routers.browser_viewer import router as browser_viewer_router
 from app.routers.computer_viewer import router as computer_viewer_router
+from app.routers.claude_accounts import router as claude_accounts_router
 from app.routers.engines import router as engines_router
 from app.routers.routines import router as routines_router
 from app.routers.work_planner import router as planner_router
 from app.routers.search import router as search_router
 from app.routers.attachments import router as attachments_router
 from app.routers.workspace_files import router as workspace_files_router
+from app.routers.workspace_snapshots import router as workspace_snapshots_router
+from app.routers.images import router as images_router
+from app.routers.speech import router as speech_router
 from app.routers.usage import router as usage_router
+from app.routers.history_export import router as history_export_router
+from app.routers.profile import router as profile_router
+from app.auth.people_routes import join_router as people_join_router, router as people_router
 from app.auth.routes import router as auth_router
 from fastapi import APIRouter
 
@@ -34,6 +47,8 @@ def health():
 
 
 router.include_router(auth_router)
+router.include_router(people_join_router)
+router.include_router(people_router)
 router.include_router(sandbox_router)
 router.include_router(task_router)
 router.include_router(link_router)
@@ -42,30 +57,73 @@ router.include_router(schedule_router)
 router.include_router(local_router)
 router.include_router(providers_router)
 router.include_router(agents_router)
+router.include_router(shadow_router)
+router.include_router(worker_labels_router)
+router.include_router(history_learning_router)
 router.include_router(agent_skills_router)
 router.include_router(threads_router)
 router.include_router(settings_router)
 router.include_router(decisions_router)
 router.include_router(approval_rules_router)
 router.include_router(sentinel_router)
+# Before computers_router: its /computers/{computer_id} would otherwise
+# answer GET and DELETE /computers/<provider>-credentials with a 422.
+router.include_router(computer_credentials_router)
+router.include_router(muapi_credentials_router)
+router.include_router(boxd_credentials_router)
 router.include_router(computers_router)
 router.include_router(computer_viewer_router)
+router.include_router(browser_viewer_router)
+router.include_router(claude_accounts_router)
 router.include_router(engines_router)
 router.include_router(routines_router)
 router.include_router(planner_router)
 router.include_router(search_router)
 router.include_router(attachments_router)
 router.include_router(workspace_files_router)
+router.include_router(workspace_snapshots_router)
+router.include_router(images_router)
+router.include_router(speech_router)
 router.include_router(usage_router)
+router.include_router(history_export_router)
+router.include_router(profile_router)
 from app.routers.templates import router as templates_router
 router.include_router(templates_router)
+from app.routers.spend import router as spend_router
+router.include_router(spend_router)
 
 from app.routers.team import router as team_router
 from app.routers.rooms import router as rooms_router
 from app.routers.memory import router as memory_router
 router.include_router(memory_router)
+from app.routers.business_profile import router as business_profile_router
+router.include_router(business_profile_router)
 router.include_router(team_router)
 router.include_router(rooms_router)
 
 from app.routers.needs_you import router as needs_you_router
 router.include_router(needs_you_router)
+
+from app.routers.version import router as version_router
+router.include_router(version_router)
+
+from app.routers.integrations import router as integrations_router
+router.include_router(integrations_router)
+
+from app.routers.community_mcp import router as community_mcp_router
+router.include_router(community_mcp_router)
+from app.routers.muapi import router as muapi_router
+router.include_router(muapi_router)
+from app.routers.custom_mcp import router as custom_mcp_router
+router.include_router(custom_mcp_router)
+from app.routers.agent_service import router as agent_service_router
+router.include_router(agent_service_router)
+
+from app.routers.onboarding import router as onboarding_router
+from app.routers.engine_install import router as engine_install_router
+from app.routers.desktop_account import router as desktop_account_router
+from app.routers.workflows import router as workflows_router
+router.include_router(onboarding_router)
+router.include_router(engine_install_router)
+router.include_router(desktop_account_router)
+router.include_router(workflows_router)

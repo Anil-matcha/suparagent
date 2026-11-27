@@ -38,7 +38,7 @@ if (process.platform !== "win32") {
   process.exit(2);
 }
 
-const BASE = path.join(os.tmpdir(), "open-dots-e2e");
+const BASE = path.join(os.tmpdir(), "suparagent-e2e");
 const wanted = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
 const keep = process.argv.includes("--keep");
 const selected = (name) => wanted.length === 0 || wanted.includes("all") || wanted.includes(name);
@@ -66,9 +66,15 @@ async function start(options) {
   return app;
 }
 
+function rmSafe(dir) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch {}
+}
+
 function fresh(name) {
   const dir = path.join(BASE, name);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmSafe(dir);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -129,8 +135,12 @@ async function lifecycle() {
     app = await start({ dataDir: data, env: HOSTILE_ENV });
     page = await app.page();
     assert.match(page.url, /^http:\/\/127\.0\.0\.1:\d+\/chat\//);
-    // Either Claude is ready (its version is shown) or the reason is: both are an answer.
-    await page.waitFor(`document.body.innerText.includes('Claude Code') || document.body.innerText.includes('not available')`, "Claude's status", 60_000);
+    // Either Claude is ready (its version is shown) or the onboarding sign-in screen is: both are an answer.
+    await page.waitFor(
+      `document.body.innerText.includes('Sign in to Suparagent') || document.body.innerText.includes('Claude Code') || document.body.innerText.includes('not available')`,
+      "Claude's status or first-run sign-in",
+      60_000,
+    );
     fs.writeFileSync(path.join(data, "first-launch.png"), await page.screenshot());
   });
 
@@ -139,7 +149,7 @@ async function lifecycle() {
     keyBefore = fs.readFileSync(keyFile);
     assert.ok(keyBefore.length > 40);
     assert.ok(!/^[A-Za-z0-9_-]{43}=$/.test(keyBefore.toString("latin1")), "the key must not be stored as plain text");
-    assert.ok(fs.existsSync(path.join(data, "data", "open-dots.db")));
+    assert.ok(fs.existsSync(path.join(data, "data", "suparagent.db")));
     assert.ok(!fs.existsSync(path.join(data, "data", "backups")), "a fresh database needs no backup");
     assert.ok(fs.existsSync(path.join(data, "logs", "backend.log")));
   });
@@ -149,7 +159,7 @@ async function lifecycle() {
     for (const [pathName, headers] of [
       ["/api/v1/threads", {}],
       ["/api/v1/local/status", {}],
-      ["/api/v1/threads", { "X-Open-Dots-Token": "x".repeat(43) }],
+      ["/api/v1/threads", { "X-Suparagent-Token": "x".repeat(43) }],
       ["/api/v1/threads", { Origin: "http://evil.example" }],
       ["/chat/", {}],
       ["/", {}],
@@ -160,13 +170,15 @@ async function lifecycle() {
     }
     const tab = await fetch(`${page.origin}/`, { headers: asPage });
     assert.equal(tab.status, 401);
-    assert.match(await tab.text(), /Open this from the Open Duet app/);
+    assert.match(await tab.text(), /Open this from the Suparagent app/);
   });
 
   await check("inside the window the page is authenticated, sees no Node, and cannot leave", async () => {
-    assert.equal(await page.evaluate(`fetch('/api/v1/threads').then(r => r.status)`), 200);
+    assert.equal(await page.evaluate(`fetch('/api/v1/desktop-account/status').then(r => r.status)`), 200);
     // The page cannot override the token (the session sets it on the way out), nor read it.
-    assert.equal(await page.evaluate(`fetch('/api/v1/threads', { headers: { 'X-Open-Dots-Token': 'forged' } }).then(r => r.status)`), 200);
+    assert.equal(await page.evaluate(`fetch('/api/v1/desktop-account/status', { headers: { 'X-Suparagent-Token': 'forged' } }).then(r => r.status)`), 200);
+    // The general workspace API is correctly gated behind desktop account authentication:
+    assert.equal(await page.evaluate(`fetch('/api/v1/threads').then(r => r.status)`), 401);
     assert.equal(await page.evaluate(`typeof require + ' ' + typeof process + ' ' + typeof module`), "undefined undefined undefined");
     assert.equal(await page.evaluate(`document.cookie`), "");
     // New windows are refused and navigation stays on the app's own address.
@@ -180,7 +192,7 @@ async function lifecycle() {
     const second = await start({ dataDir: data });
     const code = await Promise.race([second.exited, sleep(30_000).then(() => "timeout")]);
     assert.equal(code, 0, `second launch exit ${code}\n${second.output.join("")}`);
-    assert.equal(await page.evaluate(`fetch('/api/v1/threads').then(r => r.status)`), 200, "the first window is still working");
+    assert.equal(await page.evaluate(`fetch('/api/v1/desktop-account/status').then(r => r.status)`), 200, "the first window is still working");
   });
 
   const pid = () => app.backendPid();
@@ -191,7 +203,7 @@ async function lifecycle() {
     assert.ok(servedBy && alive(servedBy), "the backend is running before the quit");
     assert.equal(await app.quit(page), 0);
     await waitUntil(() => !alive(servedBy), "the backend to stop", 40_000);
-    await assert.rejects(fetch(origin() + "/api/v1/threads"), /fetch failed/);
+    await assert.rejects(fetch(origin() + "/api/v1/desktop-account/status"), /fetch failed/);
   });
 
   await check("the next launch keeps the key and the data, and is a new address", async () => {
@@ -201,7 +213,7 @@ async function lifecycle() {
     assert.notEqual(page.origin, oldOrigin);
     assert.deepEqual(fs.readFileSync(path.join(data, "secrets", "encryption-key.v1")), keyBefore);
     assert.ok(!fs.existsSync(path.join(data, "data", "backups")));
-    assert.equal(await page.evaluate(`fetch('/api/v1/threads').then(r => r.status)`), 200);
+    assert.equal(await page.evaluate(`fetch('/api/v1/desktop-account/status').then(r => r.status)`), 200);
   });
 
   await check("when the app is killed the backend stops by itself", async () => {
@@ -216,7 +228,7 @@ async function lifecycle() {
     await sleep(3000); // a person cannot start it again in the instant after it was killed
     app = await start({ dataDir: data });
     page = await app.page();
-    assert.equal(await page.evaluate(`fetch('/api/v1/threads').then(r => r.status)`), 200);
+    assert.equal(await page.evaluate(`fetch('/api/v1/desktop-account/status').then(r => r.status)`), 200);
     await sleep(2000); // the window is open and used before it is closed
     assert.equal(await app.quit(page), 0);
     await waitUntil(() => !alive(pid()), "the backend to stop", 40_000);
@@ -238,8 +250,8 @@ async function scripts() {
         env: { ELECTRON_RUN_AS_NODE: "1" },
       });
       const page = await app.page();
-      assert.equal((await fetch(`${page.origin}/api/v1/threads`)).status, 401, `${mode}: from outside`);
-      assert.equal(await page.evaluate(`fetch('/api/v1/threads').then(r => r.status)`), 200, `${mode}: from the window`);
+      assert.equal((await fetch(`${page.origin}/api/v1/desktop-account/status`)).status, 401, `${mode}: from outside`);
+      assert.equal(await page.evaluate(`fetch('/api/v1/desktop-account/status').then(r => r.status)`), 200, `${mode}: from the window`);
       await sleep(1500);
       assert.equal(await app.quit(page), 0, `${mode}: quit`);
     }
@@ -261,7 +273,7 @@ async function failures() {
   console.log("\nfailures");
 
   await check("without Claude the page says so, names the setting, and offers Check again", async () => {
-    const app = await start({ dataDir: fresh("noclaude"), env: { OPEN_DOTS_CLAUDE_PATH: "C:\\no\\such\\claude.exe" } });
+    const app = await start({ dataDir: fresh("noclaude"), env: { SUPARAGENT_CLAUDE_PATH: "C:\\no\\such\\claude.exe" } });
     const page = await app.page();
     const text = await page.waitFor(
       `document.body.innerText.includes('Local Claude is not available') && document.body.innerText`,
@@ -296,8 +308,8 @@ async function failures() {
     assert.equal(await app.quit(page), 0);
   });
 
-  await check("a relative OPEN_DOTS_CLAUDE_PATH is refused with a message, not used", async () => {
-    const app = await start({ dataDir: fresh("relative"), env: { OPEN_DOTS_CLAUDE_PATH: "claude" } });
+  await check("a relative SUPARAGENT_CLAUDE_PATH is refused with a message, not used", async () => {
+    const app = await start({ dataDir: fresh("relative"), env: { SUPARAGENT_CLAUDE_PATH: "claude" } });
     await sleep(8000);
     assert.equal(app.backendPid(), null, "no backend was started");
     app.destroy();
@@ -312,7 +324,7 @@ async function failures() {
     await sleep(10_000); // the app is showing its error box; nothing may have been started
     assert.equal(app.backendPid(), null);
     assert.deepEqual(fs.readFileSync(path.join(data, "secrets", "encryption-key.v1")), junk);
-    assert.ok(!fs.existsSync(path.join(data, "data", "open-dots.db")));
+    assert.ok(!fs.existsSync(path.join(data, "data", "suparagent.db")));
     app.destroy();
   });
 
@@ -321,7 +333,7 @@ async function failures() {
     let app = await start({ dataDir: data });
     let page = await app.page();
     assert.equal(await app.quit(page), 0);
-    const database = path.join(data, "data", "open-dots.db");
+    const database = path.join(data, "data", "suparagent.db");
     const insert = python(
       "import sqlite3, sys\nfrom cryptography.fernet import Fernet\n" +
         "c = sqlite3.connect(sys.argv[1])\n" +
@@ -437,7 +449,7 @@ async function settings() {
   const rootB = path.join(dataDir, "workspace-b");
   fs.mkdirSync(rootA);
   fs.mkdirSync(rootB);
-  let app = await start({ dataDir, entry: path.join(__dirname, "picker-app.js"), env: { OPEN_DOTS_E2E_PICKER_PATH: rootA } });
+  let app = await start({ dataDir, entry: path.join(__dirname, "picker-app.js"), env: { SUPARAGENT_E2E_PICKER_PATH: rootA } });
   let page = await app.page();
   const json = (url, options = {}) => page.evaluate(`fetch(${JSON.stringify(url)}, ${JSON.stringify(options)}).then(async r => ({ status: r.status, data: await r.json() }))`);
   const read = async () => (await json("/api/v1/settings")).data;
@@ -454,7 +466,7 @@ async function settings() {
   await check("native Browse selects a workspace through the narrow sandboxed bridge", async () => {
     await openSettings();
     // picker-app.js stubs only the dialog; renderer -> IPC -> main is real.
-    assert.deepEqual(await page.evaluate(`({ node: typeof require, process: typeof process, bridge: Object.keys(window.openDots) })`), { node: "undefined", process: "undefined", bridge: ["choosePath"] });
+    assert.deepEqual(await page.evaluate(`({ node: typeof require, process: typeof process, bridge: Object.keys(window.suparagent) })`), { node: "undefined", process: "undefined", bridge: ["choosePath"] });
     await page.evaluate(`document.querySelector('button[aria-label="Browse Workspace root"]').click()`);
     await page.waitFor(`document.getElementById('LOCAL_WORKSPACE_ROOT').value === ${JSON.stringify(rootA)}`, "selected folder");
     await page.evaluate(`document.querySelector('button[aria-label="Save Workspace root"]').click()`);
@@ -700,7 +712,7 @@ async function upgrade() {
 
   const data = fresh("upgrade");
   const newDefault = path.join(data, "new-default");
-  const database = path.join(data, "data", "open-dots.db");
+  const database = path.join(data, "data", "suparagent.db");
   const oldWorkspace = path.join(data, "data", "local", "workspace");
   const open = async (entry) => {
     const app = await start({ dataDir: data, entry });
@@ -806,7 +818,7 @@ async function upgrade() {
     if (!keep) {
       for (const name of ["life", "noclaude", "relative", "junkkey", "wrongkey", "chat", "script-start", "script-dev", "empty-checkout", "signedout", "signedout-claude-config", "headless", "headless-desktop", "settings", "upgrade"]) {
         // The chat folder is also where Claude's workspace is; only this run's own folders go.
-        fs.rmSync(path.join(BASE, name), { recursive: true, force: true });
+        rmSafe(path.join(BASE, name));
       }
     }
   }

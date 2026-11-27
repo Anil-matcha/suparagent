@@ -1,4 +1,4 @@
-// The Open Duet desktop shell, run from a source checkout (D-012) or installed.
+// The Suparagent desktop shell, run from a source checkout (D-012) or installed.
 //
 // Order of events: take the single-instance lock, show a window straight away,
 // get the encryption key from the operating system's secret storage, start the
@@ -10,91 +10,74 @@
 // Everything that can be tested without Electron is in src/. This file only
 // connects those pieces to Electron.
 
-const { app, BrowserWindow, Menu, Tray, dialog, nativeImage, safeStorage, session, ipcMain, shell, systemPreferences } = require("electron");
+const { app, BrowserWindow, WebContentsView, Menu, Tray, dialog, nativeImage, safeStorage, session, ipcMain, shell, systemPreferences, clipboard, Notification, net } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
 
 const { layout, packagedLayout } = require("./src/paths");
+const { choosePasswordStore } = require("./src/password-store");
 const { createKeyStore, KeyStoreError } = require("./src/keystore");
 const { startBackend, backendEnvironment, newToken } = require("./src/backend");
 const { attachTokenTo, lockDown, sameOrigin } = require("./src/origin");
+const { registerExternalLinks } = require("./src/external-links");
+const { SCHEME: DEEP_LINK_SCHEME, deepLinkFromArgv, createDeepLinkHandler } = require("./src/deep-link");
 const { registerPathPicker } = require("./src/path-picker");
+const { registerDesktopPermissions } = require("./src/desktop-permissions");
 const { registerGoogleSignIn } = require("./src/google-sign-in");
+const { registerEngineSignIn } = require("./src/engine-sign-in");
+const { registerComposioLink } = require("./src/composio-link");
 const { lastReason, describeFailure, describeUnexpectedExit } = require("./src/messages");
 const { NativeControl, registerNativeControl } = require("./src/native-control");
 const { createUpdater } = require("./src/updater");
+const { createAutoUpdater } = require("./src/auto-updater");
 const { registerUpdates } = require("./src/updates-ipc");
-const { trayIconPath, trayMenuTemplate } = require("./src/tray");
+const { registerApplicationMenu } = require("./src/application-menu");
+const { createHostedWorkspace, createWorkspaceStore, PLAN_URL } = require("./src/hosted-workspace");
+const { HEADER } = require("./src/origin");
+const { registerHostedWorkspace } = require("./src/hosted-workspace-ipc");
+const { trayIconPath, installTrayLifecycle } = require("./src/tray");
+
+// Chromium fixes its Linux password store before the app is ready. Pick a real
+// keyring on desktops it does not recognise; without this, safeStorage reports
+// encryption as unavailable there even though GNOME Keyring is running.
+if (!app.commandLine.hasSwitch("password-store")) {
+  const passwordStore = choosePasswordStore();
+  if (passwordStore) app.commandLine.appendSwitch("password-store", passwordStore);
+}
 
 const mode = process.argv.includes("--mode=dev") ? "dev" : "start";
+// Running from source: use the app icon for the window and the dock. Installers carry the icon in the
+// executable (build/icon.icns and build/icon.ico), and build/ is not packed, so this is a no-op there.
+const iconPath = path.join(__dirname, "build", "icon.png");
+const hasIcon = fs.existsSync(iconPath);
 // An installed app carries its own frozen backend and page; a checkout uses its own folders.
 const paths = app.isPackaged ? packagedLayout(process.resourcesPath) : layout();
 
 // Where this launch keeps its data. `dev` has its own, so developing never touches
-// the data of the app that is used for real. OPEN_DOTS_DATA_DIR is a launcher
+// the data of the app that is used for real. SUPARAGENT_DATA_DIR is a launcher
 // variable (not a backend setting) for tests and for keeping a second copy apart.
 function chooseUserData() {
-  const given = (process.env.OPEN_DOTS_DATA_DIR ?? "").trim();
+  const given = (process.env.SUPARAGENT_DATA_DIR ?? "").trim();
   if (given) {
-    if (!path.isAbsolute(given)) throw new Error("OPEN_DOTS_DATA_DIR must be a full path.");
+    if (!path.isAbsolute(given)) throw new Error("SUPARAGENT_DATA_DIR must be a full path.");
     return given;
   }
-  // The folder keeps the name from before the rename to Open Duet: it holds the
+  // The folder keeps the name from before the rename to Suparagent: it holds the
   // database and the encrypted key, and the key store is tied to the app name.
-  return path.join(app.getPath("appData"), mode === "dev" ? "Open Dots (dev)" : "Open Dots");
+  return path.join(app.getPath("appData"), mode === "dev" ? "Suparagent (dev)" : "Suparagent");
 }
 
 let window = null;
+let deepLinkReady = () => {};
 let backend = null;
 let quitting = false;
 let backendStopped = false;
 let shutdown = null;
 let backendOrigin = null;
+let workspaceController = null; // set while the hosted workspace feature is on
 let nativeControl = null;
 let updater = null;
 let tray = null;
-const appDisplayName = mode === "dev" ? "Open Duet (dev)" : "Open Duet";
-
-// Brings the window back after it was hidden to the tray, or focuses it if it
-// never left. Safe to call when there is no window (closing mid-startup).
-function showWindow() {
-  if (!window || window.isDestroyed()) return;
-  if (process.platform === "darwin") app.dock?.show();
-  if (!window.isVisible()) window.show();
-  if (window.isMinimized()) window.restore();
-  window.focus();
-}
-
-// A tray icon is what lets closing the window mean "keep running in the
-// background" instead of "quit": without one there would be no way to get
-// the window back, or to tell a merely-hidden app from a dead one. Some Linux
-// desktops have no tray at all, so this never stops startup on failure --
-// closing the window then falls back to quitting, exactly as it always did.
-function createTray() {
-  if (process.env.OPEN_DOTS_DISABLE_TRAY === "1") return null;
-  try {
-    const iconFile = trayIconPath(paths.ui);
-    const image = iconFile ? nativeImage.createFromPath(iconFile) : nativeImage.createEmpty();
-    const created = new Tray(image);
-    created.setToolTip(appDisplayName);
-    created.setContextMenu(
-      Menu.buildFromTemplate(
-        trayMenuTemplate({
-          appName: appDisplayName,
-          onOpen: showWindow,
-          onQuit: () => {
-            quitting = true;
-            app.quit();
-          },
-        }),
-      ),
-    );
-    created.on("click", showWindow);
-    return created;
-  } catch {
-    return null;
-  }
-}
 
 // Stops what this launch started, once: this app's own connections first (the
 // backend waits for its connected clients, and idle keep-alive sockets held here
@@ -102,7 +85,11 @@ function createTray() {
 function stopEverything() {
   shutdown ??= (async () => {
     quitting = true;
-    tray?.destroy();
+    try {
+      tray?.destroy();
+    } catch {
+      /* already destroyed */
+    }
     tray = null;
     await nativeControl?.close();
     try {
@@ -134,14 +121,58 @@ function fatal({ title, body }) {
   return leave();
 }
 
+function showWindow() {
+  if (!window || window.isDestroyed()) return;
+  if (process.platform === "darwin") app.dock?.show();
+  if (!window.isVisible()) window.show();
+  if (window.isMinimized()) window.restore();
+  window.focus();
+}
+
+function createTray() {
+  if (process.env.SUPARAGENT_DISABLE_TRAY === "1") return null;
+  let created = null;
+  try {
+    const iconFile = trayIconPath({
+      appDir: __dirname,
+      resourcesPath: process.resourcesPath,
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+    });
+    if (!iconFile) return null;
+    const image = nativeImage.createFromPath(iconFile);
+    if (image.isEmpty()) return null;
+    created = new Tray(image);
+    installTrayLifecycle({
+      app,
+      window,
+      tray: created,
+      Menu,
+      appName: app.getName(),
+      platform: process.platform,
+      isQuitting: () => quitting,
+      setQuitting: (value) => { quitting = value; },
+    });
+    return created;
+  } catch {
+    try {
+      created?.destroy();
+    } catch {
+      /* nothing to clean up */
+    }
+    return null;
+  }
+}
+
 function createWindow() {
   const created = new BrowserWindow({
     width: 1100,
     height: 800,
     minWidth: 480,
     minHeight: 480,
-    title: mode === "dev" ? "Open Duet (dev)" : "Open Duet",
+    title: mode === "dev" ? "Suparagent (dev)" : "Suparagent",
     backgroundColor: "#ffffff",
+    ...(hasIcon ? { icon: iconPath } : {}),
     webPreferences: {
       // The sandboxed preload exposes only the validated native path picker.
       preload: path.join(__dirname, "preload.js"),
@@ -157,28 +188,60 @@ function createWindow() {
 }
 
 function claudePathFromEnvironment() {
-  const given = (process.env.OPEN_DOTS_CLAUDE_PATH ?? "").trim();
+  const given = (process.env.SUPARAGENT_CLAUDE_PATH ?? "").trim();
   if (given && !path.isAbsolute(given)) {
-    throw new Error("OPEN_DOTS_CLAUDE_PATH must be the full path of the claude executable.");
+    throw new Error("SUPARAGENT_CLAUDE_PATH must be the full path of the claude executable.");
   }
   return given;
 }
 
 async function main() {
   const userData = chooseUserData();
-  // Same stored identity as the data folder above; the window title says Open Duet.
-  app.setName(mode === "dev" ? "Open Dots (dev)" : "Open Dots");
+  // Same stored identity as the data folder above; the window title says Suparagent.
+  app.setName(mode === "dev" ? "Suparagent (dev)" : "Suparagent");
   app.setPath("userData", userData);
+
+  if (process.platform === "win32") {
+    app.setAppUserModelId(app.isPackaged ? "app.suparagent.desktop" : process.execPath);
+  }
 
   if (!app.requestSingleInstanceLock()) {
     app.exit(0);
     return;
   }
-  app.on("second-instance", () => {
+  // suparagent://chat?thread=<id> opens one chat or room (BL-118). Links that arrive before the app is up wait for it.
+  const deepLinks = createDeepLinkHandler({
+    navigate: (pagePath) => (window && backendOrigin ? window.loadURL(`${backendOrigin}${pagePath}`) : undefined),
+    focus: showWindow,
+  });
+  deepLinkReady = () => deepLinks.ready();
+  try {
+    app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
+  } catch {
+    // Registration can fail in a sandbox or a development run; links then just do not open the app.
+  }
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    deepLinks.open(url);
+  });
+  app.on("second-instance", (_event, argv) => {
+    const link = deepLinkFromArgv(argv);
+    if (link) deepLinks.open(link);
     showWindow();
   });
+  const startupLink = deepLinkFromArgv(process.argv);
+  if (startupLink) deepLinks.open(startupLink);
 
   await app.whenReady();
+  registerApplicationMenu({
+    Menu,
+    appName: app.getName(),
+    platform: process.platform,
+    getWindow: () => window,
+    getOrigin: () => backendOrigin,
+    openExternal: (url) => void shell.openExternal(url),
+  });
+  if (hasIcon && process.platform === "darwin" && app.dock) app.dock.setIcon(iconPath);
   const nativeControlRoot = app.isPackaged ? path.join(process.resourcesPath, "native-control") : path.join(__dirname, "native-control");
   nativeControl = new NativeControl({
     root: nativeControlRoot,
@@ -189,19 +252,70 @@ async function main() {
   });
   registerNativeControl({ ipcMain, dialog, service: nativeControl, getWindow: () => window, getOrigin: () => backendOrigin });
   const nativeConnection = await nativeControl.listen();
+  registerDesktopPermissions({ ipcMain, systemPreferences, openExternal: url => shell.openExternal(url), getWindow: () => window, getOrigin: () => backendOrigin });
   registerPathPicker({ ipcMain, dialog, getWindow: () => window, getOrigin: () => backendOrigin });
+  registerEngineSignIn({ ipcMain, openExternal: url => shell.openExternal(url), getWindow: () => window, getOrigin: () => backendOrigin });
   registerGoogleSignIn({ ipcMain, openExternal: (url) => shell.openExternal(url), getWindow: () => window, getOrigin: () => backendOrigin });
-  updater = createUpdater({
-    currentVersion: app.getVersion(),
-    platform: process.platform,
-    arch: process.arch,
-    cacheDir: path.join(userData, "updates"),
-    downloadsDir: app.getPath("downloads"),
-    openFile: (file) => shell.openPath(file),
-    onState: (state) => {
-      if (window && !window.isDestroyed()) window.webContents.send("open-dots:update-state", state);
-    },
+  registerHostedWorkspace({ ipcMain, getController: () => workspaceController, getWindow: () => window, getOrigin: () => backendOrigin });
+  registerComposioLink({ ipcMain, openExternal: (url) => shell.openExternal(url), getWindow: () => window, getOrigin: () => backendOrigin });
+  ipcMain.handle("suparagent:copy-text", (_event, text) => {
+    if (typeof text === "string") {
+      clipboard.writeText(text);
+      return true;
+    }
+    return false;
   });
+  ipcMain.handle("suparagent:show-notification", (_event, payload) => {
+    if (!payload || typeof payload.title !== "string") return false;
+    if (Notification.isSupported()) {
+      const notif = new Notification({
+        title: payload.title,
+        body: typeof payload.body === "string" ? payload.body : "",
+        silent: payload.silent === true,
+        icon: hasIcon ? iconPath : undefined,
+      });
+      notif.on("click", () => {
+        if (window && !window.isDestroyed()) {
+          if (window.isMinimized()) window.restore();
+          window.show();
+          window.focus();
+          if (payload.thread_id != null) {
+            window.webContents.send("suparagent:notification-clicked", { thread_id: payload.thread_id });
+          }
+        }
+      });
+      try {
+        notif.show();
+        return true;
+      } catch (err) {
+        console.error("desktop notification show failed:", err);
+        return false;
+      }
+    }
+    return false;
+  });
+  const sendUpdateState = (state) => {
+    if (window && !window.isDestroyed()) window.webContents.send("suparagent:update-state", state);
+  };
+  // An installed build replaces itself in place (electron-updater); anything else
+  // (a source checkout) falls back to the assisted download-and-open flow.
+  const selfUpdating = app.isPackaged && (process.platform === "darwin" || process.platform === "win32");
+  updater = selfUpdating
+    ? createAutoUpdater({
+        autoUpdater: require("electron-updater").autoUpdater,
+        currentVersion: app.getVersion(),
+        beforeInstall: stopEverything,
+        onState: sendUpdateState,
+      })
+    : createUpdater({
+        currentVersion: app.getVersion(),
+        platform: process.platform,
+        arch: process.arch,
+        cacheDir: path.join(userData, "updates"),
+        downloadsDir: app.getPath("downloads"),
+        openFile: (file) => shell.openPath(file),
+        onState: sendUpdateState,
+      });
   registerUpdates({
     ipcMain,
     openExternal: (url) => shell.openExternal(url),
@@ -214,18 +328,6 @@ async function main() {
     window = null;
   });
   tray = createTray();
-  if (tray) {
-    // With a tray available, closing the window hides it (agents, routines and
-    // any run in progress keep going) instead of ending the app. A real quit --
-    // the tray's own Quit item, the system, a menu -- sets `quitting` first, so
-    // this only intercepts the window's own close button / Cmd+Q-as-close-window.
-    window.on("close", (event) => {
-      if (quitting) return;
-      event.preventDefault();
-      if (process.platform === "darwin") app.dock?.hide();
-      window.hide();
-    });
-  }
 
   const dataDir = path.join(userData, "data");
   const logFile = path.join(userData, "logs", "backend.log");
@@ -235,7 +337,7 @@ async function main() {
     key = createKeyStore({ dir: path.join(userData, "secrets"), safeStorage }).ensure().key;
   } catch (error) {
     if (error instanceof KeyStoreError) {
-      return fatal({ title: "Open Duet cannot keep its encryption key", body: error.message });
+      return fatal({ title: "Suparagent cannot keep its encryption key", body: error.message });
     }
     throw error;
   }
@@ -244,7 +346,7 @@ async function main() {
   try {
     claudePath = claudePathFromEnvironment();
   } catch (error) {
-    return fatal({ title: "Open Duet cannot start", body: error.message });
+    return fatal({ title: "Suparagent cannot start", body: error.message });
   }
 
   fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -293,6 +395,12 @@ async function main() {
   backendOrigin = started.origin;
   attachTokenTo(window.webContents.session, started.origin, token);
   lockDown(window.webContents, started.origin, window.webContents.session);
+  registerExternalLinks(window.webContents, {
+    Menu,
+    clipboard,
+    openExternal: (url) => shell.openExternal(url),
+    getWindow: () => window,
+  });
   try {
     await window.loadURL(`${started.origin}/chat/`);
   } catch (error) {
@@ -302,19 +410,109 @@ async function main() {
     const replaced = error?.code === "ERR_ABORTED" && window && sameOrigin(window.webContents.getURL(), started.origin);
     if (!quitting && !replaced) throw error;
   }
+  deepLinkReady();
+  setUpWorkspaces(token);
   startUpdateChecks();
+}
+
+// Local and hosted workspaces share this one window (BL-143). The local page stays the window's own
+// contents; the hosted page is a separate sandboxed view with no preload, no token and its own session.
+function setUpWorkspaces(token) {
+  // On by default (owner decision 2026-11-06). SUPARAGENT_HOSTED_WORKSPACE=0 turns it off: no hosted view, no menu, no Settings card.
+  if (process.env.SUPARAGENT_HOSTED_WORKSPACE === "0") return;
+  const win = window;
+  const store = createWorkspaceStore(path.join(app.getPath("userData"), "workspace.json"));
+  const state = { signedIn: false, email: null, status: "" };
+  let hosted = null;
+  const renderMenu = () =>
+    registerApplicationMenu({
+      Menu,
+      appName: app.getName(),
+      platform: process.platform,
+      getWindow: () => window,
+      getOrigin: () => backendOrigin,
+      openExternal: (url) => void shell.openExternal(url),
+      workspace: {
+        active: hosted?.current() ?? "local",
+        signedIn: state.signedIn,
+        email: state.email,
+        status: state.status,
+        onSelect: async (which) => {
+          // Re-ask the backend at the moment of choosing, so a sign-in made after the last check counts.
+          if (which === "hosted" && !state.signedIn) await refresh(true);
+          if (which === "hosted" && !state.signedIn) {
+            void shell.openExternal(PLAN_URL);
+            renderMenu(); // put the radio back on the workspace that is still shown
+            return;
+          }
+          hosted.show(which);
+        },
+        onSignOut: () => void hosted.signOut(),
+      },
+    });
+  hosted = createHostedWorkspace({
+    window: win,
+    WebContentsView,
+    session,
+    openExternal: (url) => shell.openExternal(url),
+    store,
+    // The title says which data is on screen: native chrome the hosted page cannot read or draw.
+    onChange: (which) => {
+      win.setTitle(which === "hosted" ? "Suparagent \u2014 Hosted workspace (cloud data; local agents are not shown here)" : mode === "dev" ? "Suparagent (dev)" : "Suparagent");
+      renderMenu();
+    },
+    onStatus: (status) => {
+      if (status === state.status) return;
+      state.status = status;
+      renderMenu();
+    },
+  });
+  win.on("closed", () => hosted.destroy());
+
+  // Account state comes from the local backend with the launch token; the hosted page never sees either.
+  let lastRefresh = 0;
+  const refresh = async (force = false) => {
+    if (!force && Date.now() - lastRefresh < 60_000) return;
+    lastRefresh = Date.now();
+    try {
+      const response = await net.fetch(`${backendOrigin}/api/v1/desktop-account/status`, { headers: { [HEADER]: token } });
+      const body = response.ok ? await response.json() : null;
+      if (!response.ok) console.error("hosted workspace: account status returned", response.status);
+      const signedIn = body?.signed_in === true;
+      const email = signedIn && typeof body.email === "string" ? body.email : null;
+      if (signedIn !== state.signedIn || email !== state.email) {
+        state.signedIn = signedIn;
+        state.email = email;
+        renderMenu();
+      }
+    } catch (error) {
+      // Offline or unavailable: keep the last known state.
+      console.error("hosted workspace: account status check failed:", error?.message ?? error);
+    }
+  };
+  workspaceController = {
+    status: () => ({ available: true, signedIn: state.signedIn, active: hosted.current() === "hosted" }),
+    open: async () => {
+      await refresh(true);
+      if (state.signedIn) hosted.show("hosted");
+      return workspaceController.status();
+    },
+  };
+  win.on("closed", () => { workspaceController = null; });
+  win.on("focus", () => void refresh());
+  renderMenu();
+  void refresh().then(() => {
+    if (state.signedIn && store.read() === "hosted") hosted.show("hosted");
+  });
 }
 
 // Background checks only run in an installed app, and can be switched off.
 function startUpdateChecks() {
-  if (!app.isPackaged || process.env.OPEN_DOTS_DISABLE_UPDATE_CHECK === "1") return;
+  if (!app.isPackaged || process.env.SUPARAGENT_DISABLE_UPDATE_CHECK === "1") return;
   setTimeout(() => void updater?.check(), 15_000).unref();
   setInterval(() => void updater?.check(), 6 * 60 * 60 * 1000).unref();
 }
 
-// With a tray, the window is hidden rather than closed (above), so this only
-// fires when there is no tray to fall back to background running: quit, as
-// it always has.
 app.on("window-all-closed", () => {
   leave();
 });
@@ -329,5 +527,5 @@ app.on("before-quit", (event) => {
 });
 
 main().catch((error) => {
-  if (!quitting) fatal({ title: "Open Duet could not start", body: String(error?.stack ?? error) });
+  if (!quitting) fatal({ title: "Suparagent could not start", body: String(error?.stack ?? error) });
 });

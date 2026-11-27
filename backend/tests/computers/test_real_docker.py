@@ -2,7 +2,7 @@
 
 Skipped unless `docker info` answers within 10 seconds and the computer image
 is already present (these tests never download one). Set
-OPEN_DOTS_TEST_IMAGE to use another local image that has sh, coreutils and
+SUPARAGENT_TEST_IMAGE to use another local image that has sh, coreutils and
 `sleep infinity` (for example a slim Debian or Ubuntu image)."""
 
 import json
@@ -16,7 +16,7 @@ from app.computers import docker_cli, grants
 from app.computers.docker_cli import Spec
 from app.computers.provider import DockerProvider
 
-IMAGE = os.environ.get("OPEN_DOTS_TEST_IMAGE", docker_cli.DEFAULT_IMAGE)
+IMAGE = os.environ.get("SUPARAGENT_TEST_IMAGE", docker_cli.DEFAULT_IMAGE)
 INSTANCE = "feedfacefeedfacefeedfacefeedface"
 
 

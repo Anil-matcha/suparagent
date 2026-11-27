@@ -1,0 +1,279 @@
+# Connected apps
+
+Connect an app on the Apps page (sidebar → Apps), then choose which Claude or Codex agents may use
+it. Apps are reached through [Composio](https://composio.dev) with **your own
+Composio project key**; there is no shared key and nothing is sent to a
+service run by this project.
+
+Any app Composio lists can be connected, and then allowed for Claude and Codex
+agents. Two kinds of app exist:
+
+- **GitHub, Gmail and Google Calendar have their own tools.** Each tool is
+  written and checked here: its arguments are fixed, its answer is cut to a few
+  fields, and Gmail can only save drafts or send one plain-text email to one recipient. For these apps, those tools are all an
+  agent gets.
+- **Every other app is used through two general tools**: one finds the app's
+  actions, the other runs one. No action of these apps is treated as a read, so
+  **you approve every call** (see "Other apps" below).
+
+The app mounts a turn-scoped, permission-filtered MCP server and sends Codex MCP
+approval requests through the same approval gate used for Claude. Other engines
+cannot use connected apps yet.
+
+## Set it up
+
+1. **Get a key.** Create a Composio account and a project, then copy the
+   project key (it starts with `ak_`).
+2. **Save it.** Apps → paste the key → Save. Without a key the Apps page shows
+   only a short starter list of common apps; with one it lists everything Composio
+   offers, with search, categories and "Show more apps". The key is
+   checked with Composio first, stored encrypted on this computer, and never
+   shown again. To change it, use Replace key.
+3. **Connect the app.** Choose Connect next to any app. Some apps have no sign-in
+   Composio supplies (they need an auth config of your own in Composio, which this
+   app does not set up); their card says so and has no Connect button. Your browser opens a Composio page; sign in to that app and
+   approve. This page notices when you are done. You may give the account a
+   name; you may connect up to five accounts for an app.
+4. **Allow an agent.** Open an existing Claude or Codex agent, find Connected
+   apps, choose **Off** or **Read only** for each app; every app also has
+   **Read and change**. Then check the exact connected account or accounts that
+   agent may use. If you allow several, the agent must say which one to use. An
+   app with no account selected is unavailable to that agent.
+   Any app you connected appears there. For apps without
+   their own tools, "Look up only" lets the agent see what actions exist and
+   "Look up and run" lets it ask to run them. Save, start a new conversation with that agent,
+   and ask naturally, for example, “Find the latest unread message from Alex
+   and summarize it,” “What is on my calendar tomorrow?” or “Draft a reply to
+   that email.” New agents and copies start with all apps Off. If the agent was
+   already chatting, start a new conversation so it receives the updated tool
+   list.
+
+Only the owner or an admin can do this. A member or a paired chat device cannot see or change the key
+or the connections.
+
+## What an agent can do
+
+| Level | It can |
+|---|---|
+| Read only · GitHub | Read your profile, repositories, issues and pull requests, issue comments, pull request files, commits, branches and file contents (or list a folder), and search issues and pull requests. |
+| Read only · Gmail | Search up to 30 messages per page, read one message or thread, and see the connected account profile. Message bodies and previews are cut to a small field allowlist. |
+| Read only · Google Calendar | List calendars, search events by words (a window of up to a year), and read event summaries in a timezone-qualified date window of up to 31 days. |
+| Read and change · GitHub | Everything above, and create an issue, comment on an issue or pull request, and close or reopen an issue. |
+| Read and change · Gmail | Read access plus creating a plain-text draft reply or sending a plain-text email to one recipient. Forward, archive and delete tools are unavailable. |
+| Read and change · Google Calendar | Read access plus creating one timed event (at most 7 days long) on a calendar. It has no guests and no video meeting, so nothing is emailed. |
+
+For an interactive Gmail draft, the recipient and subject are supplied by the
+agent and shown in the approval card. The current chat tool does not verify
+that recipient against the thread's sender; check it before approving.
+
+Not available at any level: forwarding email; adding Gmail cc/bcc or
+extra recipients; archive, label or delete actions; inviting guests to an event or
+changing or deleting an existing event; merging, deleting or pushing code; editing an existing issue or comment;
+creating a pull request; or changing repository settings, collaborators or
+secrets.
+
+## Other apps
+
+For an app that has no tools of its own, an agent gets two tools. **Search** lists
+a page of the app's actions with their parameters and a `revision`; it changes
+nothing. **Run** runs one named action.
+
+- **No action is treated as a read.** Composio publishes nothing that proves an
+  action only reads, so a name or a tag is not trusted. Running needs the Read and
+  change level, and you approve **every call** on a card showing the app, the
+  account, the action and the exact arguments (nothing is added to them). Plan mode
+  and the Read level never run one.
+- The backend fetches the action's description from Composio itself, checks that
+  it belongs to that app, and checks the arguments against it. An action whose
+  description uses anything the checker does not understand is not run. Arguments
+  must be small enough to show in full, and credentials are refused.
+- If Composio changes the action while a card waits, if you disconnect the
+  account, remove that account from the agent, lower the agent's access or
+  remove the key, the call is cancelled, not run. An agent cannot switch to a
+  different connected account unless you selected it for that agent.
+- Nothing that runs code, a shell or a raw request to an app is available, and
+  GitHub, Gmail and Calendar stay limited to their own tools (so Gmail still
+  cannot send, and GitHub still cannot delete or merge).
+- An answer is cut by size, depth and count, anything that looks like a secret is
+  replaced, and it is marked as other people's text. There is no per-field
+  summary as for the apps with their own tools, so this is looser than those.
+- A reviewed read could one day run after its first approved use; none has been
+  reviewed, so every call asks.
+
+## How changes are approved
+
+Every change shows an approval card with its exact arguments. This includes
+every action of an app without its own tools, creating a Gmail draft, and sending email: the action waits until you press Allow. There is
+no "always allow" for these. Deny, Read only, or Plan mode means it does not
+run. An approval covers exactly what the card showed, once.
+
+A change is sent one time and never retried automatically. If the answer is
+lost (a network error or a failure at Composio), the agent is told the outcome
+is unknown and not to repeat it: check the app before asking again. If a change
+went through but its reply could not be read, the agent is told it is done.
+
+Connected apps are available in conversations you start yourself and explicitly
+granted scheduled/manual routines (see below). Routine grants must use an account
+the agent is already allowed to access. They are not
+available in webhooks or other messages that arrive from outside, and not
+to an agent that has its own computer.
+
+## What stays where
+
+- The Composio key is encrypted with this installation's encryption key and
+  kept with the other credentials. It is never returned by the API, logged or
+  put in an error. Until a credential broker exists, the saved key is visible
+  to this local user's agent shell commands.
+- Composio holds each provider authorization. The app shows each connected
+  account's app, name, status and dates, and drops everything else Composio
+  returns about it.
+- The agent talks to a small helper process that holds no key and makes no
+  network call; the backend makes each call.
+- What an agent reads from an app is added to the conversation like any other
+  text, so it reaches the model provider you chose. Answers are cut to a short
+  list of fields and marked as other people's text, which an agent must treat as
+  information and never as your approval.
+
+## Disconnecting and removing the key
+
+Disconnect on the Apps page removes the account from Composio. To also remove the
+app's grant at GitHub, use GitHub → Settings → Applications; that step was not
+checked. Remove key deletes the key from this app only: connected accounts stay
+at Composio, so disconnect them first if you want them gone.
+
+## If something does not work
+
+- **The agent ignores a connected app.** Check the app and at least one exact
+  account are allowed on that existing Claude or Codex agent, then start a new conversation. For GitHub,
+  name the repository as `owner/name`; for Gmail and Calendar, ask for a
+  specific search or date window.
+- **"No account named …" or "more than one account".** Name the account to use,
+  or disconnect the extra one.
+- **"answered in a form this app does not read".** The message lists the
+  answer's field names (never its values); include them when reporting it.
+- **Composio says the key is invalid.** Check that it is a project key. A
+  scoped key may also be missing permissions even when Composio reports an
+  invalid key; allow Connected accounts Read, Session management Write and
+  Session tool execution Write, then create and save a replacement key.
+- **Composio denies a scoped key.** This can mean a permission is missing even
+  when account listing worked. Allow Connected accounts Read, Session
+  management Write and Session tool execution Write. Connected accounts Write
+  is needed to disconnect accounts. Composio fixes scoped permissions when the
+  key is created, so generate a new key after changing them. See Composio's
+  [project API key permissions guide](https://docs.composio.dev/kb/guide/platform-project-api-key-permissions).
+- **An unknown outcome.** Look on GitHub before asking again.
+
+## What has been checked
+
+The generic path and the app catalog were checked against a fake Composio that
+follows Composio's published API description (OpenAPI v3.1, read on 2026-10-28):
+Claude and Codex turns through the real approval gate, the checks above, and the
+catalog's cache and key isolation. **Not checked against the real Composio**: the
+size and paging of the real catalog, a real action description for any
+non-curated app, running an action of such an app, and what Composio answers
+when an app has no sign-in it supplies. Nothing in the real catalog has been
+reviewed as a read.
+
+Earlier automated checks use a fake Composio and a real runtime, approval
+gate and Claude adapter. The Codex adapter now mounts the same scoped tools
+and routes Codex's MCP request through that approval gate; live Codex use has
+not yet been checked. By hand, on Windows with the desktop app and the web
+build, the real Claude CLI, your own Composio project and a private test
+repository: GitHub connecting, listing, disconnecting and approved issue
+changes, plus Deny and the Read-only refusal. Gmail and Calendar agent tools
+have not been run against live accounts. The desktop static UI build succeeded
+and the source-checkout Mac app was relaunched, but no Gmail or Calendar call
+was made in it. No automated tests were run for the Codex increment. A
+packaged installer, Gmail or Calendar live calls from Codex, Linux and its
+sandbox, a real lost-answer failure, and revocation at GitHub remain unchecked.
+
+## Custom MCP servers
+
+Apps → MCP Marketplace → **Custom MCP servers** lets you add a remote MCP server that is not in the marketplace.
+
+1. **Save as a draft.** Give it a name and a public `https://` address (no port, query string or login in the URL). Choose how it signs you in: none, a bearer token, a custom header, or browser sign-in (OAuth). A new server is off and no agent can use it.
+2. **Test it.** Suparagent connects, shows what the server calls itself (its own claim) and lists its tools. A failed test leaves it off.
+3. **Turn it on, then grant tools.** Choose an agent and check the exact tools it may use. A changed address, sign-in method, secret or tool definition clears the affected grants.
+
+Secrets and sign-in tokens are write-only: they are stored encrypted, are never shown again, and never reach the agent or the engine's own configuration. They are in a database backup only in encrypted form, and the backup does not contain the key. Tool descriptions and results come from the server and are treated as untrusted data.
+
+**Where agents can use them.** Claude and Codex, in a person's chat. Every call asks for your approval and shows the server, tool and exact arguments; an approval is used once, and a call whose result is uncertain is never repeated. Other engines, routines, webhooks, rooms and computer or browser sessions do not receive custom tools.
+
+**Large catalogs.** An agent with up to 25 granted custom tools gets them one by one. With more (up to 500 per agent), it is given two small tools instead: `custom_search`, which searches only the tools you granted and returns names, short untrusted descriptions, schemas and a reference, and `custom_call`, which calls one of them by that reference. Search needs no approval and contacts no server. Every `custom_call` still asks for your approval and the card names the exact server, tool and arguments; an approval for one reference or set of arguments cannot authorize another. A revoked, edited or changed tool drops out of search and cannot be called.
+
+**Muapi data research.** MuAPI's data tools are not part of the marketplace: connect MuAPI under **Settings → Integrations** and grant them agent by agent (see [MuAPI](#muapi-settings--integrations)).
+
+**Browser sign-in.** Suparagent finds the sign-in server from the MCP address, registers itself when the server allows it (or uses the client ID you enter), and signs in with PKCE (S256). It refreshes tokens before they expire; if the provider rejects the refresh, the server is turned off and shows "Needs sign-in". Sign out revokes the tokens where the provider supports it and clears all grants for that server; also remove Suparagent in the service's own connected-apps settings to be sure. In the desktop app the sign-in returns to a short-lived listener on `127.0.0.1` (a client you register yourself must allow loopback redirects on any port); web and self-hosted installs return to the server's own address (`SUPARAGENT_PUBLIC_URL`). Where a browser reaches the server through a gateway at a different address, such as a hosted workspace behind its control plane, set `SUPARAGENT_OAUTH_CALLBACK_ORIGIN` (scheme and host only) to the address the gateway serves; it must forward `/api/v1/...` to the right workspace with that person's session. The form shows the exact redirect address to register when you register the client yourself.
+
+**Limits.** Public https servers only, on the standard port. Local command (stdio) servers are not supported. **Sharing in a workspace with other people.** A connection starts private to whoever added it, so a personal sign-in (for example your Notion account) never becomes available to everyone by accident. Only that person can test, edit, sign in to, grant tools from or use it; to everyone else it does not exist. They can choose **Share with workspace**, after which any admin can manage it and any agent that is granted its tools can use it in anyone's chat, still with an approval for every call. Only the person who added it can share it; they or the workspace owner can stop sharing. The workspace owner can also switch off or remove any connection (for example when someone leaves), but cannot use or sign in to another person's private one. Connections are managed by admins only, so a member without admin rights cannot add one.
+
+**What has been checked.** Automated tests cover the connection rules, secrets, grants, approvals, the Claude/Codex bridge and the OAuth flow against a fake authorization server. By hand on Windows, against live services: a public no-auth server (connect, list, call), and Notion's OAuth (browser sign-in, tool list, token refresh and sign-out) in the browser, plus sign-in, tool list and sign-out in the desktop app through the loopback listener. **Not checked**: a real Claude or Codex turn calling a custom tool, whether Notion revoked the tokens on sign-out, macOS, Linux, the packaged installers, PostgreSQL against a real server, and the hosted service.
+
+## MuAPI (Settings → Integrations)
+
+MuAPI is a first-party connection: the app calls MuAPI's REST API directly with your own key and does not use the Community MCP listing. This key (the data API key) is separate from the key used by MuAPI cloud computers.
+
+1. **Connect.** Open **Settings → Integrations**, paste the key and choose **Connect MuAPI**. The key is checked with MuAPI, then stored encrypted and write-only: it is never shown again and never reaches an agent or an engine. **Disconnect MuAPI** removes it and clears every agent's MuAPI grants.
+2. **Grant tools.** Under **Agent access**, check the exact tools each agent may use and choose **Save access**. Every grant starts off. The tools are: search data APIs, inspect a model's schema, estimate a call, make a capped paid call, search image, video and audio models, make one capped image, video or audio item, and check a prediction result. A paid call needs `max_cost_usd`, obtains a fresh quote and is refused when the quote is above the cap; it still asks for your approval in chats and stays within your spending limits. A routine can spend without a per-call approval only if you tick the scheduled-runs box for that agent (off by default).
+3. **What the lookups reach.** MuAPI's read-only domains: SEO, lead enrichment (company, people and news lookups), scraping (public social posts), market data (marketplace listings and reviews) and web research (`research-web-answer`: a cited answer, a search, a deep search and page text). Publishing to social accounts and controlling sandboxes are never reachable, and models whose names mark them adult-tier are not offered.
+4. **Results.** Results are untrusted data, never instructions or approval. A task that fails on MuAPI's side returns its status and error text to the agent. Empty strings and empty lists in a lookup's input are dropped before it is sent, because MuAPI refuses them, and inspecting a lookup lists each field's allowed values.
+5. **Also used for.** With MuAPI connected, **Settings → Integrations → Spoken replies** chooses the voice for reading a reply aloud, and the agent Picture dialog offers **MuAPI images**. See [everyday features](EVERYDAY.md#reading-a-reply-aloud).
+
+**What has been checked.** Automated tests, with stubbed catalogs, cover the domain rules, the quote cap, failed results and input clean-up. A one-off comparison with MuAPI's published catalog found every lookup name the bundled workers use reachable and the publishing domain not. Against live MuAPI: web research in all four modes and a news lookup returned results; the first attempts failed on MuAPI's side with an internal error and worked when retried. **Not checked**: the other lookups, the image, video and audio tools, the amount charged against a quote (MuAPI reserves the maximum and settles lower, and the app records the reserved amount), macOS, Linux, the packaged installers and the hosted service.
+
+## Routine-specific app access
+
+With Uninterrupted access off, the routine editor binds exact actions to stable connected account IDs. Grants
+start empty and do not inherit the agent's broader access. You authorize each
+selected action once for that routine and account; it can then run without a
+fresh approval card. The agent must also have the matching read/write app scope.
+Plan mode continues to refuse writes.
+
+In addition to existing read actions, the available write grants are:
+
+- Send one-recipient plain-text Gmail email immediately (`gmail_send_email`).
+  No cc/bcc, extra recipients, attachments or HTML are accepted.
+- Create a new GitHub `campaign/` branch (`github_create_branch`).
+- Commit one text file on a `campaign/` branch (`github_commit_file`). The
+  existing current-blob-SHA requirement for replacements remains in force.
+
+A separate checked-message reply-draft grant is available only in a confined
+fresh Claude run with Read message and Read Gmail profile grants for the same
+account. It cannot be combined with send or repository-write grants. The
+server derives the sender, rechecks source headers and allows at most one draft
+attempt in the run. See [checked-message draft mode](ROUTINES.md#checked-message-draft-mode).
+The existing interactive draft tool still requires a person approval and is
+not itself preauthorized by a routine. Other write tools are unavailable. Imports
+and chat-created routines receive no grant; only the person-facing editor can
+assign one. Local shell commands such as `git commit` use command permissions,
+independently of these connected-app grants.
+
+These grants apply directly on eligible scheduled/manual runs. The safety box
+and credential isolation have separate qualification gates; local shell
+visibility of saved keys remains a separate safety limitation.
+
+Only scheduled/manual runs qualify; webhook runs, retries and runs with an agent
+computer receive no connected-app tools in this mode. Each run records its starting grants.
+New permissions apply on the next run; grant/account revocation stops later calls.
+App content is untrusted data and cannot authorize actions.
+
+With **Uninterrupted access** enabled by the owner, scheduled and manual runs
+instead use the selected agent's configured app read/write scopes and exact
+connected accounts, bounded by the run-start snapshot and current permissions.
+Configured generic actions and granted marketplace tools can execute without
+fresh approval cards, including alongside the attached isolated computer.
+The provider's current OAuth rights, action schema checks, app blocklists,
+Plan mode and at-most-once write receipts continue to apply. Revoking the
+routine setting, agent scope or account prevents later calls. Imports and
+chat-created routines cannot enable this setting. See
+[Uninterrupted access](ROUTINES.md#uninterrupted-access) for scheduling and
+computer scope. Real AppSumo and updated installed-package runs remain unqualified.
+
+Every write is durably reserved before provider dispatch. The same tool/account/
+arguments cannot execute again in that run, including concurrent calls, process
+restarts and uncertain outcomes. A crash may leave a reserved receipt; check the
+external account before starting a new manual run. A new scheduled/manual run is
+newly authorized work and can perform the action again. Run history shows the
+latest 100 app-action receipts, including results and refusals. File Undo does
+not undo email sends or repository changes. Interactive changes retain their
+existing one-use approval cards.

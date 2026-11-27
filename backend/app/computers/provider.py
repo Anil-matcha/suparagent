@@ -2,9 +2,9 @@
 
 A provider knows how to make, wake, sleep and remove one isolated machine for
 an agent, how to report what it finds, and how the agent's tools reach it (an
-MCP server launch). Docker is the only provider today; a remote server over
-SSH (`docker -H ssh://alias`) and a desktop computer with a screen fit the
-same interface (docs/COMPUTERS.md).
+MCP server launch). Docker provides local computers; Boat, Muapi and boxd
+provide cloud computers in the Desktop app. A remote server over SSH remains a future
+provider (docs/COMPUTERS.md).
 
 Every method is synchronous and may block on the docker CLI: callers run them
 in a worker thread.
@@ -21,6 +21,12 @@ from app.computers import docker_cli
 from app.computers.docker_cli import Spec
 
 
+# Providers that run a computer in a remote cloud and are driven through the
+# local provider-tool bridge (as opposed to local Docker). Their tool calls go
+# through the local backend (`/computers/{id}/provider-tool`), which holds the key.
+CLOUD_PROVIDERS = frozenset({"boat", "muapi", "boxd"})
+
+
 class ComputerError(Exception):
     """A lifecycle step that cannot be done, with a code a client can act on."""
 
@@ -35,6 +41,10 @@ class Health:
     available: bool
     version: str | None = None
     error: str | None = None
+    # True on a hosted server, which never runs a computer on its own machine.
+    hosted: bool = False
+    # True when agents here can use a browser on this machine (settings.LOCAL_BROWSER_ENABLED).
+    browser_local: bool = False
 
 
 @dataclass
@@ -80,8 +90,11 @@ class ComputerProvider(Protocol):
 
     def stop(self, spec: Spec) -> Status: ...
 
-    def delete(self, spec: Spec) -> None:
-        """Remove the machine. Never touches the agent's workspace folder."""
+    def delete(self, spec: Spec) -> str | None:
+        """Remove the machine, returning an ID while provider deletion is pending.
+
+        Never touches the agent's workspace folder.
+        """
 
     def update_limits(self, spec: Spec) -> None: ...
 
@@ -90,7 +103,7 @@ class ComputerProvider(Protocol):
 
     def remove_by_name(self, name: str, instance: str) -> None: ...
 
-    def mcp_launch(self, spec: Spec, grants_dir: Path, state_dir: Path) -> McpLaunch: ...
+    def mcp_launch(self, spec: Spec, grants_dir: Path, state_dir: Path, *, turn_id: int | None = None) -> McpLaunch: ...
 
 
 def _backend_root() -> Path:
@@ -267,7 +280,7 @@ class DockerProvider:
         if current.state == "missing":
             return
         if current.state == "foreign":
-            raise ComputerError(current.problem or "That container was not made by open-dots.", "computer_foreign")
+            raise ComputerError(current.problem or "That container was not made by suparagent.", "computer_foreign")
         self._must(["rm", "-f", spec.name], "remove the computer")
 
     def update_limits(self, spec: Spec) -> None:
@@ -302,7 +315,7 @@ class DockerProvider:
             raise ComputerError("That container was not made by this installation.", "computer_foreign")
         self._must(["rm", "-f", name], "remove the computer")
 
-    def mcp_launch(self, spec: Spec, grants_dir: Path, state_dir: Path) -> McpLaunch:
+    def mcp_launch(self, spec: Spec, grants_dir: Path, state_dir: Path, *, turn_id: int | None = None) -> McpLaunch:
         return mcp_launch_for(spec.name, spec.run_as, grants_dir, state_dir, self._docker or docker_cli.docker_executable(), spec.kind)
 
 
@@ -325,7 +338,7 @@ def _status_of(detail: dict, spec: Spec) -> Status:
     ):
         return Status(
             "foreign",
-            problem=f"A container named {spec.name} exists but was not made by open-dots for this agent. "
+            problem=f"A container named {spec.name} exists but was not made by suparagent for this agent. "
             "Remove or rename it in Docker.",
             **common,
         )

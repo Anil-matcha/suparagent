@@ -36,7 +36,7 @@ test('rows drop what is not a row and each kind has one action', () => {
   const state = applyEvent(emptyTranscript(), ev(card(1, [row('a'), { nope: 1 }])));
   assert.equal(state.items[0].rows.length, 1);
   assert.deepEqual(rowAction(row('x', 'approval', 9)), { label: 'Review', href: '/chat?thread=9' });
-  assert.deepEqual(rowAction(row('x', 'signed_out')), { label: 'Open settings', href: '/settings/' });
+  assert.deepEqual(rowAction(row('x', 'signed_out')), { label: 'Open settings', href: '/settings/engines/' });
   assert.equal(rowAction(row('x', 'usage_limit')).href, '/chat?panel=usage');
 });
 
@@ -58,4 +58,16 @@ test('Today keeps source freshness and routes to the exact routine or task', () 
   assert.equal(item.rows[0].at, data.items[0].at);
   assert.deepEqual(rowAction(item.rows[0]), { label: 'View runs', href: '/chat?view=routines&routine=7' });
   assert.deepEqual(rowAction({ ...row('due:8', 'due'), work_item_id: 8 }), { label: 'Review task', href: '/chat?view=planner&task=8' });
+});
+
+test('provider rows preserve source IDs and accept only trusted HTTPS source links', () => {
+  const input = { ...row('gmail:message', 'gmail_message'), source_id: 'message', source_timestamp: '1792832400000',
+    source_url: 'https://mail.google.com/mail/#all/message' };
+  const item = applyEvent(emptyTranscript(), ev(card(1, [input]))).items[0];
+  assert.equal(item.rows[0].source_id, input.source_id);
+  assert.equal(item.rows[0].source_timestamp, input.source_timestamp);
+  assert.deepEqual(rowAction(item.rows[0]), { label: 'Open message', href: input.source_url });
+  for (const source_url of ['javascript:alert(1)', 'https://untrusted.example/event', 'http://calendar.google.com/event']) {
+    assert.equal(rowAction({ ...input, source_url }).href, null);
+  }
 });

@@ -3,7 +3,7 @@
 The suite runs on whichever database the settings select: PostgreSQL when
 POSTGRES_* values are set (the default for the existing setup), or SQLite with
 `DATABASE_BACKEND=sqlite`. A SQLite run always uses a fresh temporary file,
-never ~/.open-dots/open-dots.db, so the tests cannot touch a real database.
+never ~/.suparagent/suparagent.db, so the tests cannot touch a real database.
 
     uv run pytest                                   # PostgreSQL (from .env)
     DATABASE_BACKEND=sqlite uv run pytest           # SQLite, temporary file
@@ -24,7 +24,7 @@ BACKEND_DIR = Path(__file__).parents[1]
 # This must happen before anything imports app.db.session, which creates the
 # application's engine from the settings.
 if settings.DATABASE_KIND == "sqlite":
-    settings.SQLITE_PATH = str(Path(tempfile.mkdtemp(prefix="open-dots-test-")) / "test.db")
+    settings.SQLITE_PATH = str(Path(tempfile.mkdtemp(prefix="suparagent-test-")) / "test.db")
 
 from app.db.engine import create_app_async_engine  # noqa: E402
 
@@ -123,4 +123,4 @@ def other_user_id() -> str:
 def fake_engine_environment(monkeypatch):
     """The fake engine CLIs read their scratch folders from FAKE_* variables;
     engines only get listed names (app/core/engine_env.py)."""
-    monkeypatch.setenv("OPEN_DOTS_ENGINE_ENV", "FAKE_*")
+    monkeypatch.setenv("SUPARAGENT_ENGINE_ENV", "FAKE_*")

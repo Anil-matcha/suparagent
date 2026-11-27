@@ -1,0 +1,504 @@
+"""Composio connected apps: the saved key and what Settings does with it.
+
+One encrypted row in the credential table (`user_credential`, provider
+`integration:composio`, like `engine:<id>`; no migration):
+
+    {"api_key": "ak_...", "user_id": "suparagent_<hex>", "session_id": "..." | null}
+
+`user_id` is this installation's one Composio user. Connections belong to that
+user, not to a session, so a lost session is replaced without losing them.
+The key is never returned, logged or audited; `status()` says only whether
+one is saved.
+"""
+
+import asyncio
+import json
+import re
+import uuid
+
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app import composio_catalog, composio_generic, composio_tools
+from app.db.models.user_credential import UserCredential
+from app.db.transactions import begin_write
+from app.services import user_credential_service
+from app.core import tool_timeout
+from app.services.composio_client import Account, ComposioClient, ComposioError, Link
+
+PROVIDER = "integration:composio"
+_NOT_A_FILE = "-"
+
+# The apps that have curated tools (app/composio_tools.py). Any other app Composio lists can be connected too
+# (composio_catalog.py) and reached through the generic tools (composio_generic.py).
+SUPPORTED_APPS: tuple[tuple[str, str], ...] = tuple((slug, composio_catalog.APP_INFO[slug]["name"]) for slug in composio_tools.apps())
+MAX_ACCOUNTS_PER_APP = 5
+
+_KEY = re.compile(r"^ak_[A-Za-z0-9_-]{8,200}$")
+_ALIAS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$")
+
+# One key change or session creation at a time.
+lock = asyncio.Lock()
+
+
+class UserError(Exception):
+    """A request the owner can fix. `code` is the machine-readable cause."""
+
+    def __init__(self, status: int, code: str, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.code = code
+        self.message = message
+
+
+def valid_key(key: object) -> bool:
+    return isinstance(key, str) and _KEY.match(key) is not None
+
+
+def valid_alias(alias: object) -> bool:
+    return isinstance(alias, str) and _ALIAS.match(alias) is not None
+
+
+async def load(db: AsyncSession, owner_id: str) -> dict | None:
+    """The saved record, or None when there is none or it cannot be read."""
+    try:
+        found = await user_credential_service.get_decrypted(db, owner_id, PROVIDER)
+        record = json.loads(found[0]) if found else None
+    except Exception:  # noqa: BLE001  (a row that no longer decrypts reads as no key)
+        return None
+    if not isinstance(record, dict) or not valid_key(record.get("api_key")) or not isinstance(record.get("user_id"), str):
+        return None
+    return record
+
+
+async def _save(db: AsyncSession, owner_id: str, record: dict) -> None:
+    await user_credential_service.save_token(
+        db, user_id=owner_id, provider=PROVIDER, file_path=_NOT_A_FILE,
+        plaintext=json.dumps(record, ensure_ascii=False),
+    )
+
+
+async def configured(db: AsyncSession, owner_id: str) -> bool:
+    return await load(db, owner_id) is not None
+
+
+async def set_key(db: AsyncSession, owner_id: str, key: str, make_client) -> None:
+    """Check the key with Composio, then save it. A different key means a
+    different project, so the saved session is dropped; the user id stays."""
+    if not valid_key(key):
+        raise UserError(422, "invalid_composio_key", "A Composio project key starts with ak_ and has no spaces.")
+    async with lock:
+        previous = await load(db, owner_id)
+        user_id = previous["user_id"] if previous else "suparagent_" + uuid.uuid4().hex
+        try:
+            await make_client(key).accounts(user_id)
+        except ComposioError as exc:
+            raise _user_error(exc, saving=True) from None
+        await _save(db, owner_id, {"api_key": key, "user_id": user_id, "session_id": None})
+        composio_catalog.invalidate()  # first uses of reviewed reads are in the record and went with it
+
+
+async def remove_key(db: AsyncSession, owner_id: str) -> None:
+    """Forget the key and the session. Connected accounts stay at Composio:
+    this does not revoke them."""
+    async with lock:
+        await begin_write(db)
+        await db.execute(
+            delete(UserCredential).where(UserCredential.user_id == owner_id, UserCredential.provider == PROVIDER)
+        )
+        await db.commit()
+        composio_catalog.invalidate()
+
+
+async def known_app(db: AsyncSession, owner_id: str, make_client, slug: str) -> bool:
+    """Whether Composio lists an app with this name, asked with the owner's key. False without a key; a failure to ask
+    is a UserError, never a guess."""
+    if not composio_generic.valid_app(slug) or composio_generic.blocked_app(slug):
+        return False
+    if slug in composio_tools.apps():
+        return True
+    record = await load(db, owner_id)
+    if record is None:
+        return False
+    try:
+        return await composio_catalog.is_known(make_client(record["api_key"]), slug)
+    except ComposioError as exc:
+        raise _user_error(exc) from None
+
+
+async def _needed(db: AsyncSession, owner_id: str) -> dict:
+    record = await load(db, owner_id)
+    if record is None:
+        raise UserError(409, "composio_not_configured", "Add your Composio key in Settings first.")
+    return record
+
+
+def _user_error(exc: ComposioError, *, saving: bool = False) -> UserError:
+    if exc.kind == "key_rejected":
+        message = (
+            "Composio did not accept this key. Check that it is a project key. A scoped key may also be missing "
+            "Connected accounts → Read; create a new key after changing scopes."
+        ) if saving else (
+            "Composio rejected this key. It may be invalid or a scoped permission may be missing. Check Connected "
+            "accounts → Read, Session management → Write, and Session tool execution → Write; Connected accounts "
+            "→ Write is needed to disconnect accounts. Create and save a new key after changing scopes."
+        )
+        return UserError(422 if saving else 409, "composio_key_rejected", message)
+    if exc.kind == "permission_denied":
+        message = (
+            "Composio denied this key's permissions. For a scoped project key, enable Connected accounts → Read, "
+            "Session management → Write, and Session tool execution → Write. Connected accounts → Write is also "
+            "needed to disconnect accounts. Create a new key after changing scopes; permissions are set when the key is created."
+        )
+        return UserError(403, "composio_permission_denied", message)
+    if exc.kind == "rate_limited":
+        return UserError(429, "composio_rate_limited", exc.message)
+    if exc.kind == "unavailable":
+        return UserError(502, "composio_unavailable", exc.message)
+    if exc.kind == "not_found":
+        return UserError(404, "composio_not_found", exc.message)
+    if exc.kind == "bad_response":
+        return UserError(502, "composio_bad_response", exc.message)
+    return UserError(422, "composio_rejected", exc.message)
+
+
+async def accounts(db: AsyncSession, owner_id: str, make_client) -> list[Account]:
+    record = await _needed(db, owner_id)
+    try:
+        return await make_client(record["api_key"]).accounts(record["user_id"])
+    except ComposioError as exc:
+        raise _user_error(exc) from None
+
+
+async def connect(db: AsyncSession, owner_id: str, make_client, toolkit: str, alias: str | None) -> Link:
+    if not composio_generic.valid_app(toolkit) or composio_generic.blocked_app(toolkit):
+        raise UserError(422, "unsupported_app", "That app is not available here.")
+    if alias is not None and not valid_alias(alias):
+        raise UserError(422, "invalid_alias", "Use up to 40 letters, numbers, spaces, dots, dashes or underscores.")
+    async with lock:
+        record = await _needed(db, owner_id)
+        client = make_client(record["api_key"])
+        try:
+            # An app is connectable only when Composio itself lists it (curated apps always are).
+            if toolkit not in composio_tools.apps() and not await composio_catalog.is_known(client, toolkit):
+                raise UserError(422, "unsupported_app", "Composio has no app with that name.")
+            existing = [a for a in await client.accounts(record["user_id"], toolkit) if a.status != "FAILED"]
+            if len(existing) >= MAX_ACCOUNTS_PER_APP:
+                raise UserError(409, "too_many_accounts", f"Disconnect an account first; {MAX_ACCOUNTS_PER_APP} is the most per app.")
+            alias = alias or "od-" + uuid.uuid4().hex[:6]
+            if any((a.alias or "").lower() == alias.lower() for a in existing):
+                raise UserError(409, "alias_in_use", "You already have an account with that name for this app.")
+            for attempt in range(2):
+                session_id = record.get("session_id")
+                if not session_id:
+                    session_id = await client.create_session(record["user_id"])
+                    record = {**record, "session_id": session_id}
+                    await _save(db, owner_id, record)
+                try:
+                    return await client.link(session_id, toolkit, alias)
+                except ComposioError as exc:
+                    # A session Composio no longer knows is replaced once; the user keeps their accounts.
+                    if exc.kind != "not_found" or attempt:
+                        raise
+                    record = {**record, "session_id": None}
+            raise ComposioError("bad_response", "Composio did not give a connect link.")
+        except ComposioError as exc:
+            raise _user_error(exc) from None
+
+
+def _agent_error(exc: ComposioError) -> dict:
+    """What an agent is told when Composio could not be used. No detail from the
+    response is passed on."""
+    said = {
+        "key_rejected": "Composio rejected the person's key. It may be invalid or a scoped permission may be missing. The owner should check Connected accounts read, Session management write, and Session tool execution write, then replace the key in Settings.",
+        "permission_denied": "Composio denied the saved key's permissions. The person needs a project key with Session management and Session tool execution write access; scoped keys also need Connected accounts read access.",
+        "rate_limited": "Composio is rate limiting requests. Try again later.",
+        "unavailable": "Composio did not answer. Nothing was changed; the read may not have happened.",
+        "not_found": "That app, account or tool was not found at Composio.",
+    }
+    return {"error": said.get(exc.kind, "Composio could not run this."), "code": "composio_" + exc.kind}
+
+
+def _choose(active: list[Account], alias: str | None, app: str) -> tuple[Account | None, dict | None]:
+    if not active:
+        return None, {"error": f"No {app} account is connected. Call request_app_connection for {app} to show the person a card, then end your turn; do not retry.", "code": "not_connected"}
+    names = sorted(a.alias or a.id for a in active)
+    if alias is not None:
+        match = [a for a in active if (a.alias or "").lower() == alias.lower()]
+        if len(match) != 1:
+            return None, {"error": "No connected account has that name. Connected: " + ", ".join(names), "code": "unknown_account"}
+        return match[0], None
+    if len(active) > 1:
+        return None, {"error": "More than one account is connected; say which with the account argument: " + ", ".join(names),
+                      "code": "account_required"}
+    return active[0], None
+
+
+async def connected_names(db: AsyncSession, owner_id: str, make_client, allowed_apps,
+                          allowed_account_ids: dict[str, list[str]] | None = None) -> dict:
+    """The names of active accounts that this agent selected, grouped by app."""
+    record = await load(db, owner_id)
+    if record is None:
+        return {"error": "Connected apps are not set up. The person can add their Composio key in Settings.", "code": "not_configured"}
+    try:
+        found = await make_client(record["api_key"]).accounts(record["user_id"])
+    except ComposioError as exc:
+        return _agent_error(exc)
+    return {"apps": {app: sorted(a.alias or a.id for a in found if a.toolkit == app and a.status == "ACTIVE"
+                                  and (allowed_account_ids is None or a.id in allowed_account_ids.get(app, [])))
+                     for app in sorted(allowed_apps)}}
+
+
+async def _session(db: AsyncSession, owner_id: str, client: ComposioClient, record: dict, *, replace: str | None = None) -> tuple[str, dict]:
+    """The saved session, or a new one. `replace` names a session that just failed:
+    it is replaced only if nobody else already did."""
+    async with lock:
+        latest = await load(db, owner_id) or record
+        session_id = latest.get("session_id")
+        if session_id and session_id != replace:
+            return session_id, latest
+        session_id = await client.create_session(latest["user_id"])
+        latest = {**latest, "session_id": session_id}
+        await _save(db, owner_id, latest)
+        return session_id, latest
+
+
+OUTCOME_UNKNOWN = {
+    "error": "The request was sent but no answer came back, so the change may or may not have been made. "
+             "Do not repeat it; ask the person to check.",
+    "code": "outcome_unknown",
+}
+SESSION_EXPIRED = {
+    "error": "Composio's session had expired and nothing was changed. Ask the person before trying again.",
+    "code": "session_expired",
+}
+DONE_UNREADABLE = {
+    "result": "done", "code": "done_unreadable",
+    "note": "The change was made, but the app's answer could not be read. Do not repeat it; ask the person to check.",
+}
+
+
+async def _execute(client, session_id, slug, arguments, account_id):
+    """client.execute under the single tool timeout; a timeout reads as 'unavailable',
+    so a change is reported as unknown and never retried."""
+    try:
+        async with asyncio.timeout(tool_timeout.seconds()):
+            return await client.execute(session_id, slug, arguments, account_id)
+    except TimeoutError:
+        raise ComposioError("unavailable", "The app did not answer in time.") from None
+
+
+async def _edited_commit(client, session_id, account_id, arguments: dict) -> dict:
+    """Turn an insert_after edit into a whole-file commit: read the file on the branch, add the line(s),
+    and send the new text with the blob id that was read. Only a read happens here."""
+    import base64
+    from app import composio_tools
+
+    read = composio_tools.BY_NAME["github_get_file"]
+    done = await _execute(client, session_id, read.slug, {"owner": arguments["owner"], "repo": arguments["repo"],
+                                                          "path": arguments["path"], "ref": arguments["branch"]}, account_id)
+    if done.result_type != "completed":
+        raise composio_tools.BadArguments("The file could not be read, so nothing was changed.")
+    text, sha = composio_tools.edit_source(done.data)
+    new = composio_tools.insert_after_line(text, arguments["insert_after"], arguments["insert_text"])
+    if len(new) > 1_000_000:
+        raise composio_tools.BadArguments("The edited file would be too large.")
+    sent = {k: v for k, v in arguments.items() if k not in ("insert_after", "insert_text")}
+    sent["content"], sent["sha"] = base64.b64encode(new.encode("utf-8")).decode("ascii"), sha
+    return sent
+
+
+MAX_SHARE_PAGES = 5  # pages of 30 scanned per search call while a share of the mailbox is set
+
+
+async def _shared_result(client, session_id: str, tool, arguments: dict, account_id: str, done, rule, want: int) -> dict:
+    """What the agent may see of a Gmail answer under a share of the mailbox (app/gmail_share.py).
+
+    Rows outside the share are dropped from the raw answer before it is cut down, so `count`,
+    `truncated` and the profile totals never say how much was hidden."""
+    from app import composio_tools, gmail_share
+
+    if tool.name == "gmail_fetch_emails":
+        collected: list = []
+        data, pages = done.data, 0
+        while True:
+            kept, _, token = gmail_share.split_rows(tool, data, rule)
+            collected.extend(kept)
+            pages += 1
+            if len(collected) >= want or not token or pages >= MAX_SHARE_PAGES:
+                break
+            try:
+                more = await _execute(client, session_id, tool.slug, {**arguments, "page_token": token}, account_id)
+            except ComposioError:
+                token = None  # what was found is shown; the agent can search again
+                break
+            if more.result_type != "completed":
+                token = None
+                break
+            data = more.data
+        trimmed = len(collected) > want
+        if trimmed:  # rows past `want` were read, so a token for the next page would skip them: do not give one
+            collected, token = collected[:want], None
+        shaped = {tool.list_key: collected}
+        if token:
+            shaped[tool.cursor_key] = token
+        result = composio_tools.project(tool, shaped)
+        if trimmed:
+            result["truncated"] = True
+        return result
+    result = composio_tools.project(tool, done.data)
+    if tool.name == "gmail_fetch_message" and not gmail_share.message_in_share(result, rule):
+        return dict(gmail_share.OUTSIDE)  # the content is dropped here and never returned
+    if tool.name == "gmail_get_profile":
+        return gmail_share.strip_profile(result, rule)
+    return result
+
+
+async def _run_label_tool(db, owner_id: str, client, record: dict, session_id: str, tool, arguments: dict,
+                          account_id: str, context: dict | None) -> dict:
+    """The two Gmail label tools (services/worker_label_ops.py), after the account, share and routine rules.
+    A Composio problem before anything changed a thread is reported like any other; a forgotten session is replaced."""
+    from app.services import worker_label_ops
+
+    for attempt in range(2):
+        try:
+            if tool.special == "label_list":
+                return await worker_label_ops.list_labels(db, owner_id, client, session_id, account_id, _execute)
+            return await worker_label_ops.apply(db, owner_id, client, session_id, account_id, arguments, context, _execute)
+        except ComposioError as exc:
+            if exc.kind != "not_found":
+                return _agent_error(exc)
+            # Composio forgot the session (the connection belongs to the user, so it is replaced).
+            try:
+                session_id, record = await _session(db, owner_id, client, record, replace=session_id)
+            except ComposioError as again:
+                return _agent_error(again)
+            if tool.special == "label_apply" or attempt:
+                return dict(SESSION_EXPIRED)
+    return dict(SESSION_EXPIRED)
+
+
+async def run_tool(db: AsyncSession, owner_id: str, make_client, tool, arguments: dict, alias: str | None, *,
+                   account_id: str | None = None, allowed_account_ids: list[str] | None = None,
+                   before_execute=None, shares: dict | None = None, mark_context: dict | None = None) -> dict:
+    """Run one allowed tool as one connected account and return what the agent may see.
+    Never raises for a Composio problem: the agent gets a short error instead.
+
+    A read may be retried once on a forgotten session. A change never is: it is sent
+    once, and a failure that leaves it unknown is reported as unknown, so the agent is
+    told not to repeat it. A change that went through is never reported as a failure.
+
+    `shares` is the agent's `connector_shares` (app/gmail_share.py): the share of a Gmail
+    mailbox it may see. Every caller that acts for an agent must pass it; None means no rule
+    (tests/services/test_run_tool_callers.py checks that no caller forgets).
+
+    `mark_context` ({"agent_id", "turn_id", "run_id"}) is only for gmail_triage_mark, which records in this
+    app's database and never reaches Composio (services/shadow_marks.py), and for the label tools, which
+    record each label they add (services/worker_label_ops.py)."""
+    from app import composio_tools, gmail_share
+
+    write = tool.kind != "read"  # a label is a change too: sent once, never repeated after an unknown outcome
+    record = await load(db, owner_id)
+    if record is None:
+        return {"error": "Connected apps are not set up. The person can add their Composio key in Settings.", "code": "not_configured"}
+    client = make_client(record["api_key"])
+    try:
+        active = [a for a in await client.accounts(record["user_id"], tool.app) if a.status == "ACTIVE"]
+        if allowed_account_ids is not None:
+            permitted = set(allowed_account_ids)
+            if account_id is not None and account_id not in permitted:
+                return {"error": "This agent is not allowed to use that connected account.", "code": "not_allowed"}
+            active = [a for a in active if a.id in permitted]
+            if not active:
+                return {"error": "The selected connected account is no longer connected.", "code": "not_connected"}
+        if account_id is not None:
+            matches = [a for a in active if a.id == account_id and a.toolkit == tool.app]
+            account = matches[0] if len(matches) == 1 else None
+            problem = None if account else {"error": "The granted account is no longer connected.", "code": "not_connected"}
+        else:
+            account, problem = _choose(active, alias, tool.app)
+        if problem:
+            return problem
+        rule, want = None, 0
+        if tool.app == gmail_share.APP and shares:
+            # The rule of the account actually used. A damaged rule denies; it never grants.
+            try:
+                rule = gmail_share.rule_for(shares, tool.app, account.id)
+            except gmail_share.ShareInvalid:
+                return dict(gmail_share.INVALID)
+            refusal = gmail_share.precheck(tool.name, arguments, rule)
+            if refusal is not None:
+                return refusal
+            if rule is not None and tool.name == "gmail_fetch_emails":
+                want = int(arguments.get("max_results") or 10)
+                arguments = {**arguments, "max_results": 30}  # scan whole pages so a small share still finds rows
+        if before_execute is not None:
+            refusal = await before_execute(account.id)
+            if refusal is not None:
+                return refusal
+        if tool.special == "lesson_propose":
+            # Like the triage mark: this app's own files only, never a Composio call.
+            from app.services import history_learning
+            return history_learning.record_from_tool((mark_context or {}).get("agent_id"), arguments)
+        if tool.special == "triage_mark":
+            # After the account rules, the share rule and the routine's receipt: no session and no Composio call.
+            from app.services import shadow_marks
+            return await shadow_marks.record(db, owner_id, arguments, account.id, rule, mark_context)
+        session_id, record = await _session(db, owner_id, client, record)
+        if tool.special == "sent_replies":
+            # The owner opted in separately, so the share of the mailbox is not applied; the opt-in's own bounds are.
+            from app.services import history_reader
+            return await history_reader.read(db, owner_id, client, session_id, account.id, mark_context)
+        if tool.special in ("label_apply", "label_list"):
+            return await _run_label_tool(db, owner_id, client, record, session_id, tool, arguments, account.id, mark_context)
+    except ComposioError as exc:  # nothing was sent for the tool yet
+        return _agent_error(exc)
+    if tool.name == "github_commit_file" and "insert_after" in arguments:
+        try:
+            arguments = await _edited_commit(client, session_id, account.id, arguments)
+        except composio_tools.BadArguments as exc:
+            return {"error": str(exc), "code": "bad_arguments"}
+        except ComposioError as exc:  # nothing was written: only the file was read
+            return _agent_error(exc)
+    try:
+        done = await _execute(client, session_id, tool.slug, arguments, account.id)
+    except ComposioError as exc:
+        if write and exc.kind in ("unavailable", "bad_response"):
+            return dict(OUTCOME_UNKNOWN)
+        if exc.kind != "not_found":
+            return _agent_error(exc)
+        # Composio forgot the session (the connection belongs to the user, so it is replaced).
+        try:
+            session_id, record = await _session(db, owner_id, client, record, replace=session_id)
+            if write:
+                return dict(SESSION_EXPIRED)
+            done = await _execute(client, session_id, tool.slug, arguments, account.id)
+        except ComposioError as again:
+            return _agent_error(again)
+    if done.result_type == "completed":
+        try:
+            if rule is not None:
+                return await _shared_result(client, session_id, tool, arguments, account.id, done, rule, want)
+            return composio_tools.project(tool, done.data)
+        except composio_tools.BadArguments as exc:
+            return dict(DONE_UNREADABLE) if write else {"error": str(exc), "code": "unreadable_answer"}
+    if done.result_type == "failed":
+        return {"error": "The app refused or could not do that" + (f": {done.error}" if done.error else "."), "code": "app_error"}
+    return {"error": "Composio did not run this call.", "code": "not_run"}
+
+
+async def disconnect(db: AsyncSession, owner_id: str, make_client, account_id: str) -> None:
+    record = await _needed(db, owner_id)
+    client = make_client(record["api_key"])
+    try:
+        mine = {a.id for a in await client.accounts(record["user_id"])}
+        if account_id not in mine:
+            raise UserError(404, "account_not_found", "That account is not connected here.")
+        await client.delete_account(account_id)
+        from app.services import composio_actions
+        await composio_actions.forget(db, owner_id, account_id=account_id)
+    except ComposioError as exc:
+        error = _user_error(exc)
+        if error.code in {"composio_unavailable", "composio_rate_limited"}:
+            error.message = "The account was not removed from Composio. Try again; it may still be connected there."
+        raise error from None

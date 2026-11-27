@@ -16,6 +16,7 @@ PUBLIC_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
     (frozenset(methods), re.compile(f"^{API}{path}$"))
     for methods, path in (
         ({"GET", "HEAD"}, "/health"),
+        ({"GET", "HEAD"}, "/version"),
         ({"GET", "HEAD"}, "/sandboxes/health"),
         ({"GET", "HEAD"}, "/permissions/health"),
         # Boat sandboxes call this with their own bearer (HOOK_TOKEN), checked by the route.
@@ -25,10 +26,21 @@ PUBLIC_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
         ({"POST"}, "/auth/login"),
         ({"POST"}, "/auth/logout"),
         ({"POST"}, "/auth/pair"),
+        # Joining by invitation and signing in as a member (auth/people_routes.py).
+        ({"POST"}, "/auth/invites/accept"),
+        ({"POST"}, "/auth/people/login"),
     )
 ) + (
     # Routine webhooks: each delivery carries the routine's own secret, checked by the route.
     (frozenset({"POST"}), re.compile(r"^/hooks/[^/]+$")),
+    # Room posts: each delivery carries the room's own secret, checked by the route.
+    (frozenset({"POST"}), re.compile(r"^/hooks/room/[0-9]+$")),
+    # Hosted deployments: the account is named in the address (routers/hooks.py).
+    (frozenset({"POST"}), re.compile(r"^/hooks/t/[0-9a-f]{32}/[0-9]+$")),
+    # Composio's trigger events: each delivery carries Composio's signature, checked by the route (routers/composio_hooks.py).
+    (frozenset({"POST"}), re.compile(r"^/hooks/composio/[0-9a-f]{32}$")),
+    (frozenset({"POST"}), re.compile(r"^/hooks/composio/t/[0-9a-f]{32}/[0-9a-f]{32}$")),
+    (frozenset({"POST"}), re.compile(r"^/hooks/t/[0-9a-f]{32}/composio/[0-9a-f]{32}$")),
 )
 
 # What the `chat` scope reaches: conversations and their approvals, and the
@@ -37,6 +49,12 @@ CHAT_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
     (frozenset(methods), re.compile(f"^{API}{path}$"))
     for methods, path in (
         ({"GET"}, "/auth/session"),
+        # The roster (names and roles) and renaming oneself; inviting and managing stay admin-only.
+        ({"GET"}, "/people"),
+        ({"PATCH"}, "/people/me"),
+        ({"POST"}, "/people/me/password"),
+        ({"GET"}, "/version"),
+        ({"GET", "PUT"}, "/notifications/preferences"),
         ({"GET"}, "/team"),
         ({"GET"}, "/team/jobs"),
         ({"GET"}, f"/team/jobs/{_ID}"),
@@ -57,8 +75,8 @@ CHAT_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
         ({"GET"}, f"/threads/{_ID}/events/stream"),
         ({"GET"}, f"/threads/{_ID}/approvals"),
         ({"POST"}, f"/threads/{_ID}/approvals/[A-Za-z0-9_-]+"),
-        # Search and attachments are part of chatting. Workspace files
-        # (/threads/{id}/files...) and usage (/usage) stay admin-only.
+        # Search and attachments are part of chatting. Workspace files need
+        # the `files` scope (below) and usage (/usage) stays admin-only.
         ({"GET"}, "/search"),
         ({"POST"}, f"/threads/{_ID}/attachments"),
         ({"GET"}, f"/threads/{_ID}/attachments/[0-9a-f]{{32}}"),
@@ -72,6 +90,63 @@ CHAT_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
 )
 
 
+# What the opt-in `files` scope adds to chat: reading a conversation's workspace
+# files. Not the folder zip, which stays admin-only.
+FILES_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
+    (frozenset({"GET"}), re.compile(f"^{API}{path}$"))
+    for path in (
+        f"/threads/{_ID}/files",
+        f"/threads/{_ID}/files/content",
+        f"/threads/{_ID}/files/raw",
+        f"/threads/{_ID}/files/download",
+    )
+)
+
+
+# What the opt-in `manage` scope adds to chat and files: creating and editing agents, and creating, editing and
+# deleting rooms (and holding or resuming a member). Not deleting agents (archive instead), and not what is
+# sensitive in an agent: the handlers refuse the workspace folder, "accept edits", connected apps and the lead
+# role for anyone but admin (routers/agents.py). A room holds no such setting: its members keep their own
+# approvals, and a post from a device without admin is already marked restricted (routers/rooms.py).
+MANAGE_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
+    (frozenset(methods), re.compile(f"^{API}{path}$"))
+    for methods, path in (
+        ({"POST"}, "/agents"),
+        ({"PATCH"}, f"/agents/{_ID}"),
+        ({"POST"}, f"/agents/{_ID}/duplicate"),
+        ({"GET"}, "/team/setup"),
+        ({"GET"}, r"/team/setup/[^/]+"),
+        ({"PATCH"}, r"/team/setup/[^/]+"),
+        ({"POST"}, r"/team/setup/[^/]+/(?:approve|decline)"),
+        ({"POST"}, "/rooms"),
+        ({"PATCH", "DELETE"}, f"/rooms/{_ID}"),
+        ({"PATCH"}, f"/rooms/{_ID}/members/{_ID}"),
+    )
+)
+
+
+# Event streams that stay open: the middleware ends them when the session stops being valid (auth/live.py).
+STREAM_ROUTES: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = tuple(
+    (frozenset({"GET"}), re.compile(f"^{API}{path}$"))
+    for path in (f"/threads/{_ID}/events/stream", f"/local/tasks/{_ID}/events")
+)
+
+
+# The only writes a read-only viewer may make: their own name and password.
+READ_ONLY_OK: tuple[tuple[frozenset[str], re.Pattern[str]], ...] = (
+    (frozenset({"PATCH"}), re.compile(f"^{API}/people/me$")),
+    (frozenset({"POST"}), re.compile(f"^{API}/people/me/password$")),
+)
+
+
+def read_only_allows(method: str, path: str) -> bool:
+    return _matches(READ_ONLY_OK, method, path)
+
+
+def is_stream(method: str, path: str) -> bool:
+    return _matches(STREAM_ROUTES, method, path)
+
+
 def _matches(rules, method: str, path: str) -> bool:
     return any(method in methods and pattern.match(path) for methods, pattern in rules)
 
@@ -81,7 +156,22 @@ def is_public(method: str, path: str) -> bool:
 
 
 def required_scope(method: str, path: str) -> str:
-    return "chat" if _matches(CHAT_ROUTES, method, path) else "admin"
+    if _matches(CHAT_ROUTES, method, path):
+        return "chat"
+    if _matches(FILES_ROUTES, method, path):
+        return "files"
+    return "manage" if _matches(MANAGE_ROUTES, method, path) else "admin"
+
+
+def has_permission(principal: "Principal | None", permission: str) -> bool:
+    """Whether the caller may use a member permission. Anything that is not a signed-in member keeps
+    the access its scopes already give it."""
+    return principal is None or principal.permissions is None or permission in principal.permissions
+
+
+def allows(scopes: tuple[str, ...], needed: str) -> bool:
+    """Admin reaches everything, including sessions made before `files` existed."""
+    return needed in scopes or "admin" in scopes
 
 
 @dataclass(frozen=True)
@@ -93,6 +183,17 @@ class Principal:
     scopes: tuple[str, ...] = field(default=("admin", "chat"))
     session_id: int | None = None
     label: str | None = None
+    # Set only by a hosted deployment's resolver (auth/tenancy.py); None on the single-owner server.
+    tenant_id: str | None = None
+    # Set when a signed-in member (auth/people.py) is acting; None for a paired device,
+    # the desktop app, a trusted local request and the owner's sessions that predate people.
+    person_id: int | None = None
+    role: str | None = None
+    # A member who may not send anything (a viewer): the middleware refuses every write.
+    read_only: bool = False
+    # What a signed-in member may do (auth/people.py); None for everything that is not a member
+    # (a paired device, the desktop app, a trusted local request), which has no such limits.
+    permissions: tuple[str, ...] | None = None
 
     @property
     def is_admin(self) -> bool:

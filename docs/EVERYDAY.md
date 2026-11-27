@@ -21,6 +21,11 @@ or keep files next to the database.
   query under 2 characters returns nothing.
 - **Filters.** `agent_id`, `since` / `until` (ISO dates, inclusive),
   `include_archived` (off by default), `limit` (1 to 100, default 40).
+- **Paging.** `offset` (0 to 500) skips that many hits. The response carries
+  `has_more` and, while it is true, `next_offset` to ask for next; a page can
+  come back empty after a full last one. A conversation with any message hit
+  never also shows its title as a hit, so pages come from one stable order.
+  Hits beyond 500 are not reachable; narrow the query or the dates.
 - **Result.** Newest first. Each hit names its conversation (id, title, agent,
   archived), where it matched (`title`, `user` or `assistant`, with the event
   `seq` and turn), when, and a snippet of about 160 characters around the
@@ -41,7 +46,7 @@ bytes. All chat scope.
 - **Storage.** A private folder outside every workspace:
   `<data>/attachments/<thread id>/<uuid><ext>` with a small `<uuid>.json`
   beside it (display name, type, size, sha256). `<data>` is
-  `ATTACHMENTS_DIR`, else `~/.open-dots/attachments`, else the desktop data
+  `ATTACHMENTS_DIR`, else `~/.suparagent/attachments`, else the desktop data
   folder. Folders `0700`, files `0600`. The stored file name is always a fresh
   UUID plus an extension chosen from the type; the person's file name is only
   ever a display name (control characters and path separators removed,
@@ -78,7 +83,8 @@ pinned workspace (for an agent's conversation, the agent's workspace).
 `GET .../files/zip?path=` downloads a folder, or the whole workspace when
 `path` is empty, as a zip (at most 2000 files and 200 MB in total before
 compression; over either is 413 `too_large`).
-Admin scope only: a paired chat-only device cannot browse files.
+Needs the `files` scope (or admin): a paired chat-only device cannot browse files. The
+zip stays admin-only.
 
 Confinement, checked on every request:
 
@@ -111,10 +117,17 @@ Confinement, checked on every request:
   as soon as building it fails; a file that grows past the cap while it is
   being zipped stops the download with 413. Each request stages up to about
   200 MB in the system temporary folder and requests are not limited in
-  number; the route is admin-only.
+  number; the route is admin-only (the `files` scope does not reach it).
 
 UI: a Files panel for the open conversation: folders, sizes, a text or image
 preview, a download link, and **Download zip** for the folder being shown.
+
+An assistant Markdown link to an absolute file path becomes a **Download**
+action only when the path is inside that conversation's pinned workspace. The
+app sends the relative path through the existing workspace download route, so
+its permission, containment, symlink, secret-file and size checks still apply.
+Paths outside the pinned workspace remain plain text; the app never opens a
+`file://` URL from a message.
 
 ## Usage and cost
 
@@ -158,3 +171,67 @@ failed with its reason.
   OpenAI-compatible engines.
 - Editing or deleting workspace files from the browser.
 - Budgets, alerts or price tables for engines that do not report cost.
+
+
+## Audio and direct podcast media
+
+Attach supported WAV, MP3, M4A, OGG, FLAC or WebM audio, or choose Audio URL for a
+direct public media URL. The server advertises availability only when
+`AUDIO_TRANSCRIPTION_API_KEY`, ffmpeg and ffprobe are available. It limits audio
+to 25 MB and 20 minutes, validates its media format, and asks for explicit OpenAI
+processing consent before uploading. Inaccessible pages and unsupported media
+return errors instead of fabricated transcripts. The fetcher blocks non-public
+addresses and validates every redirect, pins resolved addresses, and bounds
+bytes, redirects and time.
+
+The conversation stores original media and the returned transcript. The default
+`AUDIO_TRANSCRIPTION_MODEL=gpt-transcribe` returns text without timestamps; the
+UI labels timing unavailable instead of inventing it. An explicitly configured
+legacy `whisper-1` route can return timed segments, but is supported only until
+2027-02-26 according to the [OpenAI transcription guide](https://developers.openai.com/api/docs/guides/speech-to-text). Both remain until the conversation is deleted; temporary validation
+files are cleaned after processing. OpenAI's retention policies also apply to
+remote transcription. Cancel audio processing stops pending processing and
+avoids storing partial output. Review the visible transcript before relying on
+names, quotations or a summary; quality and timestamps still need live-provider
+qualification. Transcript review turns have tools denied; request later actions
+in a separate person-authored turn. Source playback and summary quality still
+need installed-app checks. A configured server feature does not establish that
+packaged desktop builds contain the required media executables.
+
+## Provider sources in Today
+
+With the lead agent's read access and connected accounts, Today shows bounded
+inbox records from the last seven days and primary-calendar events for the
+local day. Each source keeps IDs, links and timestamps; cancelled and all-day
+events are labeled and overlapping timed events show conflicts. The snapshot
+is capped at 30 records per provider and labels continuation/truncation as
+partial coverage. Multiple accounts without an unambiguous selection are
+unavailable rather than guessed. Source failures stay distinct from a quiet
+inbox/calendar. A five-minute cache shows when providers were checked and is
+invalidated for changed grants, owner, lead, timezone or day. These records
+perform no external writes and do not themselves trigger attention alerts.
+Live accounts and installed apps remain unqualified.
+
+## Agent pictures
+
+An agent's picture can be made from a description. In the **Agents** panel choose **Picture** on an agent, describe the picture (up to 1,000 characters), choose a shape (square, wide or tall) and **Generate image**. The result is shown first and is kept only if you choose **Use as picture**; **Remove picture** goes back to the agent's letter. Owner only: the image routes are not on the chat or files allowlists, so a paired phone cannot call them.
+
+- **Providers.** **MuAPI images** is offered as soon as MuAPI is connected under **Settings → Integrations**. It uses the same saved key, so nothing else is set up, and makes the picture with MuAPI's `flux-schnell` model (listed at about $0.003 a picture). An **OpenAI-compatible images API** is offered when `IMAGE_API_KEY` is set on a server install (`IMAGE_API_BASE_URL`, default OpenAI's, and `IMAGE_MODEL`, default `gpt-image-1`); the desktop app does not read these environment values, so use MuAPI there. With no provider set up the dialog says so and links to Integrations. When no provider is named, the OpenAI-compatible one is used if it is set up, otherwise MuAPI.
+- **Where the picture comes from.** Some providers answer with the picture itself and MuAPI answers with a link. The link is followed only over HTTPS to MuAPI's own file host, with no redirects, no credentials sent and the same 10 MB limit; the bytes must be a PNG, JPEG or WebP.
+- **What is stored.** Generated pictures are kept in a private folder beside the attachments (`generated-images`), newest 50 only, and each agent's chosen picture beside it (`agent-avatars`).
+- **When it fails.** The dialog says what to do and never shows the provider's own text: the description was not accepted, the key was refused, or the service had a problem on its side (try again in a few minutes). The provider's reason, with the key removed, is written to the server log.
+
+**What has been checked.** Automated tests with stubbed responses cover both providers, the link rules, the failure messages and the key never appearing in a response or the log. By hand: a picture was made through the real adapter and through the Picture dialog in a browser with MuAPI, and a short MuAPI outage (its service answered with an internal error) showed the failure message. **Not checked**: the wide and tall shapes with MuAPI, other MuAPI models, the OpenAI-compatible provider against a live endpoint, macOS, Linux, the packaged installers and the hosted service.
+
+## Reading a reply aloud
+
+Each assistant reply has a small speaker button next to **Copy**. Press it to hear the reply; it turns into a stop button while the audio prepares and plays, and only one reply plays at a time. Nothing is spoken until you press it.
+
+- **Needs MuAPI.** The audio is made through MuAPI with the key saved under **Settings → Integrations**, so it works in the desktop app without an environment setting. Without a key the button says where to connect it. Owner only: `POST /api/v1/speech/speak` and `GET /api/v1/speech/voices` are not on the chat allowlist, so a paired phone cannot call them.
+- **What is read.** The reply is first made into plain sentences. Markdown marks and tables are removed, a link is read as its text, a bare address as "link", and a code block as "Code omitted."; anything that looks like a credential is replaced by "secret omitted." A reply longer than the voice allows (5,000 characters for the ElevenLabs voices, 10,000 for the Fish Audio narrator) is cut at the last sentence end that fits, and the note beside the button says it read only the first part.
+- **Voices and cost.** Daniel and Liam (ElevenLabs `elevenlabs-v4-turbo`) and a Fish Audio narrator (`fish-s2-1-pro`); Daniel is the default. In the desktop app choose the voice under **Settings → Integrations → Spoken replies**. On a server install the voice comes from the `SPEECH_VOICE` setting (`eleven-daniel`, `eleven-liam` or `fish-narrator`) and the card shows it read-only. The list shows MuAPI's list price for a short reply (about $0.04 for the ElevenLabs voices and $0.015 for Fish); after each reading the note shows the cost MuAPI quoted.
+- **Saved audio.** The finished audio is kept in a private folder beside the attachments (`speech-audio`, folder `0700`, files `0600`), keyed by the cleaned text and the voice, newest 50 only. Reading the same reply again in the same voice plays the saved audio: no MuAPI request, no cost, and the note says "Played from saved audio." A second press while the first is still preparing waits for it instead of making another request. **Clear saved audio** on the same card deletes every clip (`DELETE /api/v1/speech/cache`). These are spoken copies of replies, so clear them if you would rather they were not kept.
+- **Limits.** At most 20 new readings in 10 minutes per server process (saved replies do not count). A new reading takes about 15 to 20 seconds. The audio link is followed only over HTTPS to MuAPI's own file host, with no redirects and a 10 MB limit, and the bytes must be audio the browser can play. When it fails the note says what to do: connect or reconnect MuAPI, the account is out of credit, it took too long, or the voice service could not read that aloud. The provider's own text is never shown.
+- **Not built.** A voice per agent, optional auto-speak, dictation and calls.
+
+**What has been checked.** Automated tests with stubbed responses cover the text clean-up and credential masking, cutting at a sentence end, every error above, the rate limit, the saved audio (replays, other voices, a double press, trimming, a damaged clip, clearing) and the voice setting. A browser check against a mocked endpoint covered preparing, playing, stop, cancelling while preparing, playing to the end and the error line, and the Spoken replies card in both desktop and server mode. Two real readings in the Windows dev app returned mp3 audio from MuAPI. **Not checked**: how the voices sound, the Fish Audio voice, the amount charged against the quoted cost, macOS, Linux, the packaged installers, a server install, a paired phone and the hosted service.

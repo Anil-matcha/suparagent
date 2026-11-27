@@ -5,16 +5,18 @@ import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import credentials
+from app.auth import credentials, live
+from app.core.config import settings
 from app.db.models.auth import SCOPES, AuthSession, OwnerAccount, PairingCode
+from app.db.models.people import Person
 from app.db.transactions import begin_write
 
-SESSION_TTL = timedelta(days=30)
+SESSION_TTL = timedelta(days=settings.AUTH_SESSION_DAYS)
 SESSION_MAX_AGE = timedelta(days=180)
-SESSION_RENEW_WHEN_LEFT = timedelta(days=15)
+SESSION_RENEW_WHEN_LEFT = SESSION_TTL / 2
 LAST_SEEN_WRITE_INTERVAL = timedelta(seconds=60)
 
 PAIRING_TTL = timedelta(minutes=5)
@@ -40,8 +42,14 @@ def parse_scopes(value: str) -> tuple[str, ...]:
 
 
 def scopes_for(scope: str) -> str:
-    """'admin' includes chat; 'chat' is chat only."""
-    return "admin chat" if scope == "admin" else "chat"
+    """'admin' includes everything; 'chat' is chat only; 'files' is chat plus reading workspace files;
+    'manage' is chat and files plus creating and editing agents."""
+    if scope == "admin":
+        return "admin chat files"
+    return {
+        "files": "chat files",
+        "manage": "chat files manage",
+    }.get(scope, "chat")
 
 
 # --- owner ------------------------------------------------------------------
@@ -86,7 +94,13 @@ async def set_passphrase(db: AsyncSession, passphrase: str, *, first_time_only: 
     if changing:
         await db.execute(
             update(AuthSession)
-            .where(AuthSession.kind == "browser", AuthSession.revoked_at.is_(None))
+            .where(
+                AuthSession.kind == "browser",
+                AuthSession.revoked_at.is_(None),
+                # The passphrase is the owner's: other members' sign-ins stay.
+                or_(AuthSession.person_id.is_(None),
+                    AuthSession.person_id.in_(select(Person.id).where(Person.role == "owner"))),
+            )
             .values(revoked_at=utcnow())
         )
     await db.commit()
@@ -120,7 +134,9 @@ async def set_identity(db: AsyncSession, user_id: str | None, *, only_if_unset: 
 # --- sessions ---------------------------------------------------------------
 
 
-async def create_session(db: AsyncSession, *, kind: str, label: str, scopes: str) -> tuple[str, AuthSession]:
+async def create_session(
+    db: AsyncSession, *, kind: str, label: str, scopes: str, person_id: int | None = None
+) -> tuple[str, AuthSession]:
     token = credentials.new_session_token()
     now = utcnow()
     record = AuthSession(
@@ -128,6 +144,7 @@ async def create_session(db: AsyncSession, *, kind: str, label: str, scopes: str
         label=clean_label(label),
         token_hash=credentials.digest(token),
         scopes=scopes,
+        person_id=person_id,
         created_at=now,
         last_seen_at=now,
         expires_at=now + SESSION_TTL,
@@ -147,6 +164,7 @@ class SessionView:
     created_at: datetime
     last_seen_at: datetime
     expires_at: datetime
+    person_id: int | None = None
 
 
 def _view(record: AuthSession) -> SessionView:
@@ -158,6 +176,7 @@ def _view(record: AuthSession) -> SessionView:
         created_at=record.created_at,
         last_seen_at=record.last_seen_at,
         expires_at=record.expires_at,
+        person_id=record.person_id,
     )
 
 
@@ -223,6 +242,7 @@ async def revoke_session(db: AsyncSession, session_id: int) -> bool:
         .values(revoked_at=utcnow())
     )
     await db.commit()
+    live.close_sessions([session_id])
     return (result.rowcount or 0) > 0
 
 

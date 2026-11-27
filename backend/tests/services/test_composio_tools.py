@@ -1,0 +1,678 @@
+"""The connected-app tool table: what an agent may send, what it gets back, who may call it."""
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import base64
+
+import pytest
+
+from app import composio_tools as tools
+from app.services import composio_policy
+
+
+def tool(name):
+    return tools.BY_NAME[name]
+
+
+# -- arguments ---------------------------------------------------------------
+
+def test_arguments_are_rebuilt_and_defaulted():
+    sent, account = tools.clean_arguments(tool("github_list_issues"), {"owner": "octo", "repo": "hello-world", "account": "Work"})
+    assert sent == {"owner": "octo", "repo": "hello-world", "per_page": 10} and account == "Work"
+    sent, account = tools.clean_arguments(tool("github_get_authenticated_user"), {})
+    assert sent == {} and account is None
+
+
+@pytest.mark.parametrize("name, args", [
+    ("github_list_issues", {"owner": "octo"}),                                   # required missing
+    ("github_list_issues", {"owner": "octo", "repo": "r", "state": "all"}),     # not offered
+    ("github_list_issues", {"owner": "octo", "repo": "r", "slug": "GITHUB_DELETE_A_REPOSITORY"}),
+    ("github_list_issues", {"owner": "../x", "repo": "r"}),
+    ("github_list_issues", {"owner": "o wner", "repo": "r"}),
+    ("github_list_issues", {"owner": "o", "repo": "r/evil"}),
+    ("github_list_issues", {"owner": 5, "repo": "r"}),
+    ("github_list_issues", {"owner": "o", "repo": "r", "per_page": 0}),
+    ("github_list_issues", {"owner": "o", "repo": "r", "per_page": 31}),
+    ("github_list_issues", {"owner": "o", "repo": "r", "per_page": True}),
+    ("github_list_issues", {"owner": "o", "repo": "r", "per_page": "5"}),
+    ("github_list_my_repositories", {"account": "bad/name"}),
+    ("github_list_my_repositories", {"account": 5}),
+    ("github_get_authenticated_user", {"per_page": 3}),
+    ("github_get_authenticated_user", []),
+    ("github_get_authenticated_user", "x"),
+])
+def test_bad_arguments_are_refused_not_dropped(name, args):
+    with pytest.raises(tools.BadArguments):
+        tools.clean_arguments(tool(name), args)
+
+
+def test_every_tool_is_one_fixed_tool_and_writes_are_a_short_list():
+    assert tools.TOOLS and all(t.kind in {"read", "label", "write"} for t in tools.TOOLS)  # a tool's kind; the level is spelled labels
+    prefixes = {"github": "GITHUB_", "gmail": "GMAIL_", "googlecalendar": "GOOGLECALENDAR_", "googleads": "GOOGLEADS_", "metaads": "METAADS_"}
+    assert all(t.slug.startswith(prefixes[t.app]) and t.slug.isupper() for t in tools.TOOLS)
+    assert len({t.name for t in tools.TOOLS}) == len(tools.TOOLS)
+    aliases = {slug: {t.name for t in tools.TOOLS if t.slug == slug} for slug in {t.slug for t in tools.TOOLS}}
+    assert {slug: names for slug, names in aliases.items() if len(names) > 1} == {
+        "GMAIL_CREATE_EMAIL_DRAFT": {"gmail_create_draft_reply", "gmail_prepare_checked_reply"}}
+
+    writes = {t.name for t in tools.TOOLS if t.kind == "write"}
+    assert writes == {"github_create_issue", "github_comment_on_issue", "github_close_issue", "github_reopen_issue", "github_dispatch_workflow", "github_merge_pull_request", "github_create_pull_request", "github_fork_repository", "github_create_branch", "github_commit_file", "gmail_create_draft_reply", "gmail_send_email", "googlecalendar_create_event", "gmail_prepare_checked_reply"}
+    for word in ("delete", "push", "force", "settings", "collaborator", "secret", "token"):
+        assert not any(word in t.name or word in t.slug.lower() for t in tools.TOOLS), word
+
+
+def test_the_shim_shows_tools_by_level():
+    read = {t["name"] for t in tools.mcp_tools({"github": "read"})}
+    write = {t["name"] for t in tools.mcp_tools({"github": "write"})}
+    assert tools.LIST_ACCOUNTS in read and tools.LIST_ACCOUNTS in write
+    assert read < write and write - read == {"github_create_issue", "github_comment_on_issue", "github_close_issue", "github_reopen_issue", "github_dispatch_workflow", "github_merge_pull_request", "github_create_pull_request", "github_fork_repository", "github_create_branch", "github_commit_file"}
+    assert [t["name"] for t in tools.mcp_tools({})] == [tools.LIST_ACCOUNTS]
+    assert [t["name"] for t in tools.mcp_tools({"github": "admin"})] == [tools.LIST_ACCOUNTS]
+    assert all(t["inputSchema"]["additionalProperties"] is False for t in tools.mcp_tools({"github": "write"}))
+    assert "ask the person first" in tools.tool_note({"github": "write"}) and "only read" in tools.tool_note({"github": "read"})
+    note = tools.tool_note({"github": "read"})
+    # The agent is told to prefer the app over local files and how to find the owner.
+    assert "not local files or the shell" in note and "github_get_authenticated_user" in note and "connected apps (github)" in note
+
+
+@pytest.mark.parametrize("level, kind, ok", [
+    ("read", "read", True), ("write", "read", True), ("write", "write", True),
+    ("read", "write", False), (None, "read", False), ("admin", "read", False), ("", "write", False),
+    ("labels", "read", True), ("labels", "label", True), ("labels", "write", False),
+    ("read", "label", False), ("write", "label", True), ("labels", "labels", True), ("write", "bogus", False),
+])
+def test_a_level_allows_its_own_tools_and_the_ones_below(level, kind, ok):
+    assert tools.allows(level, kind) is ok
+
+
+O, R = "o", "r"
+
+
+@pytest.mark.parametrize("name, args", [
+    ("github_get_issue", {"owner": O, "repo": R, "issue_number": 0}),
+    ("github_get_issue", {"owner": O, "repo": R, "issue_number": 2_000_000_001}),
+    ("github_get_issue", {"owner": O, "repo": R, "issue_number": "3"}),
+    ("github_get_issue", {"owner": "..", "repo": R, "issue_number": 1}),
+    ("github_get_issue", {"owner": ".", "repo": R, "issue_number": 1}),
+    ("github_get_file", {"owner": O, "repo": R, "path": "../secret"}),
+    ("github_get_file", {"owner": O, "repo": R, "path": "a/../../b"}),
+    ("github_get_file", {"owner": O, "repo": R, "path": "/etc/passwd"}),
+    ("github_get_file", {"owner": O, "repo": R, "path": "a\x00b"}),
+    ("github_get_file", {"owner": O, "repo": R, "path": ""}),
+    ("github_get_file", {"owner": O, "repo": R, "path": "."}),
+    ("github_get_file", {"owner": O, "repo": R, "path": "./docs"}),
+    ("github_get_file", {"owner": O, "repo": R, "path": "x", "ref": "a..b"}),
+    ("github_get_file", {"owner": O, "repo": R, "path": "x", "ref": "main; rm"}),
+    ("github_list_commits", {"owner": O, "repo": R, "sha": "x" * 201}),
+    ("github_search_issues", {"q": "x" * 257}),
+    ("github_search_issues", {"q": "two\nlines"}),
+    ("github_search_issues", {"q": ""}),
+    ("github_create_issue", {"owner": O, "repo": R, "title": "two\nlines"}),
+    ("github_create_issue", {"owner": O, "repo": R, "title": ""}),
+    ("github_create_issue", {"owner": O, "repo": R, "title": "t" * 257}),
+    ("github_create_issue", {"owner": O, "repo": R, "title": "t", "body": "b" * 10_001}),
+    ("github_create_issue", {"owner": O, "repo": R, "title": "t", "body": "nul\x00byte"}),
+    ("github_create_issue", {"owner": O, "repo": R, "title": "t", "labels": "bug"}),
+    ("github_create_issue", {"owner": O, "repo": R, "title": "t", "labels": [f"l{i}" for i in range(11)]}),
+    ("github_create_issue", {"owner": O, "repo": R, "title": "t", "labels": [5]}),
+    ("github_create_issue", {"owner": O, "repo": R, "title": "t", "labels": ["a\nb"]}),
+    ("github_create_issue", {"owner": O, "repo": R, "title": "t", "assignees": ["someone"]}),
+    ("github_create_issue", {"owner": O, "repo": R, "title": "t", "milestone": "1"}),
+    ("github_comment_on_issue", {"owner": O, "repo": R, "issue_number": 1}),
+    ("github_comment_on_issue", {"owner": O, "repo": R, "issue_number": 1, "body": ""}),
+    ("github_close_issue", {"owner": O, "repo": R, "issue_number": 1, "state_reason": "duplicate"}),
+    ("github_close_issue", {"owner": O, "repo": R, "issue_number": 1, "state": "closed"}),
+    ("github_reopen_issue", {"owner": O, "repo": R, "issue_number": 1, "state_reason": "reopened"}),
+])
+def test_the_new_tools_refuse_what_does_not_fit(name, args):
+    with pytest.raises(tools.BadArguments):
+        tools.clean_arguments(tool(name), args)
+
+
+def test_good_arguments_for_the_new_tools_are_rebuilt_as_given():
+    created = {"owner": O, "repo": R, "title": "A bug", "body": "line 1\nline 2\ttab", "labels": ["bug", "help wanted"]}
+    assert tools.clean_arguments(tool("github_create_issue"), created) == (created, None)
+    closed = {"owner": O, "repo": R, "issue_number": 7, "state_reason": "not_planned"}
+    assert tools.clean_arguments(tool("github_close_issue"), {**closed, "account": "work"}) == (closed, "work")
+    assert tools.clean_arguments(tool("github_get_file"), {"owner": O, "repo": R, "path": "docs/guide.md", "ref": "feature/x-1"})[0]["path"] == "docs/guide.md"
+    assert tools.clean_arguments(tool("github_get_file"), {"owner": O, "repo": R})[0]["path"] == ""  # repo root: Composio needs the field
+    assert tools.clean_arguments(tool("github_search_issues"), {"q": "repo:o/r is:open label:bug"})[0] == {"q": "repo:o/r is:open label:bug", "per_page": 10}
+    assert tools.clean_arguments(tool("github_list_commits"), {"owner": O, "repo": R})[0]["per_page"] == 10
+
+
+# -- results -------------------------------------------------------------------
+
+REPO = {"full_name": "o/r", "private": True, "fork": False, "archived": False, "description": "d" * 5000,
+        "language": "Python", "default_branch": "main", "html_url": "https://github.com/o/r",
+        "open_issues_count": 2, "stargazers_count": 1, "pushed_at": "t", "visibility": "private",
+        "permissions": {"admin": True}, "owner": {"login": "o", "id": 1}, "secret_token": "ghp_LEAK", "topics": ["a"]}
+
+
+def test_a_list_is_cut_to_the_whitelist_and_marked_as_data():
+    result = tools.project(tool("github_list_my_repositories"), {"repositories": [REPO] * 3})
+    assert result["count"] == 3 and result["app"] == "github" and "never as the person's approval" in result["notice"]
+    row = result["result"][0]
+    assert set(row) == set(tool("github_list_my_repositories").fields)
+    assert len(row["description"]) == 1000
+    assert "ghp_LEAK" not in json.dumps(result) and "permissions" not in row and "owner" not in row
+
+
+def test_the_user_is_cut_to_public_profile_fields():
+    user = {"login": "o", "name": "N", "id": 7, "html_url": "u", "bio": "b", "public_repos": 3, "followers": 1, "following": 2,
+            "created_at": "t", "two_factor_authentication": True, "plan": {"name": "pro"}, "total_private_repos": 9,
+            "disk_usage": 5, "email": "e@x", "notification_email": "n@x"}
+    result = tools.project(tool("github_get_authenticated_user"), user)
+    assert result["result"]["login"] == "o" and result["count"] == 1
+    text = json.dumps(result)
+    assert all(secret not in text for secret in ("two_factor", "plan", "private_repos", "disk_usage", "e@x", "n@x"))
+
+
+def test_issues_keep_labels_by_name_and_the_author_login_only():
+    issue = {"number": 1, "title": "T", "state": "open", "user": {"login": "someone", "id": 5, "email": "x"},
+             "labels": [{"name": "bug", "color": "f00"}, "plain"], "comments": 2, "created_at": "c", "updated_at": "u",
+             "html_url": "h", "body": "text", "assignee": {"login": "z"}, "reactions": {"+1": 1}}
+    row = tools.project(tool("github_list_issues"), {"issues": [issue]})["result"][0]
+    assert row["user_login"] == "someone" and row["labels"] == ["bug", "plain"]
+    assert "assignee" not in row and "reactions" not in row and "email" not in json.dumps(row)
+
+
+def test_pull_requests_flatten_branch_names():
+    pull = {"number": 2, "title": "P", "state": "open", "draft": False, "user": {"login": "u"}, "head": {"ref": "feat", "sha": "abc"},
+            "base": {"ref": "main"}, "merged_at": None, "html_url": "h", "body": None}
+    row = tools.project(tool("github_list_pull_requests"), {"pull_requests": [pull]})["result"][0]
+    assert row["head_ref"] == "feat" and row["base_ref"] == "main" and "sha" not in json.dumps(row)
+
+
+def test_a_big_answer_is_capped_and_says_so():
+    big = {**REPO, "description": "x" * 1000}
+    many = [dict(big) for _ in range(100)]
+    result = tools.project(tool("github_list_my_repositories"), {"repositories": many})
+    assert result["truncated"] is True and result["count"] <= tools.MAX_ITEMS
+    assert len(json.dumps(result, ensure_ascii=False)) <= tools.MAX_RESULT_CHARS
+
+
+@pytest.mark.parametrize("data", [None, "text", [1], {}, {"repositories": "no"}, {"other": []}])
+def test_an_unexpected_shape_is_an_error_never_passed_through(data):
+    with pytest.raises(tools.BadArguments):
+        tools.project(tool("github_list_my_repositories"), data)
+
+
+def test_an_empty_list_is_a_normal_answer():
+    result = tools.project(tool("github_list_issues"), {"issues": []})
+    assert result["count"] == 0 and result["result"] == [] and result["truncated"] is False
+
+
+def test_new_reads_are_cut_to_their_fields():
+    issue = {"number": 3, "title": "T", "state": "open", "user": {"login": "u", "id": 1}, "labels": [{"name": "bug"}], "comments": 2,
+             "created_at": "c", "updated_at": "u", "closed_at": None, "html_url": "h", "body": "b", "assignee": {"login": "z"}, "node_id": "N"}
+    row = tools.project(tool("github_get_issue"), issue)["result"]
+    assert row["number"] == 3 and row["user_login"] == "u" and row["labels"] == ["bug"] and "assignee" not in row and "node_id" not in row
+    comments = tools.project(tool("github_list_issue_comments"), {"comments": [{"id": 9, "user": {"login": "u"}, "body": "hi", "author_association": "OWNER"}]})
+    assert comments["count"] == 1 and comments["result"][0]["body"] == "hi" and "author_association" not in comments["result"][0]
+    raw = [{"sha": "abc", "commit": {"message": "msg", "author": {"name": "N", "date": "d", "email": "e@x"}, "tree": {"sha": "t"}},
+            "author": {"login": "u"}, "html_url": "h", "parents": [{"sha": "p"}]}]
+    commits = tools.project(tool("github_list_commits"), raw)
+    first = commits["result"][0]
+    assert first["commit_message"] == "msg" and first["commit_author_name"] == "N" and "e@x" not in json.dumps(commits) and "parents" not in first
+    branches = tools.project(tool("github_list_branches"), {"branches": [{"name": "main", "protected": True, "commit": {"sha": "s", "url": "u"}}]})
+    assert branches["result"][0] == {"name": "main", "protected": True, "commit_sha": "s"}
+    files = tools.project(tool("github_list_pull_request_files"), {"files": [{"filename": "a.py", "status": "modified", "additions": 1, "deletions": 0, "changes": 1, "patch": "SECRETDIFF"}]})
+    assert "SECRETDIFF" not in json.dumps(files) and files["result"][0]["filename"] == "a.py"
+    found = tools.project(tool("github_search_issues"), {"items": [{"number": 1, "title": "T", "state": "open", "user": {"login": "u"}, "html_url": "h", "score": 9}], "total_count": 1})
+    assert found["result"][0]["number"] == 1 and "score" not in found["result"][0]
+
+
+def test_a_file_is_decoded_cut_and_refused_when_it_is_not_text():
+    import base64
+    text = "h\u00e9llo\nworld"
+    shown = tools.project(tool("github_get_file"), {"content": base64.b64encode(text.encode()).decode(), "encoding": "base64", "path": "a.md", "size": 12, "sha": "x"})
+    assert shown["result"]["text"] == text and shown["result"]["path"] == "a.md" and "sha" not in shown["result"]
+    huge = tools.project(tool("github_get_file"), {"content": base64.b64encode(b"x" * 50_000).decode(), "encoding": "base64"})
+    assert huge["truncated"] is True and len(json.dumps(huge)) <= tools.MAX_RESULT_CHARS
+    binary = base64.b64encode(b"\xff\xfe\x00\x01").decode()
+    for bad in ({"content": binary, "encoding": "base64"}, {"content": "!!!", "encoding": "base64"}, {"other": 1}, "text", None):
+        with pytest.raises(tools.BadArguments):
+            tools.project(tool("github_get_file"), bad)
+
+
+def test_a_file_is_found_inside_a_wrapper_and_an_unreadable_answer_names_its_fields_only():
+    import base64
+    content = base64.b64encode(b"hello readme").decode()
+    for wrapped in ({"content": {"content": content, "encoding": "base64", "path": "README.md"}},
+                    {"data": {"details": {"content": content, "encoding": "base64"}}},
+                    {"content": "hello readme", "encoding": "utf-8"},
+                    [{"content": content, "encoding": "base64"}]):
+        assert tools.project(tool("github_get_file"), wrapped)["result"]["text"] == "hello readme"
+    with pytest.raises(tools.BadArguments) as error:
+        tools.project(tool("github_get_file"), {"weird": {"x": "SECRETVALUE"}, "other": 1})
+    message = str(error.value)
+    assert "fields: other, weird" in message and "SECRETVALUE" not in message
+    for data, expect in (("text", "it was text"), (None, "it was nothing"), ([], "it was a list")):
+        with pytest.raises(tools.BadArguments, match=expect):
+            tools.project(tool("github_get_file"), data)
+    with pytest.raises(tools.BadArguments) as long:
+        tools.project(tool("github_get_file"), {f"field_{i}": 1 for i in range(40)} | {"bad key!": "x"})
+    assert str(long.value).count("field_") <= 12 and "bad key" not in str(long.value)
+
+
+def test_a_folder_is_listed_by_name_path_type_and_size():
+    entries = [{"name": "a.py", "path": "src/a.py", "type": "file", "size": 5, "download_url": "https://x", "sha": "s"},
+               {"name": "d", "path": "src/d", "type": "dir", "size": 0}]
+    shown = tools.project(tool("github_get_file"), entries)
+    assert shown["result"]["folder"][0] == {"name": "a.py", "path": "src/a.py", "type": "file", "size": 5}
+    assert "download_url" not in json.dumps(shown) and shown["count"] == 2
+
+
+def test_a_change_is_reported_by_its_link_and_number_only():
+    made = tools.project(tool("github_create_issue"), {"number": 12, "title": "T", "state": "open", "html_url": "https://github.com/o/r/issues/12", "body": "BODY", "user": {"login": "me"}})
+    assert made["result"] == {"number": 12, "title": "T", "state": "open", "html_url": "https://github.com/o/r/issues/12"}
+    posted = tools.project(tool("github_comment_on_issue"), {"id": 5, "html_url": "h", "created_at": "c", "body": "BODY"})
+    assert posted["result"] == {"id": 5, "html_url": "h", "created_at": "c"}
+
+
+# -- policy --------------------------------------------------------------------
+
+P = composio_policy.PREFIX
+
+
+@pytest.mark.parametrize("name, levels, mode, expected", [
+    ("github_list_issues", {"github": "read"}, "ask", ("allowed", "composio_read")),
+    ("github_list_issues", {"github": "read"}, "plan", ("allowed", "composio_read")),
+    ("github_list_issues", {"github": "write"}, None, ("allowed", "composio_read")),
+    ("github_get_file", {"github": "read"}, "accept_edits", ("allowed", "composio_read")),
+    ("list_accounts", {"github": "read"}, "ask", ("allowed", "composio_list")),
+    ("github_list_issues", {}, "ask", ("denied", "no_connected_apps")),
+    ("github_list_issues", None, "ask", ("denied", "no_connected_apps")),
+    ("github_list_issues", {"gmail": "read"}, "ask", ("denied", "app_not_allowed")),
+    ("github_delete_repository", {"github": "write"}, "ask", ("denied", "unknown_composio_tool")),
+    ("GITHUB_DELETE_A_REPOSITORY", {"github": "write"}, "ask", ("denied", "unknown_composio_tool")),
+    ("", {"github": "write"}, "ask", ("denied", "unknown_composio_tool")),
+    # A change: only at the write level, never decided here (a person decides), never in plan mode.
+    ("github_create_issue", {"github": "read"}, "ask", ("denied", "write_not_allowed")),
+    ("github_create_issue", {"github": "write"}, "ask", None),
+    ("github_create_issue", {"github": "write"}, None, None),
+    ("github_create_issue", {"github": "write"}, "accept_edits", None),
+    ("github_create_issue", {"github": "write"}, "plan", ("denied", "plan_mode")),
+    ("github_comment_on_issue", {"github": "write"}, "ask", None),
+    ("github_close_issue", {"github": "write"}, "ask", None),
+    ("github_reopen_issue", {"github": "read"}, "ask", ("denied", "write_not_allowed")),
+    ("github_close_issue", {"github": "admin"}, "ask", ("denied", "write_not_allowed")),
+])
+def test_policy(name, levels, mode, expected):
+    assert composio_policy.automatic(P + name, mode, levels) == expected
+
+
+def test_policy_ignores_other_tools():
+    assert composio_policy.automatic("Bash", "ask", {"github": "read"}) is None
+    assert composio_policy.automatic("mcp__team__delegate", "ask", {"github": "read"}) is None
+
+
+def test_the_runtime_dispatch_reaches_the_composio_policy():
+    from types import SimpleNamespace
+    from app.services import tool_policy
+
+    run = SimpleNamespace(ctx=SimpleNamespace(composio_apps={"github": "read"}, team=None))
+    assert tool_policy.automatic(P + "github_get_authenticated_user", "ask", run, {}) == ("allowed", "composio_read")
+    assert tool_policy.automatic(P + "nope", "ask", run, {}) == ("denied", "unknown_composio_tool")
+    # Never falls through to the computer policy.
+    assert tool_policy.automatic(P + "github_get_authenticated_user", "ask", SimpleNamespace(ctx=SimpleNamespace(composio_apps=None, team=None)), {}) == ("denied", "no_connected_apps")
+
+
+# -- the shim --------------------------------------------------------------------
+
+def run_shim(tmp_path, apps, lines, answer=None):
+    """Start the real shim process, send JSON-RPC lines, return its replies. `answer`
+    plays the backend: it is called with each request file and returns the reply."""
+    process = subprocess.Popen(
+        [sys.executable, "-m", "app.composio_mcp_server", "--mailbox", str(tmp_path), "--apps", apps],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        cwd=str(tmp_path), env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2])},
+    )
+    replies = []
+    try:
+        for line in lines:
+            process.stdin.write(json.dumps(line) + "\n")
+            process.stdin.flush()
+            if line.get("method") == "tools/call" and answer:
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    found = list(tmp_path.glob("req-*.json"))
+                    if found:
+                        request = json.loads(found[0].read_text(encoding="utf-8"))
+                        token = found[0].name[4:-5]
+                        found[0].unlink()
+                        (tmp_path / f"resp-{token}.json").write_text(json.dumps(answer(request)), encoding="utf-8")
+                        break
+                    time.sleep(0.02)
+            replies.append(json.loads(process.stdout.readline()))
+    finally:
+        process.stdin.close()
+        process.wait(timeout=10)
+    return replies, process.stderr.read()
+
+
+def test_the_shim_lists_only_allowed_apps_and_carries_a_call_through_the_mailbox(tmp_path):
+    seen = []
+
+    def backend(request):
+        seen.append(request)
+        return {"app": "github", "count": 0, "result": []}
+
+    replies, err = run_shim(tmp_path, "github=read", [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "github_list_issues", "arguments": {"owner": "o", "repo": "r"}}},
+        {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "GITHUB_DELETE_A_REPOSITORY", "arguments": {}}},
+    ], backend)
+    assert replies[0]["result"]["serverInfo"]["name"] == "composio"
+    assert {t["name"] for t in replies[1]["result"]["tools"]} == {
+        "list_accounts", "read_saved_result", *(t.name for t in tools.TOOLS if t.app == "github" and t.kind == "read")
+    }
+    assert seen == [{"name": "github_list_issues", "arguments": {"owner": "o", "repo": "r"}}]
+    assert json.loads(replies[2]["result"]["content"][0]["text"])["count"] == 0
+    assert replies[3]["result"]["isError"] is True  # not in its list: refused, no request file made
+    assert len(seen) == 1 and err == ""
+
+
+def test_the_shim_has_no_key_url_or_network_surface(tmp_path):
+    source = (Path(tools.__file__).parent / "composio_mcp_server.py").read_text(encoding="utf-8")
+    assert "httpx" not in source and "urllib" not in source and "socket" not in source and "COMPOSIO" not in source
+
+
+def test_a_shim_started_with_no_apps_offers_only_the_listing(tmp_path):
+    replies, _ = run_shim(tmp_path, "", [{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}])
+    assert [t["name"] for t in replies[0]["result"]["tools"]] == ["list_accounts"]
+
+
+def test_dispatch_workflow_checks_inputs_and_reports_done():
+    t = tool("github_dispatch_workflow")
+    good = {"owner": O, "repo": R, "workflow_id": "campaign.yml", "ref": "main", "inputs": {"mode": "sweep"}}
+    assert tools.clean_arguments(t, good)[0] == {**good, "inputs": '{"mode":"sweep"}'}
+    assert "inputs" not in tools.clean_arguments(t, {**good, "inputs": {}})[0]
+    for bad in ({**good, "ref": "a..b"}, {**good, "inputs": {"mode": ["x"]}}, {**good, "inputs": {"a b": "x"}},
+                {**good, "inputs": {f"k{i}": "x" for i in range(11)}}, {**good, "inputs": "sweep"}, {**good, "workflow_id": "../x"}):
+        with pytest.raises(tools.BadArguments):
+            tools.clean_arguments(t, bad)
+    assert tools.project(t, None)["result"] == "done"
+
+
+def test_list_workflow_runs_is_a_bounded_read():
+    t = tool("github_list_workflow_runs")
+    assert t.kind == "read"
+    assert tools.clean_arguments(t, {"owner": O, "repo": R, "status": "completed"})[0]["per_page"] == 10
+    with pytest.raises(tools.BadArguments):
+        tools.clean_arguments(t, {"owner": O, "repo": R, "status": "weird"})
+    shown = tools.project(t, {"total_count": 1, "workflow_runs": [{"id": 9, "status": "completed", "conclusion": "success", "head_commit": {"message": "x"}}]})
+    assert shown["count"] == 1 and shown["result"][0]["conclusion"] == "success" and "head_commit" not in shown["result"][0]
+
+
+SHA = "a" * 40
+
+
+def test_campaign_write_tools_only_touch_new_campaign_branches():
+    branch = tool("github_create_branch")
+    sent, _ = tools.clean_arguments(branch, {"owner": O, "repo": R, "branch": "campaign/muapi-x", "from_sha": SHA})
+    assert sent == {"owner": O, "repo": R, "ref": "refs/heads/campaign/muapi-x", "sha": SHA}
+    commit = tool("github_commit_file")
+    good = {"owner": O, "repo": R, "path": "README.md", "branch": "campaign/muapi-x", "message": "Add MuAPI", "content": "héllo\n"}
+    sent, _ = tools.clean_arguments(commit, good)
+    assert base64.b64decode(sent["content"]).decode() == "héllo\n" and sent["branch"] == "campaign/muapi-x"
+    for name, bad in (("github_create_branch", {"owner": O, "repo": R, "branch": "main", "from_sha": SHA}),
+                      ("github_create_branch", {"owner": O, "repo": R, "branch": "campaign/../main", "from_sha": SHA}),
+                      ("github_create_branch", {"owner": O, "repo": R, "branch": "campaign/x", "from_sha": "main"}),
+                      ("github_commit_file", {**good, "branch": "main"}),
+                      ("github_commit_file", {**good, "branch": "release/1"}),
+                      ("github_commit_file", {**good, "path": "../x"}),
+                      ("github_commit_file", {**good, "content": "x" * 100_001}),
+                      ("github_commit_file", {**good, "sha": "abc"}),
+                      ("github_fork_repository", {"owner": O})):
+        with pytest.raises(tools.BadArguments):
+            tools.clean_arguments(tool(name), bad)
+    assert tools.clean_arguments(tool("github_fork_repository"), {"owner": O, "repo": R})[0] == {"owner": O, "repo": R}
+
+
+def test_dispatch_inputs_ignore_unset_values_and_name_the_bad_one():
+    t = tool("github_dispatch_workflow")
+    base = {"owner": O, "repo": R, "workflow_id": "w.yml", "ref": "main"}
+    sent, _ = tools.clean_arguments(t, {**base, "inputs": {"mode": "submit", "date": None, "dry": False, "n": 3}})
+    assert json.loads(sent["inputs"]) == {"mode": "submit", "dry": "false", "n": "3"}
+    with pytest.raises(tools.BadArguments, match="inputs.mode"):
+        tools.clean_arguments(t, {**base, "inputs": {"mode": ["x"]}})
+
+
+# -- Google Calendar: find and create --------------------------------------------
+
+START = "2026-11-02T09:00:00+01:00"
+END = "2026-11-02T09:30:00+01:00"
+
+
+def test_find_events_defaults_and_requires_words():
+    sent, account = tools.clean_arguments(tool("googlecalendar_find_events"), {"query": "dentist"})
+    assert account is None
+    assert sent == {"calendar_id": "primary", "max_results": 10, "single_events": True, "order_by": "startTime",
+                    "show_deleted": False, "query": "dentist"}
+    with pytest.raises(tools.BadArguments):
+        tools.clean_arguments(tool("googlecalendar_find_events"), {})
+
+
+@pytest.mark.parametrize("args", [
+    {"query": "a", "time_min": "2026-11-02T09:00:00"},                                   # no timezone
+    {"query": "a", "time_min": END, "time_max": START},                                  # backwards
+    {"query": "a", "time_min": "2026-01-01T00:00:00Z", "time_max": "2027-06-01T00:00:00Z"},  # over a year
+    {"query": "one" + chr(10) + "two"},
+    {"query": "a", "max_results": 31},
+    {"query": "a", "show_deleted": True},                                                # not an argument
+])
+def test_find_events_refuses_what_does_not_fit(args):
+    with pytest.raises(tools.BadArguments):
+        tools.clean_arguments(tool("googlecalendar_find_events"), args)
+
+
+def test_create_event_is_rebuilt_with_no_guests_and_no_meeting():
+    given = {"summary": "Dentist", "start_datetime": START, "end_datetime": END, "description": "Bring forms", "location": "Main St 1"}
+    sent, _ = tools.clean_arguments(tool("googlecalendar_create_event"), given)
+    assert sent == {**given, "calendar_id": "primary", "create_meeting_room": False}
+    assert "attendees" not in sent
+
+
+@pytest.mark.parametrize("args", [
+    {"summary": "x", "start_datetime": START},                                           # no end
+    {"summary": "x", "start_datetime": START, "end_datetime": START},                    # zero length
+    {"summary": "x", "start_datetime": END, "end_datetime": START},                      # backwards
+    {"summary": "x", "start_datetime": "2026-11-02T09:00:00", "end_datetime": END},      # no timezone
+    {"summary": "x", "start_datetime": "2026-11-02T09:00:00Z", "end_datetime": "2026-11-10T09:00:00Z"},  # over 7 days
+    {"summary": "one" + chr(10) + "two", "start_datetime": START, "end_datetime": END},
+    {"summary": "x", "start_datetime": START, "end_datetime": END, "attendees": ["a@example.com"]},
+    {"summary": "x", "start_datetime": START, "end_datetime": END, "create_meeting_room": True},
+    {"summary": "x", "start_datetime": START, "end_datetime": END, "send_updates": "all"},
+])
+def test_create_event_refuses_what_does_not_fit(args):
+    with pytest.raises(tools.BadArguments):
+        tools.clean_arguments(tool("googlecalendar_create_event"), args)
+
+
+def test_created_and_found_events_are_cut_to_their_fields():
+    made = tools.project(tool("googlecalendar_create_event"), {"response_data": {
+        "id": "e1", "summary": "Dentist", "status": "confirmed", "htmlLink": "https://calendar.google.com/e1",
+        "start": {"dateTime": START, "timeZone": "Europe/Berlin"}, "end": {"dateTime": END},
+        "attendees": [{"email": "secret@example.com"}], "creator": {"email": "me@example.com"}}})
+    assert made["result"]["id"] == "e1" and made["result"]["start_dateTime"] == START
+    assert "secret@example.com" not in json.dumps(made) and "me@example.com" not in json.dumps(made)
+    found = tools.project(tool("googlecalendar_find_events"), {"event_data": {"events": [
+        {"id": "e1", "summary": "Dentist", "start": {"dateTime": START}, "attendees": [{"email": "x@example.com"}]}]}})
+    assert found["count"] == 1 and found["result"][0]["summary"] == "Dentist" and "x@example.com" not in json.dumps(found)
+
+
+@pytest.mark.parametrize("name,levels,expected", [
+    ("googlecalendar_find_events", {"googlecalendar": "read"}, ("allowed", "composio_read")),
+    ("googlecalendar_create_event", {"googlecalendar": "read"}, ("denied", "write_not_allowed")),
+    ("googlecalendar_create_event", {"googlecalendar": "write"}, None),
+    ("googlecalendar_create_event", {"github": "write"}, ("denied", "app_not_allowed")),
+])
+def test_calendar_policy(name, levels, expected):
+    assert composio_policy.automatic(composio_policy.PREFIX + name, "ask", levels) == expected
+
+
+def test_a_calendar_change_is_never_allowed_in_plan_mode():
+    assert composio_policy.automatic(composio_policy.PREFIX + "googlecalendar_create_event", "plan", {"googlecalendar": "write"}) == ("denied", "plan_mode")
+
+
+def test_merge_pull_request_needs_the_approved_head_commit():
+    merge = tool("github_merge_pull_request")
+    ok = {"owner": O, "repo": R, "pull_number": 5, "sha": "a" * 40, "merge_method": "squash"}
+    assert tools.clean_arguments(merge, ok) == (ok, None)
+    for bad in ({k: v for k, v in ok.items() if k != "sha"}, {**ok, "sha": "main"}, {**ok, "merge_method": "fast"}, {**ok, "force": True}):
+        with pytest.raises(Exception):
+            tools.clean_arguments(merge, bad)
+
+
+def test_create_pull_request_only_from_campaign_branches():
+    pr = tool("github_create_pull_request")
+    ok = {"owner": O, "repo": R, "title": "Add MuAPI", "head": "me:campaign/muapi", "base": "main", "body": "Disclosure.", "draft": True}
+    assert tools.clean_arguments(pr, ok) == (ok, None)
+    assert tools.clean_arguments(pr, {**ok, "head": "campaign/x"})[0]["head"] == "campaign/x"
+    for bad in ({**ok, "head": "main"}, {**ok, "head": "me:main"}, {**ok, "head": "campaign/../x"}, {**ok, "base": "a..b"},
+                {k: v for k, v in ok.items() if k != "base"}, {**ok, "maintainer_can_modify": True}):
+        with pytest.raises(Exception):
+            tools.clean_arguments(pr, bad)
+    assert {"github_fork_repository", "github_create_pull_request"} <= set(tools.ROUTINE_WRITE_TOOLS)
+    assert "github_merge_pull_request" not in tools.ROUTINE_WRITE_TOOLS
+
+
+def test_review_reads_are_read_only_and_bound_to_one_pull_request():
+    for name in ("github_list_pull_request_reviews", "github_list_pull_request_review_comments"):
+        t = tool(name)
+        assert t.kind == "read" and t.required == ("owner", "repo", "pull_number")
+        ok = {"owner": O, "repo": R, "pull_number": 7}
+        assert tools.clean_arguments(t, ok)[0]["pull_number"] == 7
+        with pytest.raises(Exception):
+            tools.clean_arguments(t, {**ok, "body": "x"})
+        with pytest.raises(Exception):
+            tools.clean_arguments(t, {"owner": O, "repo": R})
+
+
+# -- ad accounts: read-only Google Ads and Meta Ads ---------------------------
+
+AD_TOOLS = ("googleads_search", "metaads_get_ad_accounts", "metaads_list_campaigns", "metaads_get_insights")
+
+
+def test_ad_apps_have_only_read_tools():
+    assert {t.name for t in tools.TOOLS if t.app in ("googleads", "metaads")} == set(AD_TOOLS)
+    assert all(tool(name).kind == "read" for name in AD_TOOLS)
+    assert not tools.has_write_tools("googleads") and not tools.has_write_tools("metaads")
+    shown = {t["name"] for t in tools.mcp_tools({"googleads": "read", "metaads": "read"})}
+    assert {"googleads_search", "metaads_get_insights"} <= shown
+
+
+def test_gaql_search_is_one_read_query_with_a_small_limit():
+    q = "SELECT campaign.name, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS LIMIT 50"
+    sent, _ = tools.clean_arguments(tool("googleads_search"), {"query": q, "customer_id": "123-456-7890"})
+    assert sent == {"query": q, "customer_id": "123-456-7890", "validate_only": False}
+
+
+@pytest.mark.parametrize("args", [
+    {},                                                                                   # no query
+    {"query": "campaign.name FROM campaign LIMIT 5"},                                      # not a SELECT
+    {"query": "SELECT campaign.name FROM campaign"},                                       # no limit
+    {"query": "SELECT campaign.name FROM campaign LIMIT 101"},                             # limit too big
+    {"query": "SELECT campaign.name FROM campaign LIMIT 5; SELECT 1 FROM customer LIMIT 1"},  # two statements
+    {"query": "SELECT campaign.name FROM campaign LIMIT 5", "customer_id": "12345"},       # not a customer ID
+    {"query": "SELECT campaign.name FROM campaign LIMIT 5", "validate_only": True},        # not an argument
+    {"query": "SELECT campaign.name FROM campaign LIMIT 5", "login_customer_id": "1234567890"},
+])
+def test_gaql_search_refuses_what_does_not_fit(args):
+    with pytest.raises(tools.BadArguments):
+        tools.clean_arguments(tool("googleads_search"), args)
+
+
+def test_meta_insights_use_fixed_fields_and_preset_dates():
+    sent, _ = tools.clean_arguments(tool("metaads_get_insights"), {"object_id": "act_123456789", "level": "campaign", "date_preset": "last_30d"})
+    assert sent["object_id"] == "act_123456789" and sent["level"] == "campaign" and sent["date_preset"] == "last_30d"
+    assert sent["limit"] == 25 and "actions" not in sent["fields"] and "time_range" not in sent
+
+
+@pytest.mark.parametrize("name,args", [
+    ("metaads_get_insights", {}),
+    ("metaads_get_insights", {"object_id": "act_1"}),                                       # too short
+    ("metaads_get_insights", {"object_id": "123456789/../me"}),
+    ("metaads_get_insights", {"object_id": "act_123456789", "date_preset": "last_year"}),
+    ("metaads_get_insights", {"object_id": "act_123456789", "level": "business"}),
+    ("metaads_get_insights", {"object_id": "act_123456789", "fields": "spend,actions"}),     # fields are fixed
+    ("metaads_get_insights", {"object_id": "act_123456789", "time_range": {"since": "2026-01-01", "until": "2026-01-31"}}),
+    ("metaads_list_campaigns", {}),
+    ("metaads_list_campaigns", {"ad_account_id": "me"}),
+    ("metaads_list_campaigns", {"ad_account_id": "act_123456789", "limit": 31}),
+    ("metaads_get_ad_accounts", {"fields": "id,name,access_token"}),
+])
+def test_meta_ads_refuse_what_does_not_fit(name, args):
+    with pytest.raises(tools.BadArguments):
+        tools.clean_arguments(tool(name), args)
+
+
+def test_ad_results_are_cut_to_whitelisted_numbers():
+    found = tools.project(tool("metaads_get_insights"), {"data": [
+        {"campaign_name": "Spring", "campaign_id": "1", "impressions": "1000", "clicks": "20", "spend": "12.50",
+         "actions": [{"action_type": "purchase", "value": "3"}], "access_token": "SECRET"}], "paging": {"cursors": {"after": "abc"}}})
+    assert found["count"] == 1 and found["result"][0]["spend"] == "12.50"
+    assert "SECRET" not in json.dumps(found) and "purchase" not in json.dumps(found)
+    assert found["next_page_token"] == "abc" and "third-party" in found["notice"] or "other people" in found["notice"]
+    rows = tools.project(tool("googleads_search"), {"results": [
+        {"campaign": {"name": "Brand", "id": "9", "resourceName": "customers/1/campaigns/9"},
+         "metrics": {"clicks": "7", "costMicros": "2500000"}, "secretField": "x"}], "next_page_token": "p2"})
+    assert rows["result"][0]["campaign_name"] == "Brand" and rows["result"][0]["metrics_costMicros"] == "2500000"
+    assert "resourceName" not in json.dumps(rows) and "secretField" not in json.dumps(rows) and rows["next_page_token"] == "p2"
+
+
+@pytest.mark.parametrize("name,levels,expected", [
+    ("googleads_search", {"googleads": "read"}, ("allowed", "composio_read")),
+    ("metaads_get_insights", {"metaads": "read"}, ("allowed", "composio_read")),
+    ("metaads_get_insights", {"googleads": "read"}, ("denied", "app_not_allowed")),
+])
+def test_ad_policy(name, levels, expected):
+    assert composio_policy.automatic(composio_policy.PREFIX + name, "ask", levels) == expected
+
+
+def test_the_three_levels_and_the_tools_each_one_shows():
+    assert tools.LEVELS == ("read", "labels", "write")
+    read = {t["name"] for t in tools.mcp_tools({"gmail": "read"})}
+    labels = {t["name"] for t in tools.mcp_tools({"gmail": "labels"})}
+    write = {t["name"] for t in tools.mcp_tools({"gmail": "write"})}
+    assert read < labels < write
+    assert labels - read == {tools.LABEL_APPLY}
+    assert tools.LABEL_LIST in read and tools.TRIAGE_MARK in read and tools.LABEL_APPLY not in read
+    assert {"gmail_send_email", "gmail_create_draft_reply"} <= write - labels
+    assert not {"gmail_send_email", "gmail_create_draft_reply", "gmail_prepare_checked_reply"} & labels
+
+
+def test_the_least_of_two_levels():
+    assert tools.lower_level("write", "labels") == "labels" and tools.lower_level("labels", "write") == "labels"
+    assert tools.lower_level("write", "read") == "read" and tools.lower_level("labels", "labels") == "labels"
+    assert tools.lower_level("write", None) == "read" and tools.lower_level("bogus", "write") == "read"
+
+
+def test_the_label_tool_takes_only_a_thread_and_a_fixed_word_and_the_dangerous_slugs_are_not_tools():
+    label = tool(tools.LABEL_APPLY)
+    assert label.kind == "label" and label.slug == "GMAIL_MODIFY_THREAD_LABELS" and tools.LABEL_APPLY in tools.ROUTINE_WRITE_TOOLS
+    assert set(label.properties) == {"thread_id", "label"} and label.required == ("thread_id", "label")
+    sent, _ = tools.clean_arguments(label, {"thread_id": "t1", "label": "At risk"})
+    assert sent == {"thread_id": "t1", "label": "At risk"}
+    for bad in ({"thread_id": "t1", "label": "Worker/Urgent"}, {"thread_id": "t1", "label": "INBOX"}, {"thread_id": "t1", "label": "Spam"},
+                {"thread_id": "t1", "label": "Urgent", "add_label_ids": ["L1"]}, {"thread_id": "t1", "label": "Urgent", "remove_label_ids": ["INBOX"]},
+                {"thread_id": "t1"}, {"label": "Urgent"}):
+        with pytest.raises(tools.BadArguments):
+            tools.clean_arguments(label, bad)
+    slugs = {t.slug for t in tools.TOOLS}
+    assert not slugs & {"GMAIL_DELETE_LABEL", "GMAIL_PATCH_LABEL", "GMAIL_UPDATE_LABEL", "GMAIL_REMOVE_LABEL", "GMAIL_MOVE_TO_TRASH",
+                        "GMAIL_MOVE_THREAD_TO_TRASH", "GMAIL_UNTRASH_MESSAGE", "GMAIL_UNTRASH_THREAD", "GMAIL_ADD_LABEL_TO_EMAIL"}
+    assert tools.has_label_tools("gmail") and not tools.has_label_tools("github")
+
+
+def test_the_note_tells_a_labels_agent_what_it_can_and_cannot_do():
+    note = tools.tool_note({"gmail": "labels"})
+    assert "gmail_apply_worker_label" in note and "Worker/<word>" in note and "never remove or change a label" in note
+    assert "gmail_apply_worker_label" not in tools.tool_note({"gmail": "read"})
+    assert "saving a draft reply" in tools.tool_note({"gmail": "write"}) and "saving a draft reply" not in note

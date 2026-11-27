@@ -73,7 +73,7 @@ def test_transactions_are_explicit_so_savepoints_and_ddl_work(tmp_path):
 
 
 def test_prepare_creates_the_directory_and_file_once(tmp_path):
-    target = tmp_path / "new" / "dir" / "open-dots.db"
+    target = tmp_path / "new" / "dir" / "suparagent.db"
     url = sqlite_url(target)
     prepare_sqlite_file(url)
     assert target.is_file()
@@ -84,7 +84,7 @@ def test_prepare_creates_the_directory_and_file_once(tmp_path):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes; Windows uses profile folder ACLs")
 def test_new_database_file_is_private_to_the_owner(tmp_path):
-    target = tmp_path / "private" / "open-dots.db"
+    target = tmp_path / "private" / "suparagent.db"
     prepare_sqlite_file(sqlite_url(target))
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
     assert stat.S_IMODE(target.parent.stat().st_mode) & 0o077 == 0

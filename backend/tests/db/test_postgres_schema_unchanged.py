@@ -21,15 +21,29 @@ F04_SNAPSHOT = HERE / "postgres_schema_f04.sql"
 F04_TABLES = {"thread", "turn", "event", "approval"}
 SETTINGS_TABLES = {"app_setting", "setting_audit"}
 AGENT_TABLES = {"agent"}
+AGENT_REVISION_TABLES = {"agent_revision"}
 COMPUTER_TABLES = {"computer"}
 AUTH_TABLES = {"auth_owner", "auth_session", "auth_pairing_code"}
 TEAM_TABLES = {"team", "team_event", "agent_job", "agent_job_event", "agent_job_inbox", "team_setup_request"}
-ROOM_TABLES = {"room", "room_member", "room_dispatch"}
-ROUTINE_TABLES = {"routine", "routine_run", "notification", "routine_webhook_receipt"}
+ROOM_TABLES = {"room", "room_member", "room_dispatch", "room_webhook_receipt"}
+ROUTINE_TABLES = {"routine", "routine_run", "routine_app_action", "notification", "routine_webhook_receipt"}
 NEEDS_YOU_TABLES = {"needs_you_state"}
 NOTICE_TABLES = {"team_notice"}
 PLANNER_TABLES = {"work_board", "work_column", "work_item"}
 WORK_EXECUTION_TABLES = {"work_item_run", "work_item_event"}
+COMMUNITY_MCP_TABLES = {"community_mcp_connection", "community_mcp_tool_grant"}
+CUSTOM_MCP_TABLES = {"custom_mcp_connection", "custom_mcp_tool_grant", "custom_mcp_oauth_flow"}
+AGENT_SERVICE_TABLES = {
+    "agent_service_provider", "agent_service_resource", "agent_service_assignment", "agent_service_audit",
+}
+SPEND_TABLES = {"spend_ledger"}
+WORKFLOW_TABLES = {"workflow", "workflow_run"}
+PEOPLE_TABLES = {"person", "person_invite", "people_audit"}
+MUAPI_TABLES = {"muapi_tool_grant"}
+SHADOW_TABLES = {"shadow_prediction"}
+WORKER_LABEL_TABLES = {"worker_label", "worker_label_action"}
+APP_EVENT_TABLES = {"app_event_trigger", "app_event_receipt", "app_event_day"}
+SHADOW_FEEDBACK_TABLES = {"shadow_feedback"}
 
 
 def postgres_ddl(table_names: set[str]) -> str:
@@ -41,11 +55,16 @@ def postgres_ddl(table_names: set[str]) -> str:
         statements.append(str(CreateTable(table).compile(dialect=dialect)).strip() + ";")
         for index in sorted(table.indexes, key=lambda i: i.name):
             statements.append(str(CreateIndex(index).compile(dialect=dialect)).strip() + ";")
-    return "\n\n".join(statements) + "\n"
+    return normalize_sql("\n\n".join(statements) + "\n")
+
+
+def normalize_sql(value: str) -> str:
+    # Generated DDL may carry trailing spaces; preserve every SQL token.
+    return re.sub(r"[ \t]+$", "", value.replace("\r\n", "\n"), flags=re.MULTILINE)
 
 
 def snapshot_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    return normalize_sql(path.read_text(encoding="utf-8"))
 
 
 def original_tables() -> set[str]:
@@ -61,7 +80,34 @@ def test_thread_tables_compile_to_their_reviewed_postgres_schema():
 
 
 def test_every_table_is_covered_by_one_of_the_snapshots():
-    assert original_tables() | F04_TABLES | SETTINGS_TABLES | AGENT_TABLES | COMPUTER_TABLES | AUTH_TABLES | ROUTINE_TABLES | TEAM_TABLES | ROOM_TABLES | NEEDS_YOU_TABLES | NOTICE_TABLES | PLANNER_TABLES | WORK_EXECUTION_TABLES == set(Base.metadata.tables)
+    covered_tables = (
+        original_tables()
+        | F04_TABLES
+        | SETTINGS_TABLES
+        | AGENT_TABLES
+        | AGENT_REVISION_TABLES
+        | COMPUTER_TABLES
+        | AUTH_TABLES
+        | ROUTINE_TABLES
+        | TEAM_TABLES
+        | ROOM_TABLES
+        | NEEDS_YOU_TABLES
+        | NOTICE_TABLES
+        | PLANNER_TABLES
+        | WORK_EXECUTION_TABLES
+        | COMMUNITY_MCP_TABLES
+        | CUSTOM_MCP_TABLES
+        | AGENT_SERVICE_TABLES
+        | SPEND_TABLES
+        | WORKFLOW_TABLES
+        | PEOPLE_TABLES
+        | MUAPI_TABLES
+        | SHADOW_TABLES
+        | WORKER_LABEL_TABLES
+        | APP_EVENT_TABLES
+        | SHADOW_FEEDBACK_TABLES
+    )
+    assert covered_tables == set(Base.metadata.tables)
     assert not original_tables() & F04_TABLES
 
 
@@ -71,6 +117,22 @@ def test_settings_tables_compile_to_their_reviewed_postgres_schema():
 
 def test_agent_table_compiles_to_its_reviewed_postgres_schema():
     assert postgres_ddl(AGENT_TABLES) == snapshot_text(HERE / "postgres_schema_agents.sql")
+
+
+def test_community_mcp_tables_compile_to_their_reviewed_postgres_schema():
+    assert postgres_ddl(COMMUNITY_MCP_TABLES) == snapshot_text(HERE / "postgres_schema_community_mcp.sql")
+
+
+def test_custom_mcp_tables_compile_to_their_reviewed_postgres_schema():
+    assert postgres_ddl(CUSTOM_MCP_TABLES) == snapshot_text(HERE / "postgres_schema_custom_mcp.sql")
+
+
+def test_agent_service_tables_compile_to_their_reviewed_postgres_schema():
+    assert postgres_ddl(AGENT_SERVICE_TABLES) == snapshot_text(HERE / "postgres_schema_agent_service.sql")
+
+
+def test_spend_ledger_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(SPEND_TABLES) == snapshot_text(HERE / "postgres_schema_spend.sql")
 
 
 def test_computer_table_compiles_to_its_reviewed_postgres_schema():
@@ -109,3 +171,39 @@ def test_planner_tables_compile_to_their_reviewed_postgres_schema():
 def test_work_execution_tables_compile_to_their_reviewed_postgres_schema():
     normalized = "\n".join(line.rstrip() for line in postgres_ddl(WORK_EXECUTION_TABLES).splitlines()) + "\n"
     assert normalized == snapshot_text(HERE / "postgres_schema_work_execution.sql")
+
+
+def test_workflow_tables_compile_to_their_reviewed_postgres_schema():
+    assert postgres_ddl(WORKFLOW_TABLES) == snapshot_text(HERE / "postgres_schema_workflows.sql")
+
+
+def test_agent_revision_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(AGENT_REVISION_TABLES) == snapshot_text(HERE / "postgres_schema_agent_revision.sql")
+
+
+def test_people_tables_compile_to_their_reviewed_postgres_schema():
+    assert postgres_ddl(PEOPLE_TABLES) == snapshot_text(HERE / "postgres_schema_people.sql")
+
+
+def test_spend_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(SPEND_TABLES) == snapshot_text(HERE / "postgres_schema_spend.sql")
+
+
+def test_muapi_tool_grant_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(MUAPI_TABLES) == snapshot_text(HERE / "postgres_schema_muapi.sql")
+
+
+def test_shadow_prediction_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(SHADOW_TABLES) == snapshot_text(HERE / "postgres_schema_shadow.sql")
+
+
+def test_worker_label_tables_compile_to_their_reviewed_postgres_schema():
+    assert postgres_ddl(WORKER_LABEL_TABLES) == snapshot_text(HERE / "postgres_schema_worker_labels.sql")
+
+
+def test_app_event_tables_compile_to_their_reviewed_postgres_schema():
+    assert postgres_ddl(APP_EVENT_TABLES) == snapshot_text(HERE / "postgres_schema_app_events.sql")
+
+
+def test_shadow_feedback_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(SHADOW_FEEDBACK_TABLES) == snapshot_text(HERE / "postgres_schema_shadow_feedback.sql")

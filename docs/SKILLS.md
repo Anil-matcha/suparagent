@@ -5,12 +5,26 @@ A skill is a saved set of instructions for one agent, such as "how I want the we
 ## What a skill is
 
 - One Markdown file per skill, `skills/<name>/SKILL.md`, in the agent's own folder (next to its notes).
-- A short header (`name`, `description`, `enabled`, `source`) and then the instructions.
+- A short header (`name`, `description`, `enabled`, `source`, optional `triggers`) and then the instructions. `triggers` is up to 8 short phrases (3-60 characters) separated by `|`; a message containing one makes the skill a suggestion only, never chosen, turned on or run.
 - Names use lowercase letters, digits and dashes, up to 48 characters. Instructions are at most 32 KB, a description at most 300 characters, and an agent can have 30 skills.
 - Text only. Nothing in a skill is run, and files next to `SKILL.md` are never read. A link (symlink) in the skills folder is refused.
 - Anything that looks like a secret is replaced when a skill is saved and again when it is read.
 
 ## Using a skill
+
+In an agent chat, type `/` at the start of an otherwise empty message to list
+that agent's enabled skills. Type more of the name to filter the list. Use
+Up/Down to move through the results, then Enter or Tab to attach the highlighted
+skill, or click a result. Escape dismisses the list and keeps your draft;
+changing the prefix opens suggestions again. Shift+Enter adds a line, and IME
+composition does not select a suggestion.
+
+Selection adds a removable skill chip and sends nothing. Write the request and
+send it when ready. The skill picker is also available beside the message box.
+Chosen skills are omitted from suggestions, and at most three can be attached
+to one message. Disabled skills are never offered; switching agents uses that
+agent's own list. A complete `/skill-name request` still uses the existing
+explicit invocation path, and unknown slash text is sent as ordinary text.
 
 Send a message with up to three skill names (`skills` on `POST /threads/{id}/turns`). The chosen skills' instructions are added before that one message, marked as guidance. They grant no permission and do not change the approval mode: every approval still works as it does without a skill. The next message carries no skill text unless you name one again. The transcript shows which skills a message used (`skill.used`, names only).
 
@@ -34,7 +48,8 @@ All routes are local-access only, like the agents routes. Errors are `{"detail":
 |---|---|
 | `GET /agents/{id}/skills` | `name, description, enabled, source, bytes, updated_at` for each skill |
 | `GET /agents/{id}/skills/{name}` | the skill with `body`, `redacted` (count) and `warnings` |
-| `PUT /agents/{id}/skills/{name}` | create or replace: `{description, body, enabled, source}` |
+| `PUT /agents/{id}/skills/{name}` | create or replace: `{description, body, enabled, source, triggers?}` (`triggers` omitted keeps the current phrases) |
+| `POST /agents/{id}/skills/suggest` | `{text}` returns the enabled skills whose trigger phrase appears in it; suggests only |
 | `DELETE /agents/{id}/skills/{name}` | remove it |
 | `POST /agents/{id}/skills/learn` | `{thread_id, turn_id}` prepares a bounded editable draft without saving |
 | `POST /agents/{id}/skills/learn/{name}` | `{thread_id, turn_id, description, body, reviewed: true}` creates the reviewed skill switched off; existing names return `409 skill_exists` |

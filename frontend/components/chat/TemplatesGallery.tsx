@@ -1,26 +1,31 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { Input } from "@/components/ui/Input";
+import { EmptyPanel, ErrorState, LoadingState } from "./PanelState";
 import {
   categoryLabel,
   filterTemplates,
-  requirementLabel,
+  requirementBadges,
+  SETUP_DEPTH_LABELS,
+  starterRoutinesLabel,
   type AgentTemplate,
   type TemplateCatalog,
   type TemplateSkill,
 } from "@/lib/templates";
 
-const FIELD = "w-full rounded-md border border-line bg-transparent px-3 py-1.5 text-sm placeholder:text-muted";
 const CHIP = "cursor-pointer rounded-full border px-3 py-1 text-xs font-medium";
 
 // Ready-made agents: browse and search a bundled list, then Add one. Add only
 // hands the template to the new-agent form; nothing is created here.
-export function TemplatesGallery({ onAdd }: { onAdd: (template: AgentTemplate) => void }) {
+export function TemplatesGallery({ onAdd, onHire }: { onAdd: (template: AgentTemplate) => void; onHire?: (template: AgentTemplate) => void }) {
   const [catalog, setCatalog] = useState<TemplateCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,22 +34,21 @@ export function TemplatesGallery({ onAdd }: { onAdd: (template: AgentTemplate) =
       .then((value) => { if (!cancelled) setCatalog(value); })
       .catch(() => { if (!cancelled) setError("Could not load the templates."); });
     return () => { cancelled = true; };
-  }, []);
+  }, [reload]);
 
   const shown = useMemo(() => filterTemplates(catalog?.templates ?? [], query, category), [catalog, query, category]);
 
-  if (error) return <p role="alert" className="text-sm text-danger">{error}</p>;
-  if (!catalog) return <p className="text-sm text-muted">Loading templates…</p>;
+  if (error) return <ErrorState message={error} onRetry={() => { setError(null); setReload((n) => n + 1); }} />;
+  if (!catalog) return <LoadingState rows={4} />;
 
   return (
     <div className="space-y-3">
-      <input
+      <Input
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search templates"
         aria-label="Search templates"
-        className={FIELD}
       />
       <div className="flex flex-wrap gap-2" role="group" aria-label="Category">
         {[null, ...catalog.categories].map((value) => (
@@ -60,7 +64,7 @@ export function TemplatesGallery({ onAdd }: { onAdd: (template: AgentTemplate) =
         ))}
       </div>
       {shown.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted">No templates match. Try another word or category.</p>
+        <EmptyPanel title="No templates match" description="Try another word or category." />
       ) : (
         <ul className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {shown.map((template) => (
@@ -68,7 +72,7 @@ export function TemplatesGallery({ onAdd }: { onAdd: (template: AgentTemplate) =
               <div className="flex items-center gap-2">
                 <span
                   aria-hidden
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-accent-fg"
                   style={{ backgroundColor: template.color }}
                 >
                   {template.name.charAt(0).toUpperCase()}
@@ -83,14 +87,34 @@ export function TemplatesGallery({ onAdd }: { onAdd: (template: AgentTemplate) =
                 <p className="mt-2 break-words text-xs italic text-muted">“{template.example_requests[0]}”</p>
               )}
               <div className="mt-2 flex flex-wrap gap-1">
-                {template.requires.map((item) => (
-                  <span key={item} className="rounded border border-line px-1.5 py-0.5 text-[11px] text-muted">
-                    Needs {requirementLabel(item)}{template.available ? "" : " · not available yet"}
-                  </span>
-                ))}
+                {requirementBadges(template).map((badge) =>
+                  badge.connectHref ? (
+                    <Link
+                      key={badge.requirement}
+                      href={badge.connectHref}
+                      className="rounded border border-line px-1.5 py-0.5 text-[11px] text-muted underline hover:bg-hover"
+                    >
+                      {badge.text}
+                    </Link>
+                  ) : (
+                    <span key={badge.requirement} className="rounded border border-line px-1.5 py-0.5 text-[11px] text-muted">
+                      {badge.text}
+                    </span>
+                  ),
+                )}
                 {template.skills.length > 0 && (
                   <span className="rounded border border-line px-1.5 py-0.5 text-[11px] text-muted">
                     {template.skills.length} suggested skill{template.skills.length === 1 ? "" : "s"}
+                  </span>
+                )}
+                {starterRoutinesLabel(template.routines) && (
+                  <span className="rounded border border-line px-1.5 py-0.5 text-[11px] text-muted">
+                    {starterRoutinesLabel(template.routines)}
+                  </span>
+                )}
+                {template.routines.length > 0 && (
+                  <span className="rounded border border-line px-1.5 py-0.5 text-[11px] text-muted">
+                    {SETUP_DEPTH_LABELS[template.setup_depth]}
                   </span>
                 )}
               </div>
@@ -104,6 +128,16 @@ export function TemplatesGallery({ onAdd }: { onAdd: (template: AgentTemplate) =
                 >
                   {template.available ? "Add" : "Unavailable"}
                 </button>
+                {onHire && template.available && (
+                  <button
+                    type="button"
+                    onClick={() => onHire(template)}
+                    aria-label={`Hire ${template.name}`}
+                    className="ml-2 cursor-pointer rounded-md border border-line px-3 py-1 text-xs font-medium hover:bg-hover"
+                  >
+                    Hire
+                  </button>
+                )}
               </div>
             </li>
           ))}

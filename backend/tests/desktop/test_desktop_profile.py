@@ -63,7 +63,7 @@ def test_with_the_profile_only_the_profile_and_the_defaults_apply(monkeypatch, t
     settings = Settings(_env_file=dotenv, **profile.settings_overrides())
 
     assert settings.DATABASE_KIND == "sqlite"
-    assert settings.SQLITE_FILE == desktop.data_dir / "open-dots.db"
+    assert settings.SQLITE_FILE == desktop.data_dir / "suparagent.db"
     assert make_url(settings.ASYNC_DATABASE_URL).drivername == "sqlite+aiosqlite"
     assert settings.LOCAL_EXECUTION_ENABLED is True
     assert settings.LOCAL_TOOLS_ENABLED is True
@@ -121,7 +121,7 @@ def test_no_setting_is_left_to_the_environment_in_a_fresh_desktop_process(tmp_pa
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.split(maxsplit=2)[:2] == ["sqlite", "True"]
-    assert result.stdout.strip().endswith(str(data / "open-dots.db"))
+    assert result.stdout.strip().endswith(str(data / "suparagent.db"))
 
 
 def test_the_claude_not_found_message_names_what_each_kind_of_install_actually_reads(monkeypatch, tmp_path):
@@ -134,7 +134,7 @@ def test_the_claude_not_found_message_names_what_each_kind_of_install_actually_r
 
     assert not profile.active()
     source = local_claude_runner._status_blocking().error
-    assert "LOCAL_CLAUDE_CLI_PATH" in source and "OPEN_DOTS_CLAUDE_PATH" not in source
+    assert "LOCAL_CLAUDE_CLI_PATH" in source and "SUPARAGENT_CLAUDE_PATH" not in source
 
     monkeypatch.setattr(profile, "_current", make_profile(tmp_path, claude_cli_path=str(tmp_path / "no-such-claude")))
     desktop = local_claude_runner._status_blocking().error

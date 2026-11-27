@@ -6,6 +6,7 @@
 // preview that the stored assistant.message replaces.
 import type { ThreadEvent } from "./api";
 import type { RecalledNote, RecalledPassage } from "./memory";
+import { parseAppConnection } from "./app-connection.ts";
 import type { NeedsYouRow } from "./needs-you";
 
 export type ApprovalStatus = "pending" | "allowed" | "denied" | "expired" | "cancelled";
@@ -13,20 +14,61 @@ export type ApprovalStatus = "pending" | "allowed" | "denied" | "expired" | "can
 export type TurnEndStatus = "completed" | "failed" | "cancelled" | "interrupted";
 
 // A file attached to a message: metadata only, the bytes are fetched by id.
-export type AttachmentRef = { id: string; name: string; mime: string; bytes: number; kind: string };
+export type AttachmentRef = { id: string; name: string; mime: string; bytes: number; kind: string; transcript?: { text: string; segments: { id: number; start: number; end: number; text: string }[] } | null };
 
 export type TeamJobItem = { kind: "team_job"; key: string; turnId: number | null; jobId: number; agentId: number; threadId: number | null; mode: string; brief: string; status: string; result: string; outcome: string };
 
-export type NeedsYouItem = { kind: "needs_you"; key: string; turnId: number | null; cardId: string; revision: number; title: string; subtitle: string; emptyText: string; more: number; checkedAt?: string; timeZone?: string; sources?: Record<string, string>; rows: NeedsYouRow[] };
+export type NeedsYouItem = { kind: "needs_you"; key: string; turnId: number | null; cardId: string; revision: number; title: string; subtitle: string; emptyText: string; more: number; checkedAt?: string; providerCheckedAt?: string; timeZone?: string; sources?: Record<string, string>; rows: NeedsYouRow[] };
+
+export type TeamSetupOperation =
+  | { op: "create"; name: string; title?: string; description?: string; instructions: string; provider?: string; model?: string | null; share_workspace?: boolean; first_task?: string }
+  | { op: "update"; agent_id: number; name?: string; current?: Record<string, string | null>; fields: Record<string, string | null>; expected_revision: string };
+export type TeamSetupPlan = { summary?: string; operations: TeamSetupOperation[] };
+
+// The member who sent a turn, when the server named one (a workspace shared by several people).
+function personOf(data: Record<string, unknown>): { person?: string } {
+  const label = text(record(data.person).label).trim();
+  return label ? { person: label } : {};
+}
+
+function teamSetupPlan(value: unknown): TeamSetupPlan | null {
+  const plan = record(value);
+  if (!Array.isArray(plan.operations)) return null;
+  const operations: TeamSetupOperation[] = [];
+  for (const value of plan.operations) {
+    const operation = record(value);
+    if (operation.op === "create" && typeof operation.name === "string") {
+      operations.push({
+        op: "create", name: operation.name,
+        ...(typeof operation.title === "string" ? { title: operation.title } : {}),
+        ...(typeof operation.description === "string" ? { description: operation.description } : {}),
+        instructions: text(operation.instructions),
+        ...(typeof operation.provider === "string" ? { provider: operation.provider } : {}),
+        ...(typeof operation.model === "string" || operation.model === null ? { model: operation.model } : {}),
+        ...(typeof operation.share_workspace === "boolean" ? { share_workspace: operation.share_workspace } : {}),
+        ...(typeof operation.first_task === "string" ? { first_task: operation.first_task } : {}),
+      });
+    } else if (operation.op === "update" && typeof operation.agent_id === "number" && typeof operation.expected_revision === "string") {
+      const fields = Object.fromEntries(Object.entries(record(operation.fields)).filter((entry): entry is [string, string | null] => typeof entry[1] === "string" || entry[1] === null));
+      const current = Object.fromEntries(Object.entries(record(operation.current)).filter((entry): entry is [string, string | null] => typeof entry[1] === "string" || entry[1] === null));
+      operations.push({ op: "update", agent_id: operation.agent_id, fields, expected_revision: operation.expected_revision,
+        ...(typeof operation.name === "string" ? { name: operation.name } : {}), ...(Object.keys(current).length ? { current } : {}) });
+    }
+  }
+  if (!operations.length || operations.length !== plan.operations.length) return null;
+  return { ...(typeof plan.summary === "string" ? { summary: plan.summary } : {}), operations };
+}
 
 export type TranscriptItem =
   | TeamJobItem
   | NeedsYouItem
   | { kind: "team_notice"; key: string; turnId: number | null; tone: "incident" | "escalation" | "refused" | "retried"; text: string; threadId: number | null }
-  | { kind: "team_setup"; key: string; turnId: number | null; requestId: string; undoAvailable: boolean; rows: { action: string; agentId: number; name: string; changes?: { field: string; before: unknown; after: unknown }[] }[] }
+  | { kind: "team_setup"; key: string; turnId: number | null; requestId: string; state: "pending" | "rejected" | "applied"; version?: number; plan?: TeamSetupPlan; undoAvailable: boolean; rows: { action: string; agentId: number; name: string; firstTask?: string; changes?: { field: string; before: unknown; after: unknown }[] }[] }
+  | { kind: "skill_change"; key: string; turnId: number | null; requestId: string; name: string; action: string; description: string; previousDescription: string | null; warnings: string[]; note: string }
   | { kind: "routine_change"; key: string; turnId: number | null; requestId: string; routineId: number; name: string; action: string; paused: boolean; note: string }
+  | { kind: "app_connection"; key: string; turnId: number | null; requestId: string; app: string; state: "needs_key" | "needs_connection" | "needs_access" | "ready"; reason: string; agentId: number; agentName: string }
   | { kind: "agent_created"; key: string; turnId: number | null; agentId: number; name: string; title: string }
-  | { kind: "user"; key: string; turnId: number | null; text: string; attachments: AttachmentRef[]; skills?: string[] }
+  | { kind: "user"; key: string; turnId: number | null; text: string; attachments: AttachmentRef[]; skills?: string[]; ts?: string; person?: string }
   | {
       kind: "assistant";
       key: string;
@@ -34,6 +76,7 @@ export type TranscriptItem =
       text: string;
       // The message did not finish (the turn failed or was stopped while it was written).
       incomplete: boolean;
+      ts?: string;
     }
   | {
       kind: "tool";
@@ -63,6 +106,8 @@ export type TranscriptItem =
       // person; "" otherwise. `ruleId` is that rule.
       resolvedBy: string;
       ruleId: number | null;
+      // The member who answered it, when the server named one.
+      resolvedPerson?: string;
     }
   | {
       kind: "turn_end";
@@ -121,6 +166,10 @@ function attachmentRefs(value: unknown): AttachmentRef[] {
       mime: text(a.mime),
       bytes: typeof a.bytes === "number" ? a.bytes : 0,
       kind: text(a.kind),
+      ...(text(a.kind) === "audio" && typeof record(a.transcript).text === "string" ? { transcript: {
+        text: text(record(a.transcript).text),
+        segments: Array.isArray(record(a.transcript).segments) ? (record(a.transcript).segments as unknown[]).map(record).filter((segment) => typeof segment.id === "number" && typeof segment.start === "number" && Number.isFinite(segment.start) && typeof segment.end === "number" && Number.isFinite(segment.end) && typeof segment.text === "string").map((segment) => ({ id: segment.id as number, start: segment.start as number, end: segment.end as number, text: segment.text as string })) : [],
+      } } : {}),
     }));
 }
 
@@ -161,9 +210,8 @@ function closeTurn(items: TranscriptItem[], forTurn: number | null): TranscriptI
   if (!items.some(open)) return items;
   return items.map((i) => {
     if (!open(i)) return i;
-    return i.kind === "approval"
-      ? { ...i, status: "cancelled" as const }
-      : { ...i, state: "stopped" as const };
+    if (i.kind === "approval") return { ...i, status: "cancelled" as const };
+    return i.kind === "tool" ? { ...i, state: "stopped" as const } : i;
   });
 }
 
@@ -187,7 +235,16 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
         typing: null,
         items: [
           ...state.items,
-          { kind: "user", key, turnId: id, text: text(data.prompt_text), attachments: attachmentRefs(data.attachments) },
+          { kind: "user", key, turnId: id, text: text(data.prompt_text), attachments: attachmentRefs(data.attachments), ts: event.ts, ...personOf(data) },
+        ],
+      };
+
+    case "turn.steered":
+      return {
+        ...base,
+        items: [
+          ...state.items,
+          { kind: "user", key, turnId: id, text: text(data.text), attachments: [], ts: event.ts },
         ],
       };
 
@@ -197,7 +254,7 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
         typing: null,
         items: [
           ...state.items,
-          { kind: "assistant", key, turnId: id, text: text(data.text), incomplete: data.incomplete === true },
+          { kind: "assistant", key, turnId: id, text: text(data.text), incomplete: data.incomplete === true, ts: event.ts },
         ],
       };
 
@@ -282,7 +339,7 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
         ...base,
         items: state.items.map((i) =>
           i.kind === "approval" && i.approvalId === approvalId && i.status === "pending"
-            ? { ...i, status, resolvedBy, ruleId }
+            ? { ...i, status, resolvedBy, ruleId, ...(personOf(data).person ? { resolvedPerson: personOf(data).person } : {}) }
             : i
         ),
       };
@@ -322,7 +379,11 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
 
     case "skill.used": {
       // The skills the person picked for this turn's message, shown on that message.
-      const names = Array.isArray(data.names) ? data.names.filter((n): n is string => typeof n === "string") : [];
+      const names = Array.isArray(data.skills)
+        ? data.skills.filter((n): n is string => typeof n === "string")
+        : Array.isArray(data.names)
+          ? data.names.filter((n): n is string => typeof n === "string")
+          : [];
       if (id === null || names.length === 0) return base;
       return {
         ...base,
@@ -373,18 +434,58 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
         name: text(routine.name), action: data.action, paused: routine.paused === true, note: text(data.undo_note) }] };
     }
 
+    case "skill.change.applied": {
+      const skill = data.skill as { name?: unknown; description?: unknown; warnings?: unknown; before?: { description?: unknown } | null } | undefined;
+      if (typeof data.request_id !== "string" || typeof skill?.name !== "string" || typeof data.action !== "string") return base;
+      if (state.items.some(item => item.kind === "skill_change" && item.requestId === data.request_id)) return base;
+      return { ...base, items: [...state.items, { kind: "skill_change", key, turnId: id, requestId: data.request_id, name: skill.name,
+        action: data.action, description: text(skill.description),
+        previousDescription: skill.before && typeof skill.before.description === "string" ? skill.before.description : null,
+        warnings: Array.isArray(skill.warnings) ? skill.warnings.filter((w): w is string => typeof w === "string") : [],
+        note: text(data.undo_note) }] };
+    }
+
+    case "app.connection.requested": {
+      const request = parseAppConnection(data);
+      if (!request) return base;
+      const previous = state.items.find((item): item is Extract<TranscriptItem, { kind: "app_connection" }> => item.kind === "app_connection" && item.requestId === request.requestId);
+      const card = { kind: "app_connection" as const, key: previous?.key ?? key, turnId: previous?.turnId ?? id, ...request };
+      return { ...base, items: previous ? state.items.map(item => item === previous ? card : item) : [...state.items, card] };
+    }
+
+    case "team.setup.proposed": {
+      if (typeof data.request_id !== "string" || typeof data.version !== "number") return base;
+      const plan = teamSetupPlan(data.plan);
+      if (!plan) return base;
+      const previous = state.items.find((item): item is Extract<TranscriptItem, { kind: "team_setup" }> => item.kind === "team_setup" && item.requestId === data.request_id);
+      if (previous?.state === "applied" || (previous && (previous.version ?? 0) >= data.version)) return base;
+      const proposal = { kind: "team_setup" as const, key: previous?.key ?? key, turnId: previous?.turnId ?? id,
+        requestId: data.request_id, state: "pending" as const, version: data.version, plan, undoAvailable: false, rows: [] };
+      return { ...base, items: previous ? state.items.map(item => item === previous ? proposal : item) : [...state.items, proposal] };
+    }
+
+    case "team.setup.dismissed": {
+      if (typeof data.request_id !== "string" || typeof data.version !== "number") return base;
+      const previous = state.items.find((item): item is Extract<TranscriptItem, { kind: "team_setup" }> => item.kind === "team_setup" && item.requestId === data.request_id);
+      const version: number = data.version;
+      if (!previous || previous.state === "applied" || (previous.version ?? 0) > version) return base;
+      return { ...base, items: state.items.map(item => item === previous ? { ...previous, state: "rejected" as const, version } : item) };
+    }
+
     case "team.setup.applied": {
       if (typeof data.request_id !== "string" || !Array.isArray(data.results)) return base;
       const rows = data.results.flatMap((row: unknown) => {
-        const r = row as { action?: unknown; agent_id?: unknown; name?: unknown; changes?: unknown };
+        const r = row as { action?: unknown; agent_id?: unknown; name?: unknown; changes?: unknown; first_task?: unknown };
         const changes = Array.isArray(r?.changes) ? r.changes.flatMap((change: unknown) => {
           const c = change as { field?: unknown; before?: unknown; after?: unknown };
           return typeof c?.field === "string" ? [{ field: c.field, before: c.before, after: c.after }] : [];
         }) : undefined;
-        return typeof r?.action === "string" && typeof r.agent_id === "number" ? [{ action: r.action, agentId: r.agent_id, name: text(r.name), ...(changes ? { changes } : {}) }] : [];
+        return typeof r?.action === "string" && typeof r.agent_id === "number" ? [{ action: r.action, agentId: r.agent_id, name: text(r.name), ...(typeof r.first_task === "string" && r.first_task ? { firstTask: r.first_task } : {}), ...(changes ? { changes } : {}) }] : [];
       });
-      if (state.items.some(item => item.kind === "team_setup" && item.requestId === data.request_id)) return base;
-      return { ...base, items: [...state.items, { kind: "team_setup", key, turnId: id, requestId: data.request_id, undoAvailable: data.undo_available === true, rows }] };
+      const previous = state.items.find((item): item is Extract<TranscriptItem, { kind: "team_setup" }> => item.kind === "team_setup" && item.requestId === data.request_id);
+      const applied = { kind: "team_setup" as const, key: previous?.key ?? key, turnId: previous?.turnId ?? id, requestId: data.request_id,
+        state: "applied" as const, undoAvailable: data.undo_available === true, rows };
+      return { ...base, items: previous ? state.items.map(item => item === previous ? applied : item) : [...state.items, applied] };
     }
 
     // A report the lead was given about a teammate's thread, or a retry it made.
@@ -421,12 +522,13 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
       if (previous && previous.revision >= revision) return base;
       const rows = data.items.flatMap((row: unknown): NeedsYouRow[] => {
         const r = row as Partial<NeedsYouRow>;
-        return typeof r?.key === "string" && typeof r.kind === "string" ? [{ kind: r.kind, key: r.key, title: text(r.title), detail: typeof r.detail === "string" ? r.detail : null, thread_id: typeof r.thread_id === "number" ? r.thread_id : null, at: typeof r.at === "string" ? r.at : null, source: typeof r.source === "string" ? r.source : undefined, routine_id: typeof r.routine_id === "number" ? r.routine_id : null, work_item_id: typeof r.work_item_id === "number" ? r.work_item_id : null }] : [];
+        return typeof r?.key === "string" && typeof r.kind === "string" ? [{ kind: r.kind, key: r.key, title: text(r.title), detail: typeof r.detail === "string" ? r.detail : null, thread_id: typeof r.thread_id === "number" ? r.thread_id : null, at: typeof r.at === "string" ? r.at : null, source: typeof r.source === "string" ? r.source : undefined, source_id: typeof r.source_id === "string" ? r.source_id : null, source_url: typeof r.source_url === "string" ? r.source_url : null, source_timestamp: typeof r.source_timestamp === "string" ? r.source_timestamp : null, source_record: r.source_record && typeof r.source_record === "object" ? r.source_record : null, routine_id: typeof r.routine_id === "number" ? r.routine_id : null, work_item_id: typeof r.work_item_id === "number" ? r.work_item_id : null }] : [];
       });
       const item: NeedsYouItem = {
         kind: "needs_you", key: previous?.key ?? key, turnId: null, cardId: data.card_id, revision,
         title: text(data.title) || "Needs you", subtitle: text(data.subtitle), emptyText: text(data.empty_text) || "Nothing needs you right now.",
         more: typeof data.more === "number" ? data.more : 0, rows,
+        providerCheckedAt: typeof data.provider_checked_at === "string" ? data.provider_checked_at : undefined,
         checkedAt: typeof data.checked_at === "string" ? data.checked_at : undefined,
         timeZone: typeof data.time_zone === "string" ? data.time_zone : undefined,
         sources: data.sources && typeof data.sources === "object" ? data.sources as Record<string, string> : undefined,

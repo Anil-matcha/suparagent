@@ -45,3 +45,6 @@ class Approval(Base):
     )
     consumed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # The member who answered it. The name is kept as it was then, so history survives a rename or removal.
+    decided_by_person_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    decided_by_label: Mapped[str | None] = mapped_column(String, nullable=True)

@@ -296,6 +296,33 @@ async def test_answering_the_parked_request_resumes_the_run(scheduler, sessions,
     assert finished.waited_seconds >= 30 and finished.waiting_since is None
 
 
+async def test_a_waiting_run_is_listed_for_its_own_agent_only(scheduler, sessions, owner, agent, clock, cli, tools_on):
+    cli.script(BASH, {"type": "chat"})
+    routine = await make_routine(sessions, owner, agent, clock, schedule_kind="manual", schedule_spec={})
+    async with sessions() as db:
+        run = await service.run_now(db, owner, routine.id, now=clock())
+
+    async def parked():
+        await scheduler.tick()
+        current = await reload(sessions, RoutineRun, run.id)
+        return current if current.state == "needs_input" else None
+
+    current = await wait_until(parked)
+    async with sessions() as db:
+        found = await service.waiting_for_agent(db, owner, agent.id)
+        other_agent = await service.waiting_for_agent(db, owner, agent.id + 9999)
+        other_owner = await service.waiting_for_agent(db, owner + "-other", agent.id)
+    assert other_agent == [] and other_owner == []
+    ((found_routine, found_run, approvals),) = found
+    assert found_routine.id == routine.id and found_run.thread_id == current.thread_id
+    assert [a.status for a in approvals] == ["pending"]
+    # Answering through the same route the chat uses clears it from the list.
+    assert await scheduler.runtime.answer_approval(approvals[0].id, "deny")
+    await settled(scheduler, sessions, run.id)
+    async with sessions() as db:
+        assert await service.waiting_for_agent(db, owner, agent.id) == []
+
+
 async def test_the_run_limit_stops_a_run_and_records_it(scheduler, sessions, owner, agent, clock, cli, tmp_path):
     cli.script({"type": "chat", "wait_for": str(tmp_path / "never")})
     routine = await make_routine(sessions, owner, agent, clock, schedule_kind="manual", schedule_spec={},
@@ -434,10 +461,12 @@ async def test_an_imported_routine_is_paused_and_has_no_webhook(sessions, owner,
     async with sessions() as db:
         await service.enable_webhook(db, owner, routine.id)
     document = service.export_document(routine)
+    document["quiet_reporting"] = True
     async with sessions() as db:
         imported = await service.import_document(db, owner, agent.id, document, now=clock())
     assert imported.paused and imported.next_run_at is None and imported.webhook_secret_hash is None
     assert imported.schedule_spec == {"expression": "* * * * *"}
+    assert imported.quiet_reporting is False
 
 
 @pytest.mark.parametrize("after, expected", [
@@ -521,3 +550,41 @@ async def test_webhook_receipt_expiry_auth_and_body_independent_keys(sessions, o
     assert (await deliver(None)).id != (await deliver(None)).id
     async with sessions() as db:
         await service.delete_routine(db, owner, routine.id)
+
+
+async def test_agent_deletion_and_archive_pauses_routines(sessions, owner, agent, clock):
+    from app.services import agent_store
+    routine = await make_routine(sessions, owner, agent, clock)
+    assert routine.paused is False
+
+    # 1. Archive agent pauses routine
+    async with sessions() as db:
+        await agent_store.update_agent(db, agent.id, archived=True)
+    async with sessions() as db:
+        r = await service.get_routine(db, owner, routine.id)
+        assert r.paused is True
+        assert "archived" in r.paused_reason
+
+    # 2. Resuming while archived fails with agent_missing
+    async with sessions() as db:
+        with pytest.raises(service.InvalidRoutine) as exc:
+            await service.set_paused(db, owner, routine.id, False)
+        assert exc.value.code == "agent_missing"
+
+    # 3. Restore agent
+    async with sessions() as db:
+        await agent_store.update_agent(db, agent.id, archived=False)
+
+    # 4. Delete agent pauses routine and cancels queued runs
+    async with sessions() as db:
+        await agent_store.delete_agent(db, agent.id)
+    async with sessions() as db:
+        r = await service.get_routine(db, owner, routine.id)
+        assert r.paused is True
+        assert "no longer exists" in r.paused_reason
+
+    # 5. Resuming while deleted fails with agent_missing
+    async with sessions() as db:
+        with pytest.raises(service.InvalidRoutine) as exc:
+            await service.set_paused(db, owner, routine.id, False)
+        assert exc.value.code == "agent_missing"

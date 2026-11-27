@@ -50,7 +50,7 @@ test("closing DevTools rejects an outstanding request instead of hanging cleanup
 });
 
 test("real POSIX cleanup stops a descendant and preserves an unrelated process", { skip: process.platform === "win32", timeout: 10_000 }, async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "open-dots-process-test-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "suparagent-process-test-"));
   const heartbeat = path.join(dir, "heartbeat");
   const bystander = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
   const grandchild = `const fs=require('node:fs');setInterval(()=>fs.appendFileSync(process.argv[1],'.'),20);`;

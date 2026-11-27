@@ -30,6 +30,7 @@ class SkillSummary(BaseModel):
     source: str
     bytes: int
     updated_at: datetime | None
+    triggers: list[str] = []
 
 
 class SkillResponse(BaseModel):
@@ -41,6 +42,11 @@ class SkillResponse(BaseModel):
     revision: str = ""
     redacted: int = 0
     warnings: list[str] = []
+    triggers: list[str] = []
+
+
+class SkillSuggestRequest(BaseModel):
+    text: str = Field(max_length=20_000)
 
 
 class SkillWriteRequest(BaseModel):
@@ -48,6 +54,8 @@ class SkillWriteRequest(BaseModel):
     body: str = Field(max_length=200_000)
     enabled: bool = True
     source: str = Field(default="user", max_length=200)
+    # None keeps the skill's current trigger phrases; a list replaces them.
+    triggers: list[str] | None = Field(default=None, max_length=50)
 
 
 class SkillLearnRequest(BaseModel):
@@ -100,6 +108,7 @@ def _response(skill: skills.Skill) -> SkillResponse:
         revision=skill.revision,
         redacted=skill.redacted,
         warnings=skill.warnings,
+        triggers=skill.triggers,
     )
 
 
@@ -110,9 +119,26 @@ async def list_skills(agent_id: int, rt: ThreadRuntime = Depends(get_runtime)):
         return [
             SkillSummary(
                 name=s.name, description=s.description, enabled=s.enabled, source=s.source,
-                bytes=s.bytes, updated_at=s.updated_at,
+                bytes=s.bytes, updated_at=s.updated_at, triggers=s.triggers,
             )
             for s in skills.list_skills(agent_id)
+        ]
+    except skills.SkillError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/suggest", response_model=list[SkillSummary])
+async def suggest_skills(agent_id: int, payload: SkillSuggestRequest, rt: ThreadRuntime = Depends(get_runtime)):
+    """Enabled skills whose trigger phrase appears in the text. A suggestion
+    only: nothing is chosen, enabled or run."""
+    await _agent_or_404(rt, agent_id)
+    try:
+        return [
+            SkillSummary(
+                name=s.name, description=s.description, enabled=s.enabled, source=s.source,
+                bytes=s.bytes, updated_at=s.updated_at, triggers=s.triggers,
+            )
+            for s in skills.suggest(skills.list_skills(agent_id), payload.text)
         ]
     except skills.SkillError as exc:
         raise _http(exc) from None
@@ -194,7 +220,8 @@ async def write_skill(
     try:
         return _response(
             skills.write_skill(
-                agent_id, name, payload.description, payload.body, enabled=payload.enabled, source=payload.source
+                agent_id, name, payload.description, payload.body, enabled=payload.enabled, source=payload.source,
+                triggers=payload.triggers,
             )
         )
     except skills.SkillError as exc:

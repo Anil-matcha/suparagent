@@ -1,6 +1,6 @@
-# Open Duet — Web UI
+# Suparagent — Web UI
 
-Next.js app for Open Duet: chat with named agents, manage their instructions,
+Next.js app for Suparagent: chat with named agents, manage their instructions,
 memory, routines, approvals and computers, and sign in or pair a device. It also
 holds the original page for connecting Telegram and Claude and submitting Boat
 tasks, backed by the same API.

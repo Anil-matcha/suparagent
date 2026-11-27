@@ -1,0 +1,15 @@
+{
+  "slug": "muapi",
+  "name": "Muapi",
+  "version": "0.2.0",
+  "summary": "Hosted Muapi MCP for generative media and selected data research. Search SEO, lead-enrichment, social-read, market-data and web-research APIs, estimate USD costs, and submit capped data lookups. Paid calls and media generation can consume Muapi credits. Grant only the tools each agent needs.",
+  "publisher": "Muapi by Vadoo Internet Services Private Limited",
+  "source_repo": "https://github.com/Anil-matcha/muapiapp",
+  "endpoint": "https://api.muapi.ai/mcp",
+  "auth_mode": "bearer_token",
+  "privacy_url": "https://muapi.ai/api/app/pdf/privacy_policy.pdf",
+  "terms_url": "https://muapi.ai/terms",
+  "license": "Proprietary service; see Muapi Terms of Service",
+  "setup_instructions": "Create an API key at https://muapi.ai/access-keys. In Suparagent, connect this listing and save the key as its bearer token. Grant only the individual tools each agent needs. For data research, muapi_data_api_search finds supported endpoints and their input fields and prices; muapi_data_api_estimate returns a current quote; muapi_data_api_call submits one selected lookup and requires max_cost_usd. The call checks a fresh USD quote and refuses submission above that cap, but an approved call can spend Muapi credits. Poll an asynchronous request with muapi_predict_result. The data tools exclude social publishing and sandbox control. The MCP also provides generation, credit top-ups, and API-key management; grant those only when needed. Do not paste the bearer key into chat or a tool argument.",
+  "test_instructions": "Grant muapi_data_api_search to an agent and search for a read-only task such as public backlinks or company enrichment. This lists supported inputs and price metadata without submitting a paid request. You can grant muapi_data_api_estimate to obtain a current quote for a selected endpoint. Only if you intentionally want to run a paid lookup, grant muapi_data_api_call, review the exact arguments in Suparagent's approval card, and set max_cost_usd to the maximum you approve; the call may spend credits. Remove any grants the agent does not need."
+}

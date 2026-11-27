@@ -1,9 +1,12 @@
-"""One turn's mailbox for the memory tools (session_search, session_read).
+"""One turn's mailbox for the memory tools (session_search, session_read) and
+the profile suggestion tool (suggest_profile_change).
 
 The engine's MCP server (app/memory_mcp_server.py) drops request files in a
 private folder; this polls them and answers from the database as the agent the
-turn belongs to. Read-only: nothing here writes, so no approval is consumed
-(tool_policy allows `mcp__memory__*` automatically).
+turn belongs to. The two search tools only read. suggest_profile_change only
+adds a draft to the owner's queue (business_profile_proposals.py); it can never
+change the business profile, which the person alone writes. So no approval is
+consumed (tool_policy allows `mcp__memory__*` automatically).
 """
 import asyncio
 import json
@@ -21,14 +24,15 @@ logger = get_logger(__name__)
 
 SERVER = "memory"
 TOOL_PREFIX = f"mcp__{SERVER}__"
-TOOLS = ("session_search", "session_read")
+TOOLS = ("session_search", "session_read", "suggest_profile_change")
 # The agent is told about the tools in its instructions, on every engine that mounts them.
 TOOL_NOTE = (
     "You can search your own earlier conversations, the rooms you belong to and your memory "
     "files with the session_search tool (words, a since/until time, or both), and read a whole "
-    "message with session_read. Use it before asking the person to repeat something."
+    "message with session_read. Use it before asking the person to repeat something. To suggest a change "
+    "to the business profile, call suggest_profile_change: it only leaves a draft for the owner to accept or dismiss."
 )
-_ARGS = {"query", "since", "until", "limit", "scope", "thread_id", "message_id"}
+_ARGS = {"query", "since", "until", "limit", "scope", "thread_id", "message_id", "field", "text", "reason"}
 
 
 def is_memory_call(*, server: str | None = None, tool: str | None = None, title: str | None = None, raw=None) -> bool:
@@ -55,7 +59,7 @@ def render_hit(hit: session_search.Hit, *, with_query: bool) -> str:
 class MemoryBridge:
     def __init__(self, runtime, run):
         self.runtime, self.run = runtime, run
-        self.folder = Path(tempfile.mkdtemp(prefix=f"open-dots-memory-{run.turn_id}-"))
+        self.folder = Path(tempfile.mkdtemp(prefix=f"suparagent-memory-{run.turn_id}-"))
         self.task: asyncio.Task | None = None
         self.calls: set[asyncio.Task] = set()
         # Private one-to-one chats this turn's searches surfaced (disclosed to a room).
@@ -121,6 +125,8 @@ class MemoryBridge:
             from app.db.models import Agent
 
             agent = await db.get(Agent, run.agent_id)
+            if name == "suggest_profile_change":
+                return self.suggest_profile_change(agent, args)
             if agent is None or not agent.memory_enabled:
                 return {"error": "Your notes and past-conversation search are switched off."}
             if name == "session_search":
@@ -158,6 +164,25 @@ class MemoryBridge:
                 where = message["where"] + (", private to this person" if message["private"] else "")
                 return {"text": f"[{at} · {where} · {message['speaker']} said]\n{message['text']}"}
         return {"error": "Unknown tool."}
+
+    @staticmethod
+    def suggest_profile_change(agent, args: dict) -> dict:
+        """Queue a draft for the owner. The profile itself is never touched here."""
+        from app.services import business_profile_proposals as proposals
+
+        if agent is None:
+            return {"error": "Your profile suggestion could not be saved."}
+        try:
+            item = proposals.propose(
+                field=str(args.get("field") or ""),
+                text=str(args.get("text") or ""),
+                reason=str(args.get("reason") or ""),
+                agent_id=agent.id,
+                agent_name=agent.name,
+            )
+        except proposals.ProposalRefused as refused:
+            return {"error": str(refused)}
+        return {"text": f"Left for the owner to review: a new \"{item['label']}\". It is not applied until they accept it."}
 
     def crossed_new(self) -> list[int]:
         out, self.crossed = list(dict.fromkeys(self.crossed)), []

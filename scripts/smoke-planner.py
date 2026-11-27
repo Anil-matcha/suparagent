@@ -23,7 +23,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--keep", action="store_true")
     args = parser.parse_args()
-    root = Path(tempfile.mkdtemp(prefix="open-dots-planner-ui-"))
+    root = Path(tempfile.mkdtemp(prefix="suparagent-planner-ui-"))
     backend = module.ServerBackend(root / "server", ROOT / "frontend/out")
     owner = None
     try:

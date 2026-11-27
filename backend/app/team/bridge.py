@@ -43,7 +43,7 @@ class TeamBridge:
     def __init__(self, runtime, run):
         self.runtime, self.run = runtime, run
         # A fresh private folder outside all agent workspaces. Not backed up.
-        self.folder = Path(tempfile.mkdtemp(prefix=f'open-dots-team-{run.turn_id}-'))
+        self.folder = Path(tempfile.mkdtemp(prefix=f'suparagent-team-{run.turn_id}-'))
         self.task = None
         self.calls = set()
 
@@ -106,6 +106,14 @@ class TeamBridge:
 
     async def execute(self, name, args):
         rt, run = self.runtime, self.run
+        if name == 'refresh_today':
+            async with rt.session() as db:
+                caller = await service.member(db, rt.owner_id, run.agent_id, team_id=run.ctx.team.team_id)
+                team = await service.team_for(db, rt.owner_id)
+                if team is None or team.id != run.ctx.team.team_id or team.lead_agent_id != caller.id:
+                    raise service.TeamError('lead_only', 'Only the current team lead can read this snapshot.')
+            from app.routers.needs_you import service_for
+            return await service_for(rt).read(refresh=True)
         async with rt.session() as db:
             caller = await service.member(db, rt.owner_id, run.agent_id, team_id=run.ctx.team.team_id)
             if name == 'list_agents':

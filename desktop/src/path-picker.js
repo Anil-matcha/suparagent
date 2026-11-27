@@ -5,12 +5,12 @@ function trustedPickerRequest(event, window, origin, kind) {
   if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) return false;
   const url = event.senderFrame?.url;
   if (!sameOrigin(url, origin)) return false;
-  return ["/settings", "/settings/"].includes(new URL(url).pathname);
+  return ["/settings/engines", "/settings/engines/"].includes(new URL(url).pathname);
 }
 
 function registerPathPicker({ ipcMain, dialog, getWindow, getOrigin }) {
   let choosing = false;
-  ipcMain.handle("open-dots:choose-path", async (event, kind) => {
+  ipcMain.handle("suparagent:choose-path", async (event, kind) => {
     const window = getWindow();
     if (!trustedPickerRequest(event, window, getOrigin(), kind)) throw new Error("Path selection is only available in Settings.");
     if (choosing) return null;

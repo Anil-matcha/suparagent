@@ -73,7 +73,10 @@ FORBIDDEN = b'HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r
 def receive_response(client, *, expected=None):
     response = bytearray()
     while expected is None or len(response) < len(expected):
-        chunk = client.recv(65536)
+        try:
+            chunk = client.recv(65536)
+        except ConnectionResetError:
+            break
         if not chunk:
             break
         response.extend(chunk)
@@ -194,7 +197,9 @@ def real_network_box(monkeypatch, tmp_path):
     """Enable the real Linux sandbox without platform or executable fakes."""
     monkeypatch.setattr(settings, 'TURN_SANDBOX_ENABLED', True)
     monkeypatch.setattr(settings, 'TURN_SANDBOX_NETWORK_ENABLED', True)
-    monkeypatch.setattr(settings, 'TURN_SANDBOX_READONLY_PATHS', '')
+    # A venv can link to a managed Python outside /usr. Grant only that runtime,
+    # as an operator must for a custom installation; never grant its parent/home.
+    monkeypatch.setattr(settings, 'TURN_SANDBOX_READONLY_PATHS', str(Path(sys.base_prefix).resolve()))
     monkeypatch.setattr(settings, 'TURN_SANDBOX_WRITABLE_PATHS', '')
     monkeypatch.setattr(settings, 'SQLITE_PATH', str(tmp_path / 'data' / 'app.db'))
     workspace = tmp_path / 'workspace'
@@ -223,6 +228,19 @@ def test_network_plan_has_no_host_tcp_listener_or_bypass_environment(network_box
         assert command[index - 1] == '--unsetenv'
 
 
+def test_network_bridge_resolves_python_alias_without_changing_host_launch(monkeypatch, network_box):
+    if os.name == "nt":
+        pytest.skip("symlink to executable requires elevated privileges on Windows")
+    interpreter = Path(sys.executable).resolve(strict=True)
+    alias = network_box / 'python-alias'
+    alias.symlink_to(interpreter)
+    monkeypatch.setattr(box.sys, 'executable', str(alias))
+    command = box.command(['codex', 'app-server'], cwd=network_box, env={})
+    assert command[0] == str(alias)
+    bridge = command.index('bridge')
+    assert command[bridge - 2] == str(interpreter)
+
+
 @pytest.mark.parametrize('network', ['net:[host]', '', 'pid:[other]'])
 def test_self_check_refuses_shared_or_missing_network_namespace(monkeypatch, network_box, network):
     monkeypatch.setattr(box.os, 'readlink', lambda name: 'net:[host]' if name.endswith('/net') else 'pid:[host]')
@@ -232,6 +250,8 @@ def test_self_check_refuses_shared_or_missing_network_namespace(monkeypatch, net
 
 
 def test_supervisor_preserves_stdio_and_cleans_gate_socket(tmp_path):
+    if sys.platform == "win32":
+        pytest.skip("UNIX domain sockets are not supported on Windows")
     # This exercises real supervisor/gate/child lifetime on any UNIX host;
     # it does not claim to exercise bubblewrap or a network namespace.
     script = ('import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); '
@@ -249,6 +269,8 @@ def test_supervisor_preserves_stdio_and_cleans_gate_socket(tmp_path):
 
 
 def test_bridge_refuses_missing_gate_before_engine(monkeypatch, tmp_path):
+    if sys.platform == "win32":
+        pytest.skip("UNIX domain sockets are not supported on Windows")
     monkeypatch.setattr(gate, 'SOCKET_PATH', str(tmp_path / 'missing.sock'))
     monkeypatch.setattr(gate.subprocess, 'Popen', lambda *a, **kw: pytest.fail('engine must not start'))
     with pytest.raises(OSError):
@@ -290,7 +312,7 @@ with open(result_file, "w", encoding="utf-8") as result:
     result.write("host loopback blocked; private proxy destination refused")
 print("host loopback blocked; private proxy destination refused")
 '''
-        args = box.command([sys.executable, '-c', script, str(host_port), str(result_file)], cwd=real_network_box,
+        args = box.command([str(Path(sys.executable).resolve(strict=True)), '-c', script, str(host_port), str(result_file)], cwd=real_network_box,
                            env={'PATH': '/usr/bin:/bin'})
         scratch = Path('/tmp')
         before = set(scratch.glob('duet-egress-*'))

@@ -64,7 +64,7 @@ async def test_racing_first_writes_have_exactly_one_winner(configured):
     ("LOCAL_TOOLS_ENABLED", "true", False),
     ("LOCAL_CLAUDE_CLI_PATH", "relative.exe", None),
     ("LOCAL_WORKSPACE_ROOT", "relative", None),
-    ("LOCAL_TASK_TIMEOUT_SECONDS", -1, 300),
+    ("LOCAL_TASK_TIMEOUT_SECONDS", -1, 0),
     ("LOCAL_APPROVAL_TIMEOUT_SECONDS", "forever", 300),
     ("LOCAL_MAX_OUTPUT_BYTES", 0, 1_000_000),
 ])
@@ -86,7 +86,7 @@ async def test_turn_snapshot_and_new_approval_apply_rules(configured):
         await put(configured, "LOCAL_TASK_TIMEOUT_SECONDS", 90)
         await put(configured, "LOCAL_APPROVAL_TIMEOUT_SECONDS", 60)
         assert config.get("LOCAL_TOOLS_ENABLED") is True
-        assert config.get("LOCAL_TASK_TIMEOUT_SECONDS") == 300
+        assert config.get("LOCAL_TASK_TIMEOUT_SECONDS") == 0
         assert config.get("LOCAL_APPROVAL_TIMEOUT_SECONDS", live=True) == 60
     assert config.get("LOCAL_TOOLS_ENABLED") is False
     assert config.get("LOCAL_TASK_TIMEOUT_SECONDS") == 90
@@ -128,3 +128,22 @@ def test_no_editable_key_is_read_directly_outside_the_resolver():
             if re.search(rf"\bsettings\.{key}\b", file.read_text(encoding="utf-8")):
                 violations.append(f"{file.name}: {key}")
     assert violations == []
+
+
+async def test_the_speech_voice_is_a_listed_choice(configured):
+    from app.services.speech_voices import DEFAULT_VOICE
+    assert config.get("SPEECH_VOICE") == DEFAULT_VOICE
+    saved = await put(configured, "SPEECH_VOICE", "fish-narrator")
+    assert (saved.value, saved.source) == ("fish-narrator", "database")
+    assert config.get("SPEECH_VOICE") == "fish-narrator"
+    with pytest.raises(ValueError):
+        await put(configured, "SPEECH_VOICE", "not-a-voice", 1)
+    with pytest.raises(ValueError):
+        await put(configured, "SPEECH_VOICE", 5, 1)
+
+
+async def test_a_saved_voice_that_is_later_removed_falls_back_to_the_default(configured, monkeypatch):
+    from app.services.speech_voices import DEFAULT_VOICE
+    monkeypatch.setattr(config, "_rows", {"SPEECH_VOICE": ("retired-voice", 3)})
+    resolved = config.resolve("SPEECH_VOICE")
+    assert resolved.effective_value == DEFAULT_VOICE and resolved.error

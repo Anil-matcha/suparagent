@@ -1,10 +1,11 @@
 """Manage a team and inspect its durable jobs."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import select
 from app.db.models import Agent, Team, TeamEvent, AgentJob, AgentJobEvent, Approval, Thread, Turn
 from app.db.transactions import begin_write
 from app.services.local_access_policy import require_local_access
+from app.auth.middleware import principal_of
 from app.routers.threads import get_runtime
 from app.team import service, jobs, setup
 from app.services.engine_registry import capabilities_of
@@ -31,9 +32,32 @@ class TeamUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
 
 
+class SetupPlanRevision(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    version: int = Field(ge=1)
+    plan: dict
+
+
+class SetupDecision(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    version: int = Field(ge=1)
+
+
 def error(exc):
     return HTTPException(status_code=404 if exc.code.endswith('not_found') else 409,
                          detail={'error_code': exc.code, 'message': str(exc)})
+
+
+def _may_set_workspace(request: Request) -> bool:
+    principal = principal_of(request.scope)
+    return principal is None or principal.is_admin
+
+
+def _plan_shares_workspace(plan: dict) -> bool:
+    if not isinstance(plan, dict):
+        return False
+    return any(isinstance(operation, dict) and operation.get('op') == 'create' and operation.get('share_workspace') is True
+               for operation in plan.get('operations', []))
 
 
 @router.get('')
@@ -149,11 +173,13 @@ async def undo_state(agent_id: int, rt=Depends(get_runtime)):
 
 @router.get('/setup')
 async def list_setup(limit: int = Query(20, ge=1, le=100), rt=Depends(get_runtime)):
-    """Recent team changes the lead made, newest first, with whether Undo still applies."""
+    """Recent team setup plans and changes, newest first."""
     from app.db.models import TeamSetupRequest
     async with rt.session() as db:
         rows = list((await db.execute(select(TeamSetupRequest).where(TeamSetupRequest.owner_id == rt.owner_id).order_by(TeamSetupRequest.id.desc()).limit(limit))).scalars())
-        return [{'request_id': r.request_id, 'kind': r.kind, 'state': r.state, 'results': r.result.get('results', []), 'thread_id': r.thread_id,
+        return [{'request_id': r.request_id, 'kind': r.kind, 'state': r.state, 'results': (r.result or {}).get('results', []), 'thread_id': r.thread_id,
+                 'version': setup.request_version(r) if r.state == 'pending' else None,
+                 'plan': setup.public_plan(r.plan) if r.state == 'pending' else None,
                  'undo_available': (await setup.undo_status(db, r))['available'], 'created_at': r.created_at} for r in rows]
 
 
@@ -164,8 +190,54 @@ async def setup_receipt(request_id: str, rt=Depends(get_runtime)):
         if row is None:
             raise HTTPException(404, 'Team change not found')
         status = await setup.undo_status(db, row)
-        return {**row.result, 'request_id': row.request_id, 'state': row.state,
-                'undo_available': status['available'], 'undo_reason': status['reason']}
+        result = {**(row.result or {}), 'request_id': row.request_id, 'state': row.state,
+                  'undo_available': status['available'], 'undo_reason': status['reason']}
+        if row.state == 'pending':
+            result.update(version=setup.request_version(row), plan=setup.public_plan(row.plan))
+        return result
+
+
+@router.patch('/setup/{request_id}')
+async def revise_setup(request_id: str, payload: SetupPlanRevision, request: Request, rt=Depends(get_runtime)):
+    if not _may_set_workspace(request) and _plan_shares_workspace(payload.plan):
+        raise HTTPException(403, detail={'error_code': 'field_requires_admin', 'message': 'Sharing the lead’s workspace requires an admin.'})
+    try:
+        async with rt.session() as db:
+            result = await setup.revise_pending(db, rt.owner_id, request_id, payload.version, payload.plan,
+                                                check_engine=setup._checker(rt))
+    except service.TeamError as exc:
+        raise error(exc) from None
+    rt.hub.notify(result['thread_id'])
+    return {key: value for key, value in result.items() if key != 'thread_id'}
+
+
+@router.post('/setup/{request_id}/approve')
+async def approve_setup(request_id: str, payload: SetupDecision, request: Request, rt=Depends(get_runtime)):
+    if not _may_set_workspace(request):
+        async with rt.session() as db:
+            pending = await setup.existing(db, rt.owner_id, request_id)
+            if pending is not None and pending.state == 'pending' and _plan_shares_workspace(setup.public_plan(pending.plan)):
+                raise HTTPException(403, detail={'error_code': 'field_requires_admin', 'message': 'Sharing the lead’s workspace requires an admin.'})
+    try:
+        async with rt.session() as db:
+            result = await setup.decide_pending(db, rt.owner_id, request_id, payload.version, approve=True,
+                                                check_engine=setup._checker(rt))
+    except service.TeamError as exc:
+        raise error(exc) from None
+    rt.hub.notify(result['thread_id'])
+    return {key: value for key, value in result.items() if key != 'thread_id'}
+
+
+@router.post('/setup/{request_id}/decline')
+async def decline_setup(request_id: str, payload: SetupDecision, rt=Depends(get_runtime)):
+    try:
+        async with rt.session() as db:
+            result = await setup.decide_pending(db, rt.owner_id, request_id, payload.version, approve=False,
+                                                check_engine=setup._checker(rt))
+    except service.TeamError as exc:
+        raise error(exc) from None
+    rt.hub.notify(result['thread_id'])
+    return {key: value for key, value in result.items() if key != 'thread_id'}
 
 
 @router.post('/setup/{request_id}/undo')

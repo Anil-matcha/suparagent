@@ -104,7 +104,7 @@ def main(argv=None):
                 continue
             method, params = message.get("method"), message.get("params") or {}
             if method == "initialize":
-                result = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}}, "serverInfo": {"name": "open-duet-native", "version": "1"}}
+                result = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}}, "serverInfo": {"name": "suparagent-native", "version": "1"}}
             elif method == "ping":
                 result = {}
             elif method == "tools/list":

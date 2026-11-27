@@ -6,30 +6,54 @@ from app.db.models.schedule import Schedule
 from app.db.models.permission_rule import PermissionRule
 from app.db.models.permission_ask import PermissionAsk
 from app.db.models.delegation import AgentJobInbox
-from app.db.models.team import Team, TeamEvent, AgentJob, AgentJobEvent, Room, RoomMember, RoomDispatch, TeamSetupRequest, TeamNotice
-from app.db.models.agent import Agent
+from app.db.models.team import Team, TeamEvent, AgentJob, AgentJobEvent, Room, RoomWebhookReceipt, RoomMember, RoomDispatch, TeamSetupRequest, TeamNotice
+from app.db.models.agent import Agent, AgentRevision
 from app.db.models.thread import Thread
 from app.db.models.turn import Turn
 from app.db.models.event import Event
 from app.db.models.approval import Approval
 from app.db.models.app_setting import AppSetting, SettingAudit
 from app.db.models.computer import Computer
-from app.db.models.routine import Routine, RoutineRun, WebhookReceipt
+from app.db.models.spend_ledger import SpendLedger
+from app.db.models.routine import Routine, RoutineRun, RoutineAppAction, WebhookReceipt
+from app.db.models.shadow_prediction import ShadowPrediction
+from app.db.models.shadow_feedback import ShadowFeedback
+from app.db.models.worker_label import WorkerLabel, WorkerLabelAction
+from app.db.models.app_event import AppEventTrigger, AppEventReceipt, AppEventDay
 from app.db.models.notification import Notification
 from app.db.models.needs_you import NeedsYouState
 from app.db.models.auth import AuthSession, OwnerAccount, PairingCode
+from app.db.models.people import PeopleAudit, Person, PersonInvite
 from app.db.models.work_item import WorkBoard, WorkColumn, WorkItem, WorkItemRun, WorkItemEvent
+from app.db.models.community_mcp import CommunityMcpConnection, CommunityMcpToolGrant
+from app.db.models.muapi import MuapiToolGrant
+from app.db.models.custom_mcp import CustomMcpConnection, CustomMcpOAuthFlow, CustomMcpToolGrant
+from app.db.models.agent_service import (
+    AgentServiceAssignment, AgentServiceAudit, AgentServiceProvider, AgentServiceResource,
+)
+from app.db.models.workflow import Workflow, WorkflowRun
 
 __all__ = [
     "WorkBoard", "WorkColumn", "WorkItem", "WorkItemRun", "WorkItemEvent",
     "UserSandbox",
     "UserCredential",
+    "CommunityMcpConnection",
+    "CommunityMcpToolGrant",
+    "MuapiToolGrant",
+    "CustomMcpConnection",
+    "CustomMcpOAuthFlow",
+    "CustomMcpToolGrant",
+    "AgentServiceAssignment",
+    "AgentServiceAudit",
+    "AgentServiceProvider",
+    "AgentServiceResource",
     "Tasks",
     "LinkCode",
     "Schedule",
     "PermissionRule",
     "PermissionAsk",
     "Agent",
+    "AgentRevision",
     "Thread",
     "Turn",
     "Event",
@@ -40,10 +64,24 @@ __all__ = [
     "OwnerAccount",
     "AuthSession",
     "PairingCode",
+    "Person",
+    "PersonInvite",
+    "PeopleAudit",
     "Routine",
     "RoutineRun",
+    "RoutineAppAction",
+    "ShadowPrediction",
+    "ShadowFeedback",
+    "WorkerLabel",
+    "WorkerLabelAction",
+    "AppEventTrigger",
+    "AppEventReceipt",
+    "AppEventDay",
     "WebhookReceipt",
+    "SpendLedger",
     "NeedsYouState",
     "TeamNotice",
     "Notification",
+    "Workflow",
+    "WorkflowRun",
 ]

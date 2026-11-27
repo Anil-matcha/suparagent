@@ -1,18 +1,18 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, Index, String, Text, text, func
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, Text, text, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import expression
 
 from app.db.base import Base
-from app.db.types import BigIntPK, UTCDateTime
+from app.db.types import BigIntPK, JSONValue, UTCDateTime
 from sqlalchemy import Identity
 
 # How much an agent may do before asking. Keep in step with the mode names the
 # Claude runner understands.
 # Checked in the service, not the database, so adding a mode never needs a
 # table rebuild on SQLite.
-APPROVAL_MODES = ("ask", "accept_edits", "plan")
+APPROVAL_MODES = ("ask", "accept_edits", "approve_for_me", "plan", "full_access")
 
 
 class Agent(Base):
@@ -48,11 +48,16 @@ class Agent(Base):
     )
     # Null means the provider's default model.
     model: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Null means the selected model's default reasoning effort.
+    effort: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Another engine (and its model, null for its default) a turn moves to when
     # this agent's engine refuses it for a usage or rate limit before starting
     # on it, if that engine can do what the turn needs (docs/ENGINES.md).
     fallback_provider: Mapped[str | None] = mapped_column(String, nullable=True)
     fallback_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    # A named Claude account (app/services/claude_accounts.py) this agent's Claude turns sign in with;
+    # null is the CLI's existing default account.
+    claude_account: Mapped[str | None] = mapped_column(String, nullable=True)
     # Null means the default workspace root, resolved when a thread is created.
     workspace_path: Mapped[str | None] = mapped_column(String, nullable=True)
     approval_mode: Mapped[str] = mapped_column(
@@ -83,6 +88,21 @@ class Agent(Base):
     use_helper: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=expression.true()
     )
+    # Connected apps (Composio) this agent may read: {app: "read"}. Null or empty
+    # means none. Checked again on every call (services/composio_bridge.py).
+    connector_scopes: Mapped[dict | None] = mapped_column(JSONValue, nullable=True)
+    # Exact connected accounts an agent may use, keyed by toolkit and stored as
+    # Composio account IDs. Empty means no connected account is authorized.
+    connector_account_scopes: Mapped[dict] = mapped_column(
+        JSONValue, nullable=False, default=dict, server_default=text("'{}'")
+    )
+    # The share of a mailbox an agent may see, per app and Composio account:
+    # {"gmail": {"<account id>": {"percent": 1-100, "seed": "<hex>", "pins": [thread ids]}}}.
+    # No entry for an account means the whole mailbox. Enforced in app/gmail_share.py on
+    # every Gmail call (services/composio_service.run_tool). The seed never leaves the server.
+    connector_shares: Mapped[dict] = mapped_column(
+        JSONValue, nullable=False, default=dict, server_default=text("'{}'")
+    )
     # Pinned agents list first.
     pinned: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=expression.false()
@@ -92,9 +112,33 @@ class Agent(Base):
     created_by_agent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     instructions_reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # Owner opt-in: scheduled runs may use this worker's paid marketplace tools without waiting for approval, inside
+    # the spending limits. Only the owner spending endpoint sets it; templates, hire and setup chat never do.
+    scheduled_paid_use: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=expression.false())
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime, server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class AgentRevision(Base):
+    """One stored version of an agent's editable profile (BL-128). `snapshot` holds the editable fields
+    after the change, with secret-looking text redacted; `redacted` names the fields that was done to,
+    and a restore leaves those alone. Only the newest 20 per agent are kept."""
+
+    __tablename__ = "agent_revision"
+    __table_args__ = (Index("uq_agent_revision_number", "agent_id", "number", unique=True),)
+
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(always=True), primary_key=True)
+    agent_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("agent.id", ondelete="CASCADE"), nullable=False)
+    number: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # baseline (the profile before the first recorded edit), edit, or restore.
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor: Mapped[str] = mapped_column(String, nullable=False)
+    changed_fields: Mapped[list] = mapped_column(JSONValue, nullable=False, default=list)
+    redacted: Mapped[list] = mapped_column(JSONValue, nullable=False, default=list)
+    restored_from: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    snapshot: Mapped[dict] = mapped_column(JSONValue, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)

@@ -24,6 +24,14 @@ if __name__ == "__main__":
         from app.memory_mcp_server import main as memory_mcp
         sys.argv = [sys.argv[0], *sys.argv[2:]]
         sys.exit(memory_mcp())
+    if sys.argv[1:2] == ["--composio-mcp"]:
+        from app.composio_mcp_server import main as composio_mcp
+        sys.argv = [sys.argv[0], *sys.argv[2:]]
+        sys.exit(composio_mcp())
+    if sys.argv[1:2] == ["--community-mcp"]:
+        from app.community_mcp_server import main as community_mcp
+        sys.argv = [sys.argv[0], *sys.argv[2:]]
+        sys.exit(community_mcp())
     code = main()
     # Leave without interpreter shutdown. A thread may still be blocked reading
     # stdin (the launcher's message, or the lifeline); Python aborts with a fatal

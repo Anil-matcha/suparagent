@@ -9,6 +9,7 @@ from uuid import uuid4
 from app.core import data_lease, engine_processes
 from app.services import cli_probe
 from app.services.local_claude_runner import child_env
+from app.core import host_exec
 
 DEVICE_URL = "https://auth.openai.com/codex/device"
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -35,7 +36,7 @@ class CodexLogin:
             raise LoginError("Use an absolute CODEX_HOME path before signing in.")
         home = configured_home.resolve()
         home.mkdir(parents=True, exist_ok=True)
-        fd = os.open(home / ".open-dots-login.lock", os.O_RDWR | os.O_CREAT, 0o600)
+        fd = os.open(home / ".suparagent-login.lock", os.O_RDWR | os.O_CREAT, 0o600)
         if not data_lease._try_lock(fd):
             os.close(fd)
             raise LoginError("A Codex sign-in is already running on this server.")
@@ -79,6 +80,7 @@ class CodexLogin:
                 return
             if status.failed_to_start or status.timed_out or not re.search(r"^\s*not logged in\b", said, re.I | re.M):
                 raise LoginError("Codex could not confirm its account status. Check its installation on the server.")
+            host_exec.ensure_allowed("an engine sign-in")
             starting = asyncio.create_task(asyncio.create_subprocess_exec(
                 str(executable), "login", "--device-auth", stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,

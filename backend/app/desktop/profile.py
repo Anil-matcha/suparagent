@@ -13,7 +13,7 @@ settings object is built from it at import time.
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DATABASE_FILE_NAME = "open-dots.db"
+DATABASE_FILE_NAME = "suparagent.db"
 WORKSPACE_DIR_NAME = "local"
 
 

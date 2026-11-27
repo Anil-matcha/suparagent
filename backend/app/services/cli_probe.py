@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from app.core import engine_processes
 from app.services.local_claude_runner import child_env
+from app.core import host_exec
 
 MAX_PROBE_OUTPUT_BYTES = 64_000
 
@@ -39,6 +40,8 @@ def kill_group(proc: asyncio.subprocess.Process) -> None:
     started. Never raises."""
     try:
         if sys.platform == "win32":
+            import subprocess
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
             proc.kill()
         else:
             os.killpg(proc.pid, signal.SIGKILL)
@@ -52,6 +55,7 @@ def kill_group(proc: asyncio.subprocess.Process) -> None:
 
 async def run(args: list[str], *, timeout: float, cwd: str | None = None, env: dict | None = None) -> ProbeRun:
     try:
+        host_exec.ensure_allowed("an engine check")
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdin=asyncio.subprocess.DEVNULL,

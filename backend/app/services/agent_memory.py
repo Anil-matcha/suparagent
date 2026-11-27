@@ -59,11 +59,21 @@ _KEY_SHAPES = tuple(
         r"\bAIza[0-9A-Za-z_\-]{30,}",  # Google API key
         r"\bhf_[A-Za-z0-9]{30,}",  # Hugging Face
         r"\bnpm_[A-Za-z0-9]{20,}",
+        r"\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}",  # Stripe
+        r"\bASIA[0-9A-Z]{16}\b",  # AWS temporary key id
+        r"\bglpat-[A-Za-z0-9_\-]{20,}",  # GitLab
+        r"\bSG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}",  # SendGrid
+        r"\bgsk_[A-Za-z0-9]{30,}",  # Groq
+        r"\bxapp-[A-Za-z0-9\-]{10,}",  # Slack app token
+        r"\b\d{8,10}:[A-Za-z0-9_\-]{35}\b",  # Telegram bot token
         r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}",  # JWT
     )
 )
 # Shapes where only the value after a label is secret; group 1 is kept.
 _LABELLED = (
+    re.compile(r"(?i)(\bauthorization\s*[:=]\s*(?:basic|token|digest)\s+)[A-Za-z0-9._~+/\-]{8,}=*"),
+    re.compile(r"(?i)(\b(?:x-api-key|api-key|x-auth-token|cookie|set-cookie)\s*:\s*)[^\r\n]{8,}"),
+    re.compile(r"(\b[a-z][a-z0-9+.\-]*://[^\s/:@]+:)[^\s/@]{3,}(?=@)"),  # user:password@host
     re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/\-]{12,}=*"),
     re.compile(
         r"(?i)(\b[A-Za-z0-9_.\-]*(?:api[_\-]?key|secret|token|passw(?:or)?d|passphrase)[A-Za-z0-9_.\-]*"
@@ -73,6 +83,17 @@ _LABELLED = (
 _PRIVATE_KEY = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"
 )
+
+
+def redact_json(value):
+    """A copy of a JSON-like value with every string passed through redact_secrets."""
+    if isinstance(value, str):
+        return redact_secrets(value)[0]
+    if isinstance(value, dict):
+        return {k: redact_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redact_json(v) for v in value]
+    return value
 
 
 def redact_secrets(text: str) -> tuple[str, int]:
@@ -297,7 +318,7 @@ def memory_prompt(agent_id: int) -> str:
 def turn_instructions(agent) -> str | None:
     """Everything an agent adds to a turn's system prompt: its instructions,
     then what the person wrote about themselves (About me, read by every
-    agent), then its notes when they are switched on. None when there is
+    agent), then the business profile (also read by every agent), then its notes when they are switched on. None when there is
     nothing."""
     from app.services import about_me
 
@@ -307,6 +328,11 @@ def turn_instructions(agent) -> str | None:
     about = about_me.prompt_block()
     if about:
         parts.append(about)
+    from app.services import business_profile
+
+    business = business_profile.prompt_block()
+    if business:
+        parts.append(business)
     if agent.memory_enabled:
         parts.append(memory_prompt(agent.id))
     return "\n\n".join(parts) or None

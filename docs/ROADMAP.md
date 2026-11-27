@@ -78,11 +78,14 @@ metadata-only routing logs. Keep tool approval rules unchanged.
 
 ### P1 — Expand connected-app access after core trust work
 
-There is no first-party OAuth catalog for common apps such as Gmail, Calendar,
-Slack or Notion. Build on the first-party email/calendar work with scoped app
-connections, per-agent grants, custom MCP authentication and app-event
-triggers. Add idempotency, revocation, clear data provenance and bounded
-responses before expanding the catalog.
+GitHub, Gmail and Calendar are available through your own Composio key: connect
+them in Settings, then allow each app per Claude or Codex agent. Bounded reads
+and one-use approvals for changes are described in
+[connected apps](CONNECTED_APPS.md). Next: other apps such as Slack and Notion,
+each with a fixed, reviewed tool list checked against the live app; custom MCP
+authentication; and app-event triggers, which also need a way to receive
+events. Keep idempotency, revocation (check it at the provider), clear data
+provenance and bounded responses as the bar for every new app.
 
 ### P1 — Verify memory, teams and computers across engines
 
@@ -96,7 +99,7 @@ claims.
 
 ### P2 — Learn and share reviewed skills
 
-Open Duet already supports per-agent Markdown skills, import preview, secret
+Suparagent already supports per-agent Markdown skills, import preview, secret
 redaction, explicit invocation and disabled-by-default imports. Add a flow to
 draft a skill from a successful run, review/edit it, and verify it on a second
 fixture before saving. Later allow safe team sharing with text-only export,
@@ -105,11 +108,13 @@ secret scanning and imported skills disabled until review.
 ### P2 — Extend templates into safe import and team sharing
 
 The bundled role gallery and single-agent import/export are shipped. Add local
-team-package import, GitHub and external-bot import, bounded project-folder
-suggestions, reusable presets and whole-team export. Preview fields, omit
-secrets, credentials, permissions, history and local paths, and import
-autonomous features disabled. A managed organization catalog is a separate
-future decision.
+team-package import, GitHub import, bounded project-folder suggestions,
+reusable presets and whole-team export. A review-first migration flow now
+accepts pasted Grok Bot and Hermes Agent exports, supported OpenBot databases,
+and common single-agent JSON; it previews and
+imports only agent identity and instructions. Keep secrets, credentials,
+permissions, routines, history and local paths out of imports. A managed
+organization catalog is a separate future decision.
 
 ### P2 — Improve file and computer reach
 
@@ -119,9 +124,23 @@ SSH trust, viewer transport, lifecycle, egress and cost before building them.
 For local Docker computers, evaluate a real egress policy and clearer handling
 when another conversation owns the screen. Keep isolated Docker as the default.
 
+### P2 — Finish the phone app
+
+The [phone app](MOBILE.md) covers pairing, conversations, chat with Stop,
+approvals, search, attachments, files an agent made, Markdown answers, a dark
+theme, rooms, and, for a phone paired with *Chat, files and agents*, creating and
+editing agents and rooms. Plain `http://` works for addresses on your own network
+only. Still open: trying it in a release build, on iOS and on a physical phone
+(the keyboard hiding Save and Create in Expo Go needs checking in a built app), a
+store release (signing, a privacy policy, and a way for store reviewers to try it
+without your server), push notifications so approvals reach a closed app, and
+agent templates on the phone.
+
 ### P2 — Add voice and richer media
 
-Stage spoken replies before live calls. Add optional text-to-speech settings,
+Stage spoken replies before live calls. On-demand reading of a reply (a speaker
+button, a voice choice and saved audio, through MuAPI) is built; a voice per agent
+and optional auto-speak are not. Add optional text-to-speech settings,
 macOS dictation that inserts editable text without sending, and a half-duplex
 call view with captions and explicit mute/hang-up controls. Keep screenshots
 from intentional actions as bounded transcript attachments; do not retain
@@ -129,8 +148,12 @@ polled preview frames.
 
 ## Deliberate scope
 
-- Keep personal self-hosting single-owner. Multi-tenant hosting, organization
-  accounts and billing are not part of the current desktop/server path.
+- Self-hosting is one workspace with one owner, who can invite teammates (roles
+  and per-person permissions). Multi-tenant hosting, organization accounts and
+  billing are not part of the self-hosted server. A hosted deployment can run
+  many workspaces behind an account service that signs people in with a token
+  each workspace verifies (see [AUTH.md](AUTH.md#hosted-workspace-grants)); the
+  app's workspace switcher only appears there.
 - Build the core workspace and trust controls before a very broad app catalog.
 - Treat mascots and other cosmetic parity as lower priority than integrations,
   memory correctness and release confidence.

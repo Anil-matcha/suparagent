@@ -28,7 +28,7 @@ SPEC.loader.exec_module(dev_env)
 
 class EnvironmentTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="open-dots-env-test-")
+        self.temp = tempfile.TemporaryDirectory(prefix="suparagent-env-test-")
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / ".env"
         self.env_patch = patch.dict(os.environ, {}, clear=True)
@@ -127,7 +127,7 @@ class EnvironmentTests(unittest.TestCase):
 
 class DevelopmentScriptTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="open-dots-dev-test-")
+        self.temp = tempfile.TemporaryDirectory(prefix="suparagent-dev-test-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         for name in ("scripts", "backend", "frontend", "bin", "caller"):

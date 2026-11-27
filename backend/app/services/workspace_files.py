@@ -25,6 +25,7 @@ import unicodedata
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from app.core import tenant_paths
 
 LIST_MAX_ENTRIES = 500
 TEXT_PREVIEW_BYTES = 256 * 1024
@@ -102,7 +103,7 @@ def canonical_root(workspace: str | None) -> Path:
         root = Path(os.path.realpath(workspace))
     except OSError:
         raise FileAccessError(404, "no_workspace", "This conversation's workspace is missing.") from None
-    if not root.is_dir():
+    if not root.is_dir() or not tenant_paths.contains(root):
         raise FileAccessError(404, "no_workspace", "This conversation's workspace is missing.")
     return root
 
@@ -194,7 +195,9 @@ def _open_confined(root: Path, target: Path) -> tuple[int, os.stat_result, Path]
     """Open a regular file inside `root` without following a final link, and
     check that what was opened is still the canonical file inside the root.
     The caller closes the descriptor."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    if target.is_dir():
+        raise FileAccessError(400, "not_a_file", "That is a folder, not a file.")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         fd = os.open(target, flags)
     except IsADirectoryError:

@@ -28,6 +28,20 @@ EXPIRED = "expired"  # nobody answered in time
 LOST = "lost"  # this run no longer owns its turn: send nothing, stop
 
 
+# Said to the engine when a policy, not a person, refused the call, so its answer to the user is accurate.
+# Only the Claude adapter can carry the text; Codex gets a plain denial.
+DENY_BY_SOURCE = {
+    "resource_not_assigned": (
+        "This mailbox or number is not assigned to this agent, so the call was not made. "
+        "Use only the inbox or number you were given; do not ask the user about it."
+    ),
+    "tool_not_allowed": (
+        "This tool is not available to agents for this service (it spends money, deletes data or changes inbound "
+        "settings), so the call was not made. Do not retry it or ask the user to approve it."
+    ),
+}
+
+
 @dataclass
 class Decision:
     kind: str
@@ -56,6 +70,8 @@ class Capabilities:
                an image sent to any other engine is refused before the turn
     resume     a conversation continues with the engine's earlier context
     computers  its turns can run their tools in an agent computer
+    connected_apps  it mounts the connected-apps tools (composio_bridge.py) for an agent the
+               person allowed to read some app. Left out of as_dict (the public description)
     """
 
     tools: bool = False
@@ -64,7 +80,9 @@ class Capabilities:
     images: bool = False
     resume: bool = False
     computers: bool = False
+    steering: bool = False
     memory_tools: bool = False
+    connected_apps: bool = False
 
     @property
     def can_search_history(self) -> bool:
@@ -78,6 +96,7 @@ class Capabilities:
             "images": self.images,
             "resume": self.resume,
             "computers": self.computers,
+            "steering": self.steering,
         }
 
 
@@ -89,6 +108,9 @@ class ModelOption:
     id: str
     label: str
     default: bool = False
+    default_reasoning_effort: str | None = None
+    supported_reasoning_efforts: tuple[str, ...] = ()
+    reasoning_effort_configurable: bool = True
 
 
 @dataclass
@@ -161,12 +183,21 @@ class TurnContext:
     # ask | accept_edits | plan (approval_modes.py); None means ask. Set by the
     # runtime from the thread's agent; an adapter maps it onto its own provider.
     approval_mode: str | None = None
+    effort: str | None = None
+    # A named Claude account (claude_accounts.py) for this turn; None is the default account.
+    claude_account: str | None = None
+    # Confined turns cannot act through alternate tools.
+    draft_only: bool = False
+    media_review_only: bool = False
     # Extra instructions from the thread's named agent, for the provider's
     # system prompt (appended, never replacing it), or None. Read fresh each turn.
     instructions: str | None = None
     # The agent's computer (app/computers/service.TurnComputer) when it has
     # one: the turn's tools then run there, never on the host.
     computer: object | None = None
+    # The browser on this machine (TurnComputer, provider "local-browser") for an agent with no computer. Unlike
+    # `computer` it adds one MCP server and leaves the host tools as they are.
+    browser: object | None = None
     # The engine's saved configuration (app/services/engine_config.py), for an
     # engine that has one: an ACP command, an endpoint and its key. Never
     # logged, stored in events or returned by the API.
@@ -176,6 +207,24 @@ class TurnContext:
     # The MCP server giving the turn the agent's past-conversation search
     # (memory_bridge.py), when the engine can mount one.
     memory_launch: object | None = None
+    # The MCP server giving the turn read access to connected apps (composio_bridge.py)
+    # and the apps it was started for. Both None unless the agent was allowed some.
+    composio_launch: object | None = None
+    # Per-turn local MCP shim for exact grants from the public MCP marketplace.
+    # It receives only bounded tool metadata; remote credentials stay in backend.
+    community_launch: object | None = None
+    community_tools: list[str] = field(default_factory=list)
+    community_prompt_note: str | None = None
+    community_bridge: object | None = None
+    composio_exact_tools: list[str] | None = None
+    routine_uninterrupted: bool = False
+    composio_apps: dict | None = None  # {app: "read" | "write"}
+    # The connected-apps server also offers request_app_connection (a person-started turn).
+    composio_connect: bool = False
+    # Generic connected-app actions (composio_generic.py): whether the call being decided has a first use on
+    # record, and the calls decided without a card (the bridge checks those again before it runs them).
+    composio_first_use_hit: bool = False
+    composio_auto_calls: set = field(default_factory=set)
     hold_clock: Callable[[], Callable[[], None]] | None = None
     # Images attached to this message, as {"path", "mime", "name"}. Only ever
     # set for an engine whose capabilities include `images`; attached text

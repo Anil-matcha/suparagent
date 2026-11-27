@@ -7,7 +7,7 @@
 .internal
 **/*.pem
 **/*.key
-**/open-dots.env
+**/suparagent.env
 
 # Git and editors
 .git

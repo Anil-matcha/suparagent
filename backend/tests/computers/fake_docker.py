@@ -161,7 +161,7 @@ elif command == "ps":
     for name, container in state["containers"].items():
         labels = container["inspect"]["Config"]["Labels"]
         if all(labels.get(k) == v for k, v in wanted):
-            print(f"{name}\t{labels.get('dev.open-dots.computer.id', '')}")
+            print(f"{name}\t{labels.get('dev.suparagent.computer.id', '')}")
 
 elif command == "exec":
     rest = args[1:]
@@ -197,6 +197,16 @@ elif command == "exec":
     mount = next((m for m in container["inspect"]["Mounts"] if m["Destination"] == "/workspace"), None)
     cwd = mount["Source"] if mount else str(base)
     env = dict(os.environ, HOME=str(base / "home"))
+    if sys.platform == "win32":
+        import shutil
+        git_dirs = [r"C:\Program Files\Git\usr\bin", r"C:\Program Files\Git\bin"]
+        extra_path = os.pathsep.join(d for d in git_dirs if os.path.isdir(d))
+        env["PATH"] = extra_path + os.pathsep + env.get("PATH", "")
+        if cmd:
+            bin_name = "sh" if cmd[0] in ("/bin/sh", "/bin/bash", "bash", "sh") else cmd[0]
+            resolved = shutil.which(bin_name, path=env["PATH"])
+            if resolved:
+                cmd = [resolved] + cmd[1:]
     done = subprocess.run(cmd, cwd=cwd, env=env, input=sys.stdin.buffer.read() if interactive else None,
                           capture_output=True)
     sys.stdout.buffer.write(done.stdout)

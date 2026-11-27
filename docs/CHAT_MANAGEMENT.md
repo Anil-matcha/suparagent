@@ -6,13 +6,17 @@ In both the new-agent form and an existing agent's settings, **Team lead (Chief 
 
 Claude and Codex can mount the team tools. ACP and OpenAI-compatible adapters do not offer these management tools. A capable engine must also be installed and signed in. Turning local shell tools off does not remove team configuration tools. Codex uses a read-only sandbox with MCP approval requests enabled in that case; the app still checks every call.
 
+In a workspace shared with teammates, a member needs the **Manage agents** permission to create or edit agents. Settings that change what an agent may do on the machine (its working folder, the "Accept edits" mode, connected apps and the team lead role) stay with admins, and so does deleting an agent. See [AUTH.md](AUTH.md#members).
+
+Members with **Manage agents** can revise and approve the safe team setup card. Sharing the lead's workspace remains admin-only; a member can remove that option from a pending plan before approving it.
+
 ## Chat controls
 
 | Request | Tool and behavior |
 |---|---|
 | Discover available controls and missing dependencies | `list_management_capabilities` reports supported operations and explicit limitations. |
-| Create specialists; correct an existing agent's brief | `list_team_setup`, `create_agent`, `propose_team_setup`. Quick and combined creation use the same validated, source-bound receipt service. Edits require the current revision. |
-| Change name, title, description, standing instructions or working folder | `propose_profile`, for self or a teammate reachable by the current lead. Requires approval and revision; folder must already exist. |
+| Review team setup; create specialists or correct a teammate | `list_team_setup`, `create_agent`, `propose_team_setup`. A pending setup card shows the plan, lets someone with Manage agents revise it, and applies only after approval. Edits require the current revision. |
+| Change name, title, description, standing instructions or working folder | `propose_profile`, for self or a teammate reachable by the current lead. Requires revision; folder must already exist. It asks for approval unless the lead is auto-approved (`TEAM_LEAD_AUTO`) or `TEAM_PROFILE_AUTO` is on and an agent edits only its own name, title, description or instructions. |
 | Change default engine/model | `propose_model`, using discovered IDs/revision, with approval. The lead must retain team tools; agents with computers need a compatible engine. Existing conversations retain their engine/model and pinned workspace. |
 | Assign work, consult, request corrections, inspect prior jobs | `delegate`, `ask_agent`, `job_status`. A delegation receipt means assigned; results arrive through the existing resume flow. |
 | Retry failed work or flag a person-only gate | `retry_thread`; optional `raise_escalation` when enabled. Existing budgets and retry limits remain in force. |
@@ -21,17 +25,19 @@ Claude and Codex can mount the team tools. ACP and OpenAI-compatible adapters do
 | Preview a schedule | `preview_schedule` validates timezone and schedule, returning upcoming dates without writing anything. |
 | Create recurring work | `create_routine` reuses the scheduler, requires approval and saves paused with Ask-first permissions. Profile creation does not activate a routine. |
 | Change or execute a routine | `list_routines`, `manage_routine`: revision-bound update, pause, resume, run now or delete, with approval. Resume/run now require explicit activation intent. Queued is not completed. Delete removes run history; Undo is available only within the limits below. |
-| Read or author reusable instructions | `skills_list` lists names/revisions; optional `name` reads a skill. `skill_manage` creates or updates the requested skill after approval, saving disabled for review in Agent settings. Text cannot grant permissions. |
+| Read or author reusable instructions | `skills_list` lists names/revisions; optional `name` reads a skill. `skill_manage` creates or updates the requested skill after approval, saving disabled for review in Agent settings. Text cannot grant permissions. Each change shows a result card with the description change and an owner-only Undo that restores the previous text (or removes a skill it created) and refuses if the skill was edited since, or if the earlier text held secret-looking content. |
 | Delete a teammate | Existing `propose_bot_deletion` remains a separate owner-approved operation. The current lead and busy agents are protected. |
 | Search previous conversations | Existing read-only memory/session search tools. |
 
 The lead should ask only material unanswered questions about purpose, output, constraints and required capabilities. It discovers IDs before writing and reports applied/pending/failed states truthfully. A correction changes the same agent instead of creating a duplicate. The absence of a connector, computer or routine must be stated separately from successful profile creation. Never request credentials in chat.
 
+For team setup, the lead prepares a short, plain-language plan card with each specialist's job, standing instructions, editable first task and requested engine/model. The person can revise, approve or decline the card; no agent changes happen before approval. On approval, the server rechecks current team membership, lead authority, target revisions, busy state, limits and engine availability before applying the plan. New specialists keep Ask-first permissions. The applied card shows the saved changes and Undo, and its first-task action opens an editable unsent draft in the specialist's chat. This conversation is guided by the selected model; the app does not run a scripted interview.
+
 ## Persistence and recovery
 
-Creation/update and management receipts bind request ID, caller, source conversation and the canonical request digest. Identical retries replay the saved result; changing the request or source while reusing the ID conflicts. Plans reject permission fields, lock the current team and targets, revalidate current turn ownership/origin at commit, and roll back database changes together on failure. Secrets are redacted in saved setup plans and field details.
+Creation/update and management receipts bind request ID, caller, source conversation and the canonical request digest. A setup proposal is stored as a pending receipt with a monotonically increasing version; revisions use that version so concurrent edits or approval cannot overwrite a newer plan. The approval transaction revalidates the saved plan, applies its changes, records Undo data and appends the applied event together. Identical retries replay the saved result; changing the request or source while reusing the ID conflicts. Plans reject permission fields and secrets are redacted in saved setup plans and field details.
 
-Applied profile/setup cards show changed fields, Open/Edit actions and server-checked Undo availability. Undo refuses changed, used or busy agents, including a created specialist subsequently promoted to lead. Merely navigating to an unsent new chat creates no conversation; sending its first message creates a conversation and can make creation Undo unavailable. Duplicate receipt events fold into one card.
+Profile, model and setup changes made in chat, and their Undo, are also saved as versions in the agent's history (shown as changed in chat), where they can be viewed and restored. Applied profile/setup cards show changed fields, Open/Edit actions and server-checked Undo availability. Setup cards also offer a first-task handoff that opens a new specialist chat with the task as an editable draft; it is never sent automatically. Undo refuses changed, used or busy agents, including a created specialist subsequently promoted to lead. Merely navigating to an unsent new chat creates no conversation; sending its first message creates a conversation and can make creation Undo unavailable. Duplicate receipt events fold into one card.
 
 Routine creation and its receipt commit together. Skill files use the existing atomic filesystem writer; filesystem changes and database receipts are not one atomic transaction. If receipt persistence fails after a skill write, list skills and compare its revision before attempting another change. There is no combined Undo across profiles, skills, routines, connections and computers.
 
@@ -64,7 +70,6 @@ This is source implementation, not a claim of full parity or installer availabil
 - Chat-based computer allocation/selection, shared-computer administration and arbitrary MCP-server installation. Existing approved computer execution remains separate.
 - Room reconfiguration through chat, general start-thread/attachment management, voice notes and voice preferences.
 - Shared team-memory editing and a reusable team/role library.
-- Dedicated applied-result cards and Undo for skill changes; use the existing Skills editor to inspect saved values.
 - Real-Claude verification while signed out, PostgreSQL concurrency verification and packaged desktop release verification.
 
 Deterministic verification covers setup receipts, origin/approval restrictions, current-turn validation, profile corrections, routines, Codex MCP transport and compatible computer turns. `scripts/smoke-agent-setup.py` launches a fresh server/database and Chrome to check role creation/settings, coordination selection, demotion/promotion, the unsent starter and phone layout. Build `frontend/out` first; the test never uses the person's live agents.

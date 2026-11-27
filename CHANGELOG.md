@@ -4,12 +4,346 @@
 
 ### Added
 
-- Closing the desktop window now hides it to a tray icon instead of quitting,
-  so agents, routines and a turn in progress keep running with the window
-  closed; quit from the tray or the system to stop the backend. Falls back to
-  quitting on close where no tray is available. Real packaged-app behavior,
-  Windows and Linux tray support, and dock-icon handling on macOS were not
-  run.
+- Closing the Suparagent desktop window hides it to a tray icon when one can be created, so routines and running turns keep going. Use the tray's Quit item or quit the app to stop the backend. Lifecycle tests cover closing, reopening and quitting; packaged tray behavior across platforms remains unverified.
+
+## 0.8.9 - 2026-11-27
+
+Desktop 0.8.9: a new model picker in the chat composer with real engine usage limits, managed engine installs on Windows with real download progress, the support worker's shadow mode, label controls and Gmail new-mail trigger, plus MuAPI integrations (spoken replies and agent pictures). Installed apps pick it up from Settings → App updates.
+
+### Added
+
+- Let routines add a Gmail new-mail trigger alongside their schedule. Composio filters at the source; the app keeps event identifiers only, follows the routine's existing account grants and mailbox share, and applies debounce, daily caps and quiet hours. A signed-in desktop receives events through the hosted relay. The backend is deployed on staging; a real Composio delivery and installed-desktop qualification remain.
+- Read a reply aloud: each assistant reply has a small speaker button next to Copy that reads it in a voice made through MuAPI, and turns into a stop button while the audio prepares and plays. Nothing is spoken until you press it, and only one reply plays at a time. The reply is made fit for the ear first (Markdown, links and tables become plain sentences, code is left out, anything that looks like a credential is replaced), and a reply longer than the voice allows is cut at a sentence end and says so. It needs the MuAPI key saved under Settings → Integrations, so the desktop app needs no environment setting. Owner only (`POST /speech/speak`, `GET /speech/voices`); a paired phone cannot call it. Tested with stubbed responses, in a browser against a mocked endpoint, and with two real readings in the Windows dev app that returned mp3 audio; how the voices sound and the charged amount were not checked.
+- Saved audio for spoken replies: reading the same reply again in the same voice plays saved audio, makes no MuAPI request and costs nothing (the button says "Played from saved audio"). Clips are kept in a private folder (`speech-audio` beside the attachments, owner-only permissions), keyed by the cleaned text and the voice, newest 50 only; a second press while the first is still preparing waits for it instead of making another request. Settings → Integrations → Spoken replies shows how many are saved and has Clear saved audio (`DELETE /speech/cache`). Up to 20 new readings in 10 minutes per server process; saved replies do not count.
+- Choose the voice for spoken replies: Settings → Integrations → Spoken replies lists Daniel and Liam (ElevenLabs) and a Fish Audio narrator with MuAPI's list price for a short reply; Daniel is the default. In the desktop app the choice is a saved application setting (`SPEECH_VOICE`); on a server install the card shows the voice read-only and it comes from the `SPEECH_VOICE` server setting (`eleven-daniel`, `eleven-liam` or `fish-narrator`). A per-agent voice and optional auto-speak are not built.
+- MuAPI images for agent pictures: once MuAPI is connected, the Picture dialog (Agents → Picture) offers **MuAPI images** next to the OpenAI-compatible provider. It uses the same saved key (`flux-schnell`, listed at about $0.003 a picture), so the desktop app needs no `IMAGE_API_KEY`. MuAPI answers with a link to the picture; the app follows it only over HTTPS on MuAPI's own file host, with no redirects, no credentials and the usual size and type checks. With no provider named, the OpenAI-compatible one stays first and MuAPI is used only when that one is not set up. A live picture through the adapter and the app was made; the wider Wide and Tall shapes were not tried with MuAPI.
+- Settings → Integrations: connect MuAPI with its own encrypted, write-only API key and choose, agent by agent, which MuAPI tools may be used (data search, inspect, estimate, a capped paid call, image, video and audio model search and one capped generation, and a result check). Every grant starts off, paid calls still ask for approval and stay within the spending limits, and Disconnect clears every grant. The page is built from a list of integrations, so later integrations can add their own rows and extra cards.
+
+- Changes an agent makes to itself or a teammate in chat (profile, instructions, engine and model, team setup) and their Undo now appear in the agent's version history, so they can be viewed and restored like edits made in settings.
+- Skill changes made in chat now show a result card with what changed and an Undo that restores the earlier text or removes a new skill, and refuses if the skill was edited since.
+- Optional setting `TEAM_PROFILE_AUTO` (off by default): an agent can change its own name, title, description and standing instructions at your request without a permission prompt, with the usual Undo card. Folder, engine and other agents still ask.
+- Spending limits for paid marketplace tools (a tool is paid when its input takes `max_cost_usd`): $0.50 per call, $2.00 per run and $20 per worker per month by default, changed only by the owner (`/spend-limits`, desktop settings `SPEND_*_CENTS`). Every paid call is recorded in a spend ledger and settles at the cost the service reports, or at its cap. A call over a limit is refused and the run ends `partial` with a spend line; a monthly refusal pauses the routine with reason `spend_limit`. Scheduled runs wait for approval on paid tools unless the owner turns on scheduled paid use for that worker.
+- Workers can suggest changes to the business profile: the new `suggest_profile_change` tool (on the memory tool server) leaves a draft for one field, with a short reason, and can never edit the profile. The Business profile tab lists waiting suggestions with Accept and Dismiss and a count on the tab. Accept saves through the profile's own checks and asks before replacing a field that changed since; at most 10 wait at once, a worker has one per field, text that looks like a key is refused, and dismissed text is not suggested again.
+- Add a business profile: one short note per workspace (what the business sells, who it is for, tone, links, hours and things never to say) that every agent reads as read-only background and only the person writes. Text that looks like a key, token or password is refused. Edit it from Memory → Business profile, or right after adding workers in Choose your team (skippable). `GET` and `PUT /business-profile`.
+- Add several ready-made workers at once: `POST /templates/hire` adds the chosen templates together or not at all (each asks first, holds no connected-app access, routines paused), and `POST /templates/hire/undo` removes them again while they are unchanged and unused. A "Choose your team" step in desktop setup and a "Hire several" view in Agents → Templates let people tick any number.
+- Chat with your team lead instead: the Choose your team screen can open your team lead with a short interview typed in. When the lead uses its `suggest_workers` tool, the answer (template ids and one-line reasons only) is remembered (`GET /templates/suggest/latest`, read-only, only bundled ids, up to 8, kept 24 hours) and the screen offers "Use these suggestions", which ticks exactly those workers for you to review. Nothing is created or granted until you add; the three-question version stays as the fallback.
+- Help me choose: on the Choose your team screen, answer a few short questions and the matching workers are ticked for you to review. It uses only the bundled catalog, creates nothing and grants nothing until you add. `POST /templates/suggest` does the ranking, and the team lead has a read-only `suggest_workers` tool that returns the same ranked ids.
+- Add three worker templates (SEO writer, Lead researcher, Daily briefer) with a Marketing category, paused starter routines shown on the card, a setup depth and shared run rules. Choosing one only fills the new-agent form; it creates no routine and grants no tool.
+
+### Changed
+
+- MuAPI lookups are easier for an agent to use: a task that fails on MuAPI's side now returns its status and error text instead of a generic rejection, empty strings and empty lists are dropped from a lookup's input before it is sent (MuAPI refuses them), and inspecting a lookup lists each field's allowed values (for example the four web research modes), which the depth limit used to hide.
+- Templates know which connections this workspace has: `GET /templates` now lists each role's `missing` connections, and a role that needs only Muapi can be added before Muapi is connected (it shows "Needs Muapi · Connect"). No bundled role needs Muapi yet. Tested with backend and frontend unit tests; no real Muapi connector, browser or packaged app was run.
+- Give team setup a versioned review card: the person can revise, approve or decline the specialist plan, and nothing changes before approval. Approval rechecks current team state and records its result and Undo data with the transcript event. The applied card opens each new specialist with an editable, unsent first-task draft. No automated, live-provider or packaged-release verification is claimed for this source change.
+- Expand the Muapi Community MCP listing to selected data research APIs. Search and estimate are read-only; paid lookups require a per-call USD cap and approval and can consume Muapi credits.
+
+### Fixed
+
+- Image service failures are described plainly. A MuAPI task that failed on its side (it answers with a 400) was shown as the service not accepting the description; it now says the service had a problem and to try again in a few minutes. A refused key and a genuinely rejected description are named separately. The provider's reason is written to the server log with the key removed and is still never shown on screen.
+
+## 0.8.8 - 2026-11-25
+
+Desktop 0.8.8: you can sign in to the desktop app with Google. Continue with Google opens your own browser and returns you to the app signed in; the email code still works. This release also brings the ready-made workers and the business profile, spending limits for paid tools, and test fixes for Windows. Installed apps pick it up from Settings → App updates.
+
+## 0.8.7 - 2026-11-17
+
+Desktop 0.8.7: the installed app now updates itself from Settings → App updates (Download, then Restart to update) instead of showing a command. This release still has to be installed by hand; later ones update in place.
+
+### Added
+
+- Add your own remote MCP server from Apps → MCP Marketplace → Custom MCP servers. A new server starts off with no agent access: you test it, turn it on, then grant exact tools to each agent. Sign in with none, a bearer token, a custom header, or browser sign-in (OAuth with PKCE). Secrets are write-only and stored encrypted. Claude and Codex can call granted tools in person chats; every call asks for your approval. Routines, rooms, computer sessions and other engines do not receive them. Only public https:// servers on port 443 are supported; local commands are not.
+- In a workspace with other people, a custom MCP connection is private to whoever added it until they choose Share with workspace. Private connections and their sign-ins cannot be used, tested or granted by anyone else; the workspace owner can still switch off or remove them.
+- `SUPARAGENT_OAUTH_CALLBACK_ORIGIN` sets where a browser returns after signing in to a custom MCP server when the server is only reachable through a gateway (a hosted workspace). The custom server form shows the redirect address to register for a client you create yourself.
+- Grant an agent up to 500 tools from a custom MCP server. Above 25 granted tools the agent searches your granted tools and calls one by reference instead of receiving them all; calls still need approval. The grant list has a filter and "check shown".
+- The desktop app finishes browser sign-in through a short-lived loopback listener on 127.0.0.1 that answers only the sign-in return and closes after one success.
+- Give an agent its own email inbox or phone number from Apps → MCP Marketplace → Agent email and phone. Connect AgentMail or AgentPhone with browser sign-in on your own account, record the inboxes or numbers you already created there, and choose which agents get each one. A new connection, address or agent starts with no access. An agent is only offered the provider's tools while it has an address assigned, and a call that names a different AgentMail inbox is refused before any approval card; `list_inboxes` shows only the assigned ones. Every send still asks for your approval and names the address that would act. Recent activity lists which agent used which address and how it ended, without message text. Agents cannot create inboxes or numbers, and incoming mail or calls do not start an agent.
+- Stopping use of a provider removes its addresses and assignments and clears every agent's tool grants for that connection. When a policy refuses a call (for example an unassigned inbox), Claude is now told why instead of that you denied it.
+- AgentPhone: a text or call must name an assigned sending number (by id or +E.164) and number-scoped reads must name an assigned number id; `list_numbers` shows only the assigned numbers. `buy_number`, `set_webhook`, `delete_webhook` and `delete_agent` are never given to agents. Recording a number needs its AgentPhone id.
+- In Agent email and phone you can now sign in, test and turn on a provider without leaving its card, look up the inboxes or numbers on your account instead of typing an id, use a connection you already added (for example Telnyx or Vapi) as a provider, remove a connection completely, and filter and page through recent activity.
+- Fixed: an MCP server whose tools carry the newer `execution` field, large numeric bounds (JavaScript's largest safe integer) or typed key/value arguments no longer shows as "connected, 0 tools". A server whose tools can all not be read is now an error instead.
+
+## 0.8.6 - 2026-11-11
+
+Phone app 0.4.0: chat is now the default screen, with a sidebar of conversations, date dividers, timestamps, copy buttons, Markdown, code blocks and tables like the desktop app, a desktop-style composer, and an in-chat model and reasoning-effort switcher.
+
+### Added
+
+- Share a server install with other people. An admin invites someone from Settings → Account & privacy → People and sends them a one-time link; they pick a name and password and work in the same workspace as themselves. Each person has a role (owner, admin, member, viewer), and a member's permissions (reply, read files, answer commands, save standing rules, manage agents) are chosen when they are invited and can be changed later. Removing someone signs them out and ends their open event streams at once. Members can change their own password, the owner can hand the workspace to another member, and every membership change is recorded. Turns and approvals show which person sent or answered them, agents are told whose message they are answering when several people share a workspace, and a member's chats are not learned as the owner's. Not available in the desktop app, which stays one person. See [docs/AUTH.md](docs/AUTH.md#members).
+- Add boxd as a Desktop cloud computer choice, **Cloud · boxd**, next to Muapi and Boat. Each agent computer is one boxd machine (a full Ubuntu VM): commands, files and the 1280x800 desktop's screen tools go through the boxd API, stopping hibernates the machine and starting wakes it in about a second, and removal deletes it. The boxd API key is stored like the Boat key, encrypted in the Desktop profile and used only by the local backend. The boxd SDK is an optional backend extra (`uv sync --extra boxd`) that the desktop package includes. See docs/COMPUTERS.md. Checked with unit tests (fake boxd client), a live provider check and a source-run desktop backend whose Claude turn used a real boxd computer; no packaged-app check.
+
+- A hosted deployment can now put its own account service in front of this server and tell it, with a short-lived signed token, who is acting and in what role. Set `HOSTED_WORKSPACE_ID` and `HOSTED_GRANT_PUBLIC_KEYS` and every request must carry a token signed for that workspace; the person is shown by name in conversations and approvals, rights follow the token's role and permissions, and inviting, role changes and removal are done by the account service instead. Unset, nothing changes for self-hosted installs or the desktop app. See [docs/AUTH.md](docs/AUTH.md#hosted-workspace-grants).
+- In a hosted build, a workspace switcher at the top of the sidebar lists the workspaces you belong to (name and role), with search, recent workspaces first and `Alt+W`; choosing one reopens the page you left there, and unsent drafts are kept per workspace. Settings → Account & privacy shows the people the account service reports, and hides device pairing, which a hosted workspace cannot use.
+
+### Changed
+
+- Changing notification settings now needs an admin when people share a workspace, because it is one setting for everyone. Paired phones keep their access.
+
+### Fixed
+
+- Serve `GET` and `DELETE /computers/boat-credentials` and `/computers/muapi-credentials` again in the full API. The computer routes were registered first, so `/computers/{computer_id}` answered them with a 422.
+
+## 0.8.5 - 2026-11-09
+
+### Changed
+
+- Renamed the app to Suparagent, including environment variables (`SUPARAGENT_*`), installer file names, the Docker computer label and the GitHub repository (`Anil-matcha/suparagent`). Existing `OPEN_DOTS_*` and `OPEN_DUET_*` settings are no longer read.
+
+## 0.8.4 - 2026-11-07
+
+### Added
+
+- Add Pixeltable Docs to the Community marketplace so agents can search and read its public documentation without an account or API key.
+- Improve the visual workflow builder with note and shape toolbars and validation for step connections.
+- Muapi is now a cloud computer provider alongside Boat. In the computer panel choose **Cloud · Muapi** (listed first) or **Cloud · Boat**; each has its own encrypted, write-only API key on this device. Muapi computers are shell-only for now and are billed per second from your Muapi credits while running. Covered by new provider unit tests against a mocked Muapi API; not yet tried against the live Muapi service.
+- Open your paid hosted workspace from the desktop app. A new **Workspace** menu (Cmd/Ctrl+1 for this computer, +2 for hosted), a Settings → Account button and a sandboxed hosted view show your cloud workspace in the same window. You sign in to it separately with your hosted email and password, hosted sign-out clears only that view, and local data is never copied or changed. On by default; set `OPEN_DOTS_HOSTED_WORKSPACE=0` to turn it off. Checked with unit tests and a source-run Electron smoke; no packaged-build or staging-account check yet.
+## 0.8.3 - 2026-11-06
+
+### Added
+
+- Add a visual workflow builder with interactive trigger nodes.
+
+### Changed
+
+- Require Developer ID signing and Apple notarization for tagged macOS release builds. Local Mac packages remain unsigned.
+
+## 0.8.2 - 2026-11-05
+
+### Added
+
+- Save an agent's selected reasoning effort and use it as the default for new conversations from that agent. Conversations can still choose their own effort in the model dialog. No automated tests, typecheck, migration run, app launch, provider turn or package check was run for this source change.
+- Add **Select all available actions** and **Clear all actions** controls to routine connected-app permissions. Bulk selection respects the selected agent's active account access and includes writes only when the agent already has write access.
+- Add local desktop import for prompt-generated JSON and compatible version 1 profile ZIPs with one root JSON profile list. Preview up to 20 profiles and import one at a time as fresh Ask-first agents with the default model and new folders. Optional memory facts require opt-in; standalone `SKILL.md` skills arrive disabled, and supported full persona text can come from `INSTRUCTIONS.md` or `SOUL.md`. The reader skips skills that require supporting files, arbitrary workspace files, routines, avatars and channels; native allowlisting and secret redaction apply. Credentials, connected accounts, tools, executable skill content and history are excluded. Hosted accounts keep the basic single-profile prompt-and-paste flow.
+- Let the phone app create and edit agents. A new **Chat, files and agents** pairing choice gives a phone the `manage` scope (chat and files, plus agents and rooms): create, edit, duplicate, pin and archive agents with the web editor's fields, and create, edit, hold members of and delete rooms. The server refuses the workspace folder, Accept edits, connected apps and the lead role from any device without full access, and a copy made by such a device is never looser than the original.
+
+### Changed
+
+- Let the phone app connect over plain `http://` to an address on your own network (`localhost`, `10.x`, `172.16`-`172.31.x`, `192.168.x`, `169.254.x`, `::1`, `fc00::/7`, `.local`); every other address still needs HTTPS. Pairing and Settings say the connection is not encrypted.
+- Disable the hard active-time answer limit by default so an agent can finish long tasks; the inactivity watchdog still stops stalled turns.
+- Let people message while a turn is running: steer providers that support it, and queue follow-ups for the next turn on other engines.
+- Keep active rooms inside the chat workspace so conversation navigation stays visible. Center and widen the docked composer with the transcript; keep member controls, instructions and export/delete actions in a responsive details panel, with the ordered reply queue and routing reason alongside room work. Add keyboard-accessible `@` suggestions and distinguish duplicate agent names in the member list, queue and speaker labels.
+- Replace the compact Team coordination dialog with a full-screen workspace for agents, delegated work and rooms. Group jobs by attention, running, waiting and finished; show who requested and owns each job, its delegation parent and timing, with existing approval, open and stop controls. Let Work filters wrap on narrow screens so every filter stays visible.
+
+### Fixed
+- Make Markdown links to files inside the conversation's pinned workspace downloadable from the assistant reply. Other local paths stay plain text.
+- Clarify the free desktop app's local Docker option beside the Boat API key prompt in web mode.
+- Handle missing profile titles in migration previews so the local app UI builds successfully.
+- Include the local Whisper and media packages in the backend lockfile so frozen setup succeeds.
+
+- Make the phone app pairing QR name the API address instead of the web page when the web UI is a separate dev server (port 3000 against port 8000), and swap `localhost` for the address the page was opened from; when the backend serves the UI, nothing changes.
+- Reopen first-agent setup after the last agent is deleted, carrying forward the saved engine and model.
+- Save the latest model selection from the chat engine/model dialog, even when the dropdown update and submit happen before the next render.
+- Let a new conversation use a different engine from its selected agent while keeping the agent's instructions and workspace.
+- Allow safe Bash approval rules to save commands with long file paths; the credential check no longer treats Unix paths as raw tokens.
+
+## 0.8.1 - 2026-11-03
+
+### Added
+
+- Put language pickers on sign-in and chat, use English as the default, and translate common sign-in, chat, sidebar, search, audio, planner, approvals, team and room controls across the supported languages. Decision-log summaries, health-scan details, other specialized screens and engine-supplied text can still contain English.
+
+- Add an easy-to-find language picker to first-run setup and translate its main guidance and starter-agent templates (67 messages) across all 12 non-English locales. Choosing a language no longer resets setup progress.
+
+- Translate 85 additional messages across all 12 non-English locales: selected General Settings and Planner copy, Mac permission guidance, agent/team/skill/memory help, and high-impact routine access and safety notices. Many controls in these specialized screens remain English.
+
+- Redo the Agents and Edit agent screens: compact agent rows with an overflow menu for less common actions, search, one banner for engines that need sign-in, an editor with sections, a sticky Save footer, unsaved-changes and discard confirmation, and compact per-app access controls. Move the Telegram connection from the sidebar into Settings under AI > Channels.
+
+## 0.8.0 - 2026-11-03
+
+### Added
+
+- Settings tabs on the Approvals page now work with the arrow, Home and End keys, and Cmd/Ctrl+K in chat opens the command palette instead of jumping to the sidebar conversation search.
+- Make settings easier to reach and change: search every setting from the Settings page or Cmd/Ctrl+K and jump straight to it, open Settings with Cmd+, (Ctrl+, elsewhere) and from a new desktop application menu, group the settings pages under You, AI and Safety, add a "Find agent settings" card, collapse engine cards that are not in use, and show one Save, Saved and Applies pattern across settings pages.
+- Add English, Spanish, and System default language choices for text covered by the interface catalog. System default follows Spanish browser locales; unsupported languages and missing translations use English, and older untranslated text stays in English. Frontend lint, the Webpack production build, frontend .mjs checks, desktop tests, and the SQLite backend suite passed; the full PostgreSQL suite, live-browser, and packaged-app checks remain unqualified.
+- Add German, French, Italian, Japanese, Korean, Dutch, Polish, Brazilian Portuguese, Russian, Turkish, and Simplified Chinese language choices. System default follows any supported browser language; dates and numbers use browser locale formatting. Text outside the interface catalog remains in English. Live-browser and packaged-app behavior have not been run.
+- Open the files an agent made from the phone app. A pairing code can now be made with
+  **Chat and files** access (a new `files` scope; `--scope files` on the CLI): the phone lists
+  a conversation's workspace, previews text and images, and shares or saves any file. A
+  chat-only phone is unchanged and still cannot reach workspace files; the folder zip stays
+  admin-only. Automated tests and lint pass; not yet run on a device.
+- Add an owner-selected Uninterrupted access setting for a routine. Scheduled
+  and manual runs can use the agent's configured app accounts, granted
+  marketplace tools and attached isolated computer without per-call approval.
+  Each run records its starting capability ceilings and rechecks current
+  permission before calls. Ordinary chats retain their own approval behavior.
+  Real AppSumo research and updated installed-package qualification remain open.
+
+### Fixed
+
+- Fix the phone app's QR scanner in the Android release build. The build's code shrinking broke
+  the scanner's setup, so the camera showed but never read a code. Keep rules for ML Kit are now
+  set in `app.json`. Checked on an Android phone with a signed release build.
+
+### Changed
+
+- Stop the agent browser announcing itself as `HeadlessChrome`: its user agent,
+  client hints and `navigator.userAgentData` now agree and name Chrome, with the
+  real version and platform. Add a fixed notice when a page shows a visible
+  CAPTCHA frame or a "Just a moment" or "Access denied" page, so the agent stops
+  and asks the person to take control instead of retrying.
+- Remove the server-wide routine connected-app switch. Explicitly granted
+  scheduled and manual routine actions are eligible immediately, subject to
+  current agent permissions, active accounts and existing run restrictions.
+- Require Codex to initialize a routine's exact connected-app tools before its
+  turn starts, waiting up to 10 seconds so missing tools cannot be mistaken for
+  unchecked access. Name the authorized tools in turn instructions and direct
+  Codex to call a matching tool before reporting app access unavailable.
+
+## 0.7.0 - 2026-10-30
+
+### Added
+
+- Add a remote MCP Marketplace with Community and Tested by Open Dots sections,
+  GitHub PR catalog validation, separately stored bearer credentials, exact
+  per-agent tool grants and one-time call approvals. The source implementation
+  is present; automated, live-service and packaged-app qualification remain.
+- Add a Desktop-only Local/Cloud computer choice. Cloud uses a Boat API key
+  encrypted in the local Desktop profile; the local backend sends it only to
+  Boat's API over HTTPS, not to the agent or cloud computer. The cloud machine
+  has internet access, separate storage, a one-hour archive TTL and an
+  asynchronous deletion lifecycle. The frontend production build passed;
+  backend behavior tests, live-provider and packaged-app qualification remain
+  open.
+
+### Fixed
+
+- Fix Today / Needs You refresh failing while serializing Sentinel issue rows.
+- Show readable, privacy-safe summaries for structured health-scan errors instead
+  of placeholder punctuation.
+- Redact secret-like text from background memory capture prompts before they
+  reach the agent's own engine, and use directly matched topic aliases as a
+  bounded, on-device bridge when retrieving related conversation passages.
+
+- Recover cloud-computer removal when Boat has already deleted the sandbox or
+  no longer retains its deletion-operation record, instead of leaving the
+  agent blocked in `deleting`. Cloud desktop screenshots now transfer through
+  Boat's file API and try the available X display/capture tools rather than
+  sending base64 image data through command output.
+
+## 0.6.0 - 2026-10-29
+
+### Added
+
+- Let each Claude or Codex agent use only the specific connected accounts its
+  owner selects for each app. The backend validates account IDs against active
+  connections and checks the agent's current grant on every call, including
+  generic actions, routines and Today reads. Existing agents start with no
+  account access until their owner selects it.
+- Add an Apps page (sidebar → Apps) that lists Composio's own catalog of apps,
+  with search, categories, a Connected section, what agents can do with each app,
+  connecting and disconnecting, and the Composio key. Without a key it shows a
+  short starter list and says so. Connecting an app does not give any agent
+  access; that is still chosen per agent. Connected apps moved out of Settings.
+- Let Claude and Codex agents use any connected app, not only GitHub, Gmail and
+  Google Calendar, through two tools: one finds an app's actions and one runs
+  one. No action of these apps is treated as a read, so you approve every call on
+  a card showing the app, account, action and exact arguments. Nothing that runs
+  code, a shell or a raw request is reachable, the three apps with their own tools
+  stay limited to them, and a changed action, a disconnected account or lowered
+  agent access cancels a waiting call. Checked with a fake Composio that follows
+  Composio's published API description; not yet run against the real Composio.
+- Add two Google Calendar tools: find events by words (read) and create one
+  timed event (change, approved each time). A created event has no guests and no
+  video meeting, so it emails nobody. Checked with unit tests against
+  Composio's published parameters; not run against a live calendar yet.
+- Add opt-in quiet routine results with durable outcomes and visible incomplete
+  source checks. Quieting requires explicit outcome reporting and complete
+  connected-app read receipts; empty output alone stays visible. Not run:
+  real-provider and packaged-app qualification.
+- Add confined routine reply drafts for one message read in that run, with a
+  server-derived recipient and one durable draft attempt per run. Available
+  only on the supported Claude route after routine-app safety enablement;
+  other write grants cannot be combined with this mode. Not run: live Gmail,
+  Linux safety and packaged-app qualification.
+- Add bounded audio uploads and direct audio URL import with explicit OpenAI
+  transcription consent, transcript segments and source playback. Transcript
+  review turns cannot use tools. Requires configured transcription credentials
+  and ffmpeg/ffprobe. Not run: real transcription, summary quality and packaged
+  media dependency qualification.
+- Add read-only Gmail and primary-calendar source records to Today, with links,
+  check timestamps, partial coverage and unavailable-source labels. Not run:
+  live-account and installed-app qualification.
+
+- Add off-by-default routine grants for exact app reads, Gmail email sending,
+  GitHub branch creation and file commits, bound to connected accounts. Includes
+  run snapshots, revocation checks, durable write reservations and action history.
+  Execution requires explicit server enablement after safety qualification;
+  webhooks, retries and agent computers remain excluded.
+
+- Add a phone app (`mobile/`, Expo and React Native) that pairs with your own
+  server by QR code or code as a chat-only device. It lists and starts
+  conversations, shows answers as they are written (as Markdown, including tables that scroll sideways when wide), attaches photos and text files, follows the phone's dark or light setting, starts a conversation from one of your agents, searches your conversations (a page at a time, opening one at the matching message), reads and posts to your rooms (tagging agents, stopping them and answering their approvals), stops a running answer, and
+  asks you to allow or deny tool calls, showing every input of the call. The
+  Devices screen now shows a second QR code for the app when a chat-only code is
+  created. Release builds connect over HTTPS only; there are no push
+  notifications and no store release. Checked: 216 Jest tests, lint, typecheck,
+  a bundle export for both platforms, the `mobile` CI job on GitHub Actions, the
+  app's networking code against a local backend, and an Android emulator run in
+  Expo Go (pairing by code and by QR, HTTPS with a valid certificate and refusal
+  of an untrusted one, chat, an approval from a real Claude turn, and Stop).
+  The newest features (Markdown, attachments, dark theme, agent picker, rooms)
+  were checked by tests and against a local backend. A release APK was then
+  installed on a Galaxy S23 Ultra: pairing over HTTPS and chat worked, and after
+  fixes for the system bar and the keyboard the message box and approval
+  buttons stay on screen. Scanning the QR code with that phone did not work yet;
+  typing the server and code does. Not run: iOS, a custom link opening the app,
+  and the newest features beyond chat on a screen. See
+  [the phone app guide](docs/MOBILE.md).
+
+### Changed
+
+- Settings is now four pages with a list beside them: General, Engines,
+  Approvals, and Account & privacy. Links that asked you to sign in to an engine
+  now open Engines, and the desktop app accepts engine sign-in, the path
+  picker and permission actions only from the page that hosts them.
+
+## 0.5.1 - 2026-10-28
+
+### Changed
+
+- Desktop sign-in no longer asks for an invitation code; anyone can create an account with an email code.
+
+## 0.5.0 - 2026-10-28
+
+### Added
+
+- Desktop: "Reset this profile" (also offered when a different account is
+  linked) and "Delete my account". Both need a typed confirmation, refuse while
+  an agent task runs, and erase local agents, conversations, settings and
+  workspace files before unlinking; account deletion first deletes the cloud
+  account and changes nothing locally if that fails. Sign-out never erases data.
+- Export your agents, conversations and attachment names as a ZIP from Settings
+  ("Export my history"). Credentials, the account sign-in and attached files
+  are not included; import is not available yet.
+- Guide desktop and browser users through engine choice, a purposeful first
+  agent and an editable first-request draft, with saved progress, retry-safe
+  completion and optional Mac permission checks. Desktop also gains email-code
+  app-account sign-in with encrypted sessions and account-bound local profiles.
+  Supported desktop engines can be installed into staged app-managed releases.
+  Real email delivery, provider calls, actual runtime downloads, native permission
+  dialogs, Windows installation, packaged releases and production account-service
+  deployment were not run. See [first-run setup](docs/specs/onboarding/first-run.md).
+
+- Allow existing Codex agents to use the same per-agent GitHub, Gmail and
+  Google Calendar Composio grants as Claude agents. Codex mounts a scoped MCP
+  server per turn and routes tool requests through the existing one-use approval
+  gate. The Codex live-provider flow and Gmail calls have not been qualified.
+
+- Navigate saved skill suggestions in chat with Up/Down and choose one with
+  Enter, Tab or a click. Escape keeps the draft, disabled/already chosen skills
+  are hidden, and the three-skill limit is enforced before selection. Choosing
+  a skill sends nothing and leaves tool approvals unchanged. Real-provider,
+  Windows and packaged-app skill menu checks were not run.
+
+- Check available disk space before starting an installer build and explain
+  which directory needs more room. Builds require at least 2 GiB available on
+  every output/temporary volume; larger builds may need more. Installer creation,
+  installation, updates and Windows execution were not run for this change.
+
+- Require the real Linux filesystem and network sandbox checks in backend CI on
+  Ubuntu 22.04, with bubblewrap installed and skipped checks treated as failures. The new CI
+  job and real Linux enforcement were not run locally on this macOS host;
+  provider sessions and stop/orphan cleanup still need separate qualification.
+
 - Sign out of the shared Claude or Codex CLI account from Settings after
   confirmation, then sign in again to switch accounts. Account removal refuses
   pending sign-in and active or starting conversations, bounds CLI execution,
@@ -19,6 +353,27 @@
   private-destination proxy refusal and gate cleanup. Linux enforcement was not
   run on this macOS host; the check requires bubblewrap and namespace support.
 
+- Let an existing Claude agent read connected GitHub, Gmail and Google Calendar
+  accounts after you allow each app. Gmail can also save a plain-text draft
+  reply in an existing thread; sending and extra recipients are not exposed.
+  GitHub changes and Gmail drafts each require a one-use approval card. Answers
+  are trimmed to a fixed field allowlist and marked as third-party text.
+  Connected-app tools remain unavailable to other engines, agents with a
+  computer, routines and turns started from outside. Existing manual checks on
+  Windows covered GitHub only. The desktop static UI build and source-checkout
+  Mac app launch succeeded, but no Gmail or Calendar call was made in that app.
+  A packaged installer, Linux sandbox and provider behavior were not qualified.
+  The Gmail approval shows the chosen recipient but the current chat action does not
+  verify it against the thread sender. Until a credential broker exists, the
+  saved Composio key is visible to local agent shell commands. Tests for this
+  increment were not run.
+- Connect GitHub, Gmail and Google Calendar from Settings using your own
+  Composio project key. The key is stored encrypted and is never shown again;
+  only the owner can manage it, and paired chat devices are refused. Scoped-key
+  guidance names the required access because Composio may report missing
+  permissions as an invalid key. Existing manual connection checks covered GitHub on Windows; Gmail and
+  Calendar connections, grant revocation at GitHub, packaged apps, macOS and
+  Linux were not run. See [connected apps](docs/CONNECTED_APPS.md).
 - Sign in to Claude from Settings using the installed CLI's browser link and
   pasted authorization code. The starting owner session controls the bounded
   flow; existing accounts are preserved and codes are submitted once. Real-account,
@@ -64,6 +419,10 @@
   and provider qualification remain open.
 
 ### Fixed
+
+- Resolve the Python interpreter's real path before launching the Linux network
+  sandbox bridge. Custom Python runtimes still need an explicit read-only grant;
+  provider sessions, stop/timeouts and orphan cleanup were not run.
 
 - Concurrent Today refreshes and first visits serialize their state and publish
   one card and notification. A failed publication rolls back its new chat too.
@@ -123,6 +482,9 @@
 - Server and desktop doctors include preset CLI guidance; the server guide documents API-key connections and optional Docker packages. Optional engine image builds were not run.
 - Engine Settings now builds connection forms from engine descriptors and groups ready engines first. Generic endpoint address templates cover Ollama, LM Studio, Groq, Cerebras, Mistral and OpenAI. Desktop setup detects a ready engine and offers advanced model selection. Tested with scripted engine responses; real preset accounts and packaged setup were not run.
 - OpenRouter readiness authenticates the saved key, lists up to 600 models with free labels, and chooses a free default only for a free-tier key. Its address is fixed to OpenRouter; proxy users must use the generic endpoint engine. Keys refused by the service no longer appear ready. Checked with a mock endpoint, including conversation fallback; a real OpenRouter account was not run.
+
+### Fixed
+- Desktop on Linux: on desktops Chromium does not recognise (Hyprland, sway, i3), the app now selects the running GNOME Keyring or KWallet explicitly. Chromium used to fall back to `basic_text` there, so the first start stopped with "This computer's secret storage is not available" even with a keyring running. KDE and an explicit `--password-store` are left alone.
 
 ## v0.2.0 (2026-10-22)
 

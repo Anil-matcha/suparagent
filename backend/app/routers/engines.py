@@ -12,8 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from contextlib import nullcontext
 import shutil
 
-from app.schemas.engine import EngineConfigRequest, EngineResponse
-from app.services import engine_config
+from app.schemas.engine import EngineConfigRequest, EnginePreference, EngineResponse
+from app.services import engine_config, engine_preference
+from app.services.engine_usage_limits import get_engine_usage_limits
 from app.services.local_access_policy import require_local_access
 from app.services.thread_runtime import ThreadRuntime
 from app.services.thread_runtime import runtime as default_runtime
@@ -49,11 +50,34 @@ async def list_engines(refresh: bool = False, rt: ThreadRuntime = Depends(get_ru
     return await rt.engines.describe(refresh=refresh)
 
 
+@router.get("/preference", response_model=EnginePreference)
+async def get_engine_preference():
+    """Read the preferred default engine and model from disk."""
+    return engine_preference.read_preference()
+
+
+@router.put("/preference", response_model=EnginePreference)
+async def set_engine_preference(payload: EnginePreference, rt: ThreadRuntime = Depends(get_runtime)):
+    """Save the preferred default engine and model to disk."""
+    if payload.provider and payload.provider not in rt.adapters:
+        raise HTTPException(status_code=404, detail="Engine not found")
+    return engine_preference.write_preference(payload.provider, payload.model, payload.effort)
+
+
 @router.get("/{engine_id}", response_model=EngineResponse)
 async def get_engine(engine_id: str, refresh: bool = False, rt: ThreadRuntime = Depends(get_runtime)):
     if engine_id not in rt.adapters:
         raise HTTPException(status_code=404, detail="Engine not found")
     return (await rt.engines.describe(refresh=refresh, only=engine_id))[0]
+
+
+@router.get("/{engine_id}/usage-limits")
+async def get_engine_usage_limits_route(engine_id: str, rt: ThreadRuntime = Depends(get_runtime)):
+    """Return real account usage limits if the engine reports them (e.g. Antigravity/Gemini),
+    or null if the engine is unsupported or not signed in. Never returns dummy data."""
+    if engine_id not in rt.adapters:
+        raise HTTPException(status_code=404, detail="Engine not found")
+    return await get_engine_usage_limits(engine_id)
 
 
 @router.put("/{engine_id}/config", response_model=EngineResponse)
@@ -137,7 +161,17 @@ async def setup_antigravity(action: str, response: Response, rt: ThreadRuntime =
 
     async def work():
         if action == "install":
-            await antigravity_runtime.install(adapter.validate_runtime)
+            def update_progress(percent, downloaded=0, total=0, detail=None):
+                if adapter.operation:
+                    adapter.operation["progress"] = percent
+                    if detail:
+                        adapter.operation["detail"] = detail
+                    elif total > 0:
+                        mb_down = downloaded / (1024 * 1024)
+                        mb_tot = total / (1024 * 1024)
+                        adapter.operation["detail"] = f"Downloading official Google runtime ({mb_down:.1f} MB / {mb_tot:.1f} MB)..."
+
+            await antigravity_runtime.install(adapter.validate_runtime, on_progress=update_progress)
         elif action == "sign_in":
             if not antigravity_runtime.installed():
                 raise ValueError("Install Antigravity first.")

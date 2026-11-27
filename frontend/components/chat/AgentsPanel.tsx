@@ -1,10 +1,20 @@
 "use client";
 
+import Link from "next/link";
+import { Ellipsis } from "lucide-react";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
+import { IconButton } from "@/components/ui/IconButton";
+import { Menu, MenuItem, MenuSeparator } from "@/components/ui/Menu";
+import { Select } from "@/components/ui/Select";
+import { Tab, TabList, TabPanel, Tabs } from "@/components/ui/Tabs";
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, type Agent, type AgentInput, type AgentMemory, type ApprovalMode, type Engine } from "@/lib/api";
+import { useToast } from "@/components/ui/Toast";
+import { api, ApiError, isLocalApiEndpoint, type Agent, type AgentInput, type AgentMemory, type ApprovalMode, type ClaudeAccount, type Engine, type OpenBotDatabasePreview, type OpenBotDatabaseProfilePreview } from "@/lib/api";
+import { type AgentMigrationFilePreview, type AgentMigrationFileProfilePreview } from "@/lib/api";
 import {
-  APPROVAL_MODES,
+  approvalModesForProvider,
   agentFileHasNotes,
   agentFileText,
   approvalModeLabel,
@@ -13,16 +23,37 @@ import {
   parseAgentFile,
   redactionNotice,
 } from "@/lib/agents";
-import { computerStateLabel } from "@/lib/computers";
+import {
+  GROK_AGENT_EXPORT_PROMPT,
+  HERMES_AGENT_EXPORT_PROMPT,
+  GROK_AGENT_BASIC_EXPORT_PROMPT,
+  HERMES_AGENT_BASIC_EXPORT_PROMPT,
+  parseExternalAgentSetup,
+  type AgentMigrationPreview,
+  type AgentMigrationSource,
+} from "@/lib/agent-migration";
+import { accountScopesToSend, scopesToSend, sharesToSend, supportsConnectedApps, type AccountScopes, type ComposioAccount, type Scopes, type Shares } from "@/lib/connected-apps";
 import { ComputerView } from "./ComputerPanel";
 import { EngineModelFields } from "./EngineModelFields";
 import { MemoryPanel } from "./MemoryPanel";
+import { ChooseTeam } from "./ChooseTeam";
 import { TemplateSkillChoices, TemplatesGallery } from "./TemplatesGallery";
-import { installTemplateSkills, skillInstallNotice, uniqueAgentName, type AgentTemplate } from "@/lib/templates";
+import { hireSummary, installTemplateSkills, skillInstallNotice, uniqueAgentName, type AgentTemplate } from "@/lib/templates";
 import { useSession } from "@/components/AuthGate";
 import { collaboration, type TeamState } from "@/lib/collaboration";
 import { AgentSetupEntry } from "./AgentSetupEntry";
 import { SkillsPanel } from "./SkillsPanel";
+import { AgentHistory } from "./AgentHistory";
+import { AgentImage } from "./AgentImage";
+import { AgentImageGenerator } from "./AgentImageGenerator";
+import { useT } from "@/lib/use-i18n";
+import { AgentEditorFooter } from "./agents/AgentEditorFooter";
+import { ConnectedAppsSection } from "./agents/ConnectedAppsSection";
+import { ShadowResultsPanel } from "./agents/ShadowResultsPanel";
+import { WorkerLabelsPanel } from "./agents/WorkerLabelsPanel";
+import { HistoryLearningPanel, LessonsPanel } from "./agents/HistoryLearningPanel";
+import { filterAgents, shouldShowAgentSearch, unavailableEnginesInUse } from "./agents/agent-list";
+import { draftSignature } from "./agents/draft-state";
 
 type Draft = {
   id: number | null;
@@ -32,11 +63,20 @@ type Draft = {
   instructions: string;
   provider: string;
   model: string | null;
+  effort: string | null;
   workspace_path: string;
   approval_mode: ApprovalMode;
   memory_enabled: boolean;
   fallback_provider: string | null;
   fallback_model: string | null;
+  // A named Claude account id; null is the default account (owner only).
+  claude_account: string | null;
+  // Connected apps this agent may read; changed only on an existing agent.
+  connector_scopes: Scopes;
+  // Exact connected account IDs this agent may use.
+  connector_account_scopes: AccountScopes;
+  // The share of a mailbox it may see, per app and account; no entry means all mail.
+  connector_shares: Shares;
   // Create only: the first contents of the agent's notes.
   starter_notes: string;
 };
@@ -49,11 +89,16 @@ const EMPTY: Draft = {
   instructions: "",
   provider: "claude",
   model: null,
+  effort: null,
   workspace_path: "",
   approval_mode: "ask",
   memory_enabled: true,
   fallback_provider: null,
   fallback_model: null,
+  claude_account: null,
+  connector_scopes: {},
+  connector_account_scopes: {},
+  connector_shares: {},
   starter_notes: "",
 };
 
@@ -66,16 +111,21 @@ function toDraft(agent: Agent): Draft {
     instructions: agent.instructions ?? "",
     provider: agent.provider,
     model: agent.model,
+    effort: agent.effort ?? null,
     workspace_path: agent.workspace_path ?? "",
-    approval_mode: agent.approval_mode,
+    approval_mode: !approvalModesForProvider(agent.provider).some((mode) => mode.value === agent.approval_mode) ? "ask" : agent.approval_mode,
     memory_enabled: agent.memory_enabled ?? true,
     fallback_provider: agent.fallback_provider ?? null,
     fallback_model: agent.fallback_model ?? null,
+    claude_account: agent.claude_account ?? null,
+    connector_scopes: agent.connector_scopes ?? {},
+    connector_account_scopes: agent.connector_account_scopes ?? {},
+    connector_shares: agent.connector_shares ?? {},
     starter_notes: "",
   };
 }
 
-function toInput(draft: Draft): AgentInput {
+function toInput(draft: Draft, admin = false): AgentInput {
   const input: AgentInput = {
     name: draft.name.trim(),
     title: draft.title.trim() || null,
@@ -83,6 +133,7 @@ function toInput(draft: Draft): AgentInput {
     instructions: draft.instructions.trim(),
     provider: draft.provider,
     model: draft.model?.trim() || null,
+    effort: draft.effort,
     workspace_path: draft.workspace_path.trim() || null,
     approval_mode: draft.approval_mode,
     memory_enabled: draft.memory_enabled,
@@ -90,7 +141,14 @@ function toInput(draft: Draft): AgentInput {
     fallback_provider: draft.fallback_provider && draft.fallback_provider !== draft.provider ? draft.fallback_provider : null,
     fallback_model: draft.fallback_provider && draft.fallback_provider !== draft.provider ? draft.fallback_model?.trim() || null : null,
   };
+  // Only the owner may choose the account; other devices never send the field.
+  if (admin) input.claude_account = draft.provider === "claude" ? draft.claude_account : null;
   if (draft.id === null && draft.starter_notes.trim()) input.starter_notes = draft.starter_notes;
+  if (draft.id !== null) {
+    input.connector_scopes = scopesToSend(draft.connector_scopes, draft.provider);
+    input.connector_account_scopes = accountScopesToSend(draft.connector_account_scopes, draft.connector_scopes, draft.provider);
+    input.connector_shares = sharesToSend(draft.connector_shares, draft.connector_account_scopes, draft.connector_scopes, draft.provider);
+  }
   return input;
 }
 
@@ -105,7 +163,17 @@ type NotesState = {
 };
 
 type ExportState = { agent: Agent; includeNotes: boolean; notice: string | null };
-type ImportState = { document: Record<string, unknown>; name: string; hasNotes: boolean; includeNotes: boolean };
+type ImportState = {
+  document: Record<string, unknown>;
+  name: string;
+  hasNotes: boolean;
+  hasSkills: boolean;
+  includeNotes: boolean;
+  includeSkills: boolean;
+  migration?: AgentMigrationPreview;
+  migrationFileProfile?: AgentMigrationFileProfilePreview;
+};
+type MigrationState = { source: AgentMigrationSource | null; text: string; copied: boolean };
 
 const FIELD =
   "w-full rounded-md border border-line bg-transparent px-3 py-1.5 text-sm placeholder:text-muted";
@@ -116,6 +184,7 @@ const SMALL =
 const PRIMARY =
   "cursor-pointer rounded-md px-4 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 bg-accent text-accent-fg hover:opacity-90";
 const GAUGE_COLOR = { ok: "bg-success", near: "bg-warning", over: "bg-danger" } as const;
+type EditorSection = "basics" | "model" | "apps" | "memory";
 
 function saveFile(fileName: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
@@ -124,6 +193,24 @@ function saveFile(fileName: string, text: string) {
   link.download = fileName;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function SetupEntryDisclosure({ agents, engines, onStart, onCreateLead }: {
+  agents: Agent[];
+  engines: Engine[];
+  onStart: (id: number) => void;
+  onCreateLead: () => void;
+}) {
+  return (
+    <details>
+      <summary className="w-fit cursor-pointer list-none rounded-field py-1 text-sm font-medium text-accent underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+        Create by chatting
+      </summary>
+      <div className="mt-3">
+        <AgentSetupEntry agents={agents} engines={engines} onStart={onStart} onCreateLead={onCreateLead} />
+      </div>
+    </details>
+  );
 }
 
 // List, create, edit, duplicate, pin, archive, export and import named agents,
@@ -154,27 +241,58 @@ export function AgentsPanel({
 }) {
   // The template browser, and the template (with the suggested skills still ticked) the form was filled from.
   const [gallery, setGallery] = useState(false);
+  // "Hire several": the multi-select version of the gallery, which adds the ticked workers in one step.
+  const [hireSeveral, setHireSeveral] = useState(false);
   const [fromTemplate, setFromTemplate] = useState<{ template: AgentTemplate; skills: string[] } | null>(null);
-  const [draft, setDraft] = useState<Draft | null>(initialEditAgent ? toDraft(initialEditAgent) : startCreating ? EMPTY : null);
+  const [draft, setDraft] = useState<Draft | null>(() => initialEditAgent ? toDraft(initialEditAgent) : startCreating ? EMPTY : null);
+  const [originalDraft, setOriginalDraft] = useState<Draft | null>(() => initialEditAgent ? toDraft(initialEditAgent) : startCreating ? EMPTY : null);
+  const [editorSection, setEditorSection] = useState<EditorSection>("basics");
   const [notes, setNotes] = useState<NotesState | null>(null);
   const [exporting, setExporting] = useState<ExportState | null>(null);
   const [importing, setImporting] = useState<ImportState | null>(null);
+  const [migration, setMigration] = useState<MigrationState | null>(null);
+  const [openBotDatabase, setOpenBotDatabase] = useState<OpenBotDatabasePreview | null>(null);
+  const [migrationFilePreview, setMigrationFilePreview] = useState<AgentMigrationFilePreview | null>(null);
   const [computerOf, setComputerOf] = useState<Agent | null>(null);
   const [skillsOf, setSkillsOf] = useState<Agent | null>(null);
+  const [historyOf, setHistoryOf] = useState<Agent | null>(null);
+  const [pictureOf, setPictureOf] = useState<Agent | null>(null);
+  const [pictureTick, setPictureTick] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState<Agent | null>(initialDeleteAgent);
+  const [discardConfirm, setDiscardConfirm] = useState(false);
+  const [closeAfterDiscard, setCloseAfterDiscard] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [agentFilter, setAgentFilter] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [engines, setEngines] = useState<Engine[]>([]);
+  const [claudeAccounts, setClaudeAccounts] = useState<ClaudeAccount[]>([]);
+  // The accounts connected on the Apps page: every app with one can be allowed for an agent. Empty when none, or when this
+  // device may not see them (only the owner can).
+  const [appAccounts, setAppAccounts] = useState<ComposioAccount[] | null>(null);
   const { session } = useSession();
+  const t = useT();
   const admin = session?.scopes.includes("admin") === true;
   const [team, setTeam] = useState<TeamState | null>(null);
   const [roleChoice, setRoleChoice] = useState<{ id: number | null; value: boolean } | null>(null);
   const [memberChoices, setMemberChoices] = useState<Record<number, boolean>>({});
   const isLead = draft !== null && (roleChoice?.id === draft.id ? roleChoice.value : draft.id !== null && team?.team?.lead_agent_id === draft.id);
   const roleSupported = engines.some(engine => engine.id === draft?.provider && engine.capabilities.mcp);
+  useEffect(() => {
+    let live = true;
+    api.getComposioStatus().then((value) => value.configured ? api.listComposioAccounts() : []).then((value) => { if (live) setAppAccounts(value); }).catch(() => { if (live) setAppAccounts([]); });
+    return () => { live = false; };
+  }, []);
   useEffect(() => { let live = true; collaboration.team().then(value => { if (live) setTeam(value); }).catch(() => {}); return () => { live = false; }; }, []);
   const fileInput = useRef<HTMLInputElement>(null);
+  const migrationFileInput = useRef<HTMLInputElement>(null);
+  const openBotDatabaseInput = useRef<HTMLInputElement>(null);
+  const keepEditingRef = useRef<HTMLButtonElement>(null);
+  const keepAgentRef = useRef<HTMLButtonElement>(null);
+  const deleteConfirmationRef = useRef<HTMLDivElement>(null);
+  const toast = useToast();
+  const canReadLocalBackend = isLocalApiEndpoint();
+  const canReadOpenBotDatabase = isLocalApiEndpoint();
 
   useEffect(() => {
     let cancelled = false;
@@ -183,10 +301,22 @@ export function AgentsPanel({
   }, []);
 
   useEffect(() => {
-    const escape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    document.addEventListener("keydown", escape);
-    return () => document.removeEventListener("keydown", escape);
-  }, [onClose]);
+    if (!admin) return;
+    let cancelled = false;
+    api.listClaudeAccounts().then((items) => { if (!cancelled) setClaudeAccounts(items); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [admin]);
+
+  useEffect(() => {
+    if (discardConfirm) keepEditingRef.current?.focus();
+  }, [discardConfirm]);
+
+  useEffect(() => {
+    if (!deleteConfirm) return;
+    deleteConfirmationRef.current?.scrollIntoView({ block: "nearest" });
+    const focusFrame = window.requestAnimationFrame(() => keepAgentRef.current?.focus());
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [deleteConfirm]);
 
   const errorText = (err: unknown) =>
     err instanceof ApiError ? err.message || "That did not work." : err instanceof Error ? err.message : "Could not reach the backend.";
@@ -207,13 +337,15 @@ export function AgentsPanel({
 
   const save = () => {
     if (!draft || draft.name.trim() === "") return;
-    const input = toInput(draft);
+    const input = toInput(draft, admin);
     if (draft.id === null && fromTemplate) return createFromTemplate(input, fromTemplate);
     run(
       async () => {
         const agent = draft.id === null ? await api.createAgent({ ...input, make_lead: isLead }) : await api.updateAgent(draft.id, { ...input, ...(roleChoice?.id === draft.id ? { make_lead: isLead } : {}) });
         // Creation is already saved; subsequent coordination errors must not create another agent on retry.
-        setDraft(toDraft(agent));
+        const savedDraft = toDraft(agent);
+        setDraft(savedDraft);
+        setOriginalDraft(savedDraft);
         setRoleChoice({ id: agent.id, value: isLead });
         setTeam(await collaboration.team());
         if (isLead) for (const [id, included] of Object.entries(memberChoices)) {
@@ -223,7 +355,14 @@ export function AgentsPanel({
         }
         setTeam(await collaboration.team());
       },
-      () => { setDraft(null); setRoleChoice(null); setMemberChoices({}); }
+      () => {
+        toast("Agent saved.");
+        setDraft(null);
+        setOriginalDraft(null);
+        setRoleChoice(null);
+        setMemberChoices({});
+        setDiscardConfirm(false);
+      }
     );
   };
 
@@ -233,7 +372,9 @@ export function AgentsPanel({
     setError(null);
     try {
       const agent = await api.createAgent({ ...input, make_lead: isLead });
-      setDraft(toDraft(agent));
+      const savedDraft = toDraft(agent);
+      setDraft(savedDraft);
+      setOriginalDraft(savedDraft);
       setFromTemplate(null);
       setRoleChoice({ id: agent.id, value: isLead });
       if (isLead) for (const [id, included] of Object.entries(memberChoices)) {
@@ -245,6 +386,7 @@ export function AgentsPanel({
       const notice = skillInstallNotice(await installTemplateSkills(agent.id, source.template.id, chosen, api.installTemplateSkill));
       setDraft(null);
       setFromTemplate(null);
+      toast("Agent saved.");
       onChanged();
       onCreated?.(agent);
       if (notice) setError(notice);
@@ -256,18 +398,33 @@ export function AgentsPanel({
     }
   };
 
+  // One-click hire of a single worker: routines paused, Ask first, nothing else granted.
+  const [hireNote, setHireNote] = useState<string | null>(null);
+  const hireOne = async (template: AgentTemplate) => {
+    setHireNote(null);
+    try {
+      setHireNote(hireSummary(await api.hireTemplates([template.id])));
+      onChanged();
+    } catch (err) {
+      setHireNote(errorText(err));
+    }
+  };
+
   const addTemplate = (template: AgentTemplate) => {
     const taken = agents.filter((agent) => agent.archived_at === null).map((agent) => agent.name);
     setGallery(false);
     setFromTemplate({ template, skills: template.skills.map((skill) => skill.name) });
-    setDraft({
+    const templateDraft = {
       ...EMPTY,
       name: uniqueAgentName(template.name, taken),
       title: template.role,
       description: template.description,
       instructions: template.instructions,
       starter_notes: template.starter_notes ?? "",
-    });
+    };
+    setDraft(templateDraft);
+    setOriginalDraft(EMPTY);
+    setEditorSection("basics");
   };
 
   const openNotes = async (agent: Agent) => {
@@ -344,10 +501,11 @@ export function AgentsPanel({
     setError(null);
     try {
       const parsed = parseAgentFile(await file.text());
-      const agent = parsed.agent as { name?: unknown } | undefined;
-      const name = typeof agent?.name === "string" ? agent.name : file.name;
+      const parsedAgent = parsed.agent as Record<string, unknown> | undefined;
+      const name = typeof parsedAgent?.name === "string" ? parsedAgent.name : file.name;
       const hasNotes = agentFileHasNotes(parsed);
-      setImporting({ document: parsed, name, hasNotes, includeNotes: hasNotes });
+      const hasSkills = Array.isArray(parsedAgent?.skills) && parsedAgent.skills.length > 0;
+      setImporting({ document: parsed, name, hasNotes, hasSkills, includeNotes: false, includeSkills: false });
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -355,8 +513,165 @@ export function AgentsPanel({
     }
   };
 
+  const previewMigration = async () => {
+    if (!migration?.source || migration.source === "openbot") return;
+    setError(null);
+    if ((migration.source === "grok" || migration.source === "hermes") && canReadLocalBackend) {
+      setBusy(true);
+      try {
+        const file = new File([migration.text], "agent-migration.json", { type: "application/json" });
+        const preview = await api.previewAgentMigration(file);
+        setMigrationFilePreview(preview);
+      } catch (err) {
+        setError(errorText(err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    try {
+      const preview = parseExternalAgentSetup(migration.text, migration.source);
+      const notes = preview.document.notes;
+      const skills = preview.document.skills;
+      const hasNotes = Boolean(notes && typeof notes === "object" && Object.keys(notes).length > 0);
+      const hasSkills = Array.isArray(skills) && skills.length > 0;
+      setImporting({
+        document: preview.document,
+        name: preview.name,
+        hasNotes,
+        hasSkills,
+        includeNotes: false,
+        includeSkills: false,
+        migration: preview,
+      });
+      setMigration(null);
+    } catch (err) {
+      setError(errorText(err));
+    }
+  };
+
+  const copyMigrationPrompt = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable.");
+      const prompt = migration?.source === "hermes"
+        ? canReadLocalBackend ? HERMES_AGENT_EXPORT_PROMPT : HERMES_AGENT_BASIC_EXPORT_PROMPT
+        : migration?.source === "grok"
+          ? canReadLocalBackend ? GROK_AGENT_EXPORT_PROMPT : GROK_AGENT_BASIC_EXPORT_PROMPT
+          : null;
+      if (!prompt) throw new Error("Choose an export source first.");
+      await navigator.clipboard.writeText(prompt);
+      setMigration((current) => current ? { ...current, copied: true } : current);
+      setError(null);
+    } catch {
+      setError("Could not copy the prompt. Select and copy it from the box below.");
+    }
+  };
+
+  const previewOpenBotDatabase = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setOpenBotDatabase(await api.previewOpenBotDatabase(file));
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+      if (openBotDatabaseInput.current) openBotDatabaseInput.current.value = "";
+    }
+  };
+
+  const reviewOpenBotDatabaseProfile = (profile: OpenBotDatabaseProfilePreview) => {
+    setImporting({
+      document: profile.document,
+      name: profile.name,
+      hasNotes: false,
+      hasSkills: false,
+      includeNotes: false,
+      includeSkills: false,
+      migration: {
+        document: profile.document,
+        sourceLabel: "OpenBot database",
+        name: profile.name,
+        title: profile.title,
+        description: "",
+        instructions: profile.instructions,
+        mappingNotice: "The source agent's description is imported as Suparagent instructions.",
+      },
+    });
+    setOpenBotDatabase(null);
+    setMigration(null);
+  };
+
+  const previewAgentMigrationFile = async (file: File | undefined) => {
+    if (!file) return;
+    if (!canReadLocalBackend) {
+      setError("Manifest file import is available only in the local app.");
+      if (migrationFileInput.current) migrationFileInput.current.value = "";
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const preview = await api.previewAgentMigration(file);
+      setMigrationFilePreview(preview);
+      setMigration((current) => current ? { ...current, source: preview.source } : current);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+      if (migrationFileInput.current) migrationFileInput.current.value = "";
+    }
+  };
+
+  const reviewMigrationFileProfile = (profile: AgentMigrationFileProfilePreview) => {
+    const agent = profile.document.agent && typeof profile.document.agent === "object"
+      ? profile.document.agent as Record<string, unknown>
+      : {};
+    const stringField = (key: string) => typeof agent[key] === "string" ? agent[key] as string : "";
+    const notes = profile.document.notes;
+    const skills = profile.document.skills;
+    const hasNotes = Boolean(notes && typeof notes === "object" && Object.keys(notes).length > 0);
+    const hasSkills = Array.isArray(skills) && skills.length > 0;
+    setImporting({
+      document: profile.document,
+      name: profile.name,
+      hasNotes,
+      hasSkills,
+      includeNotes: false,
+      includeSkills: false,
+      migrationFileProfile: profile,
+      migration: {
+        document: profile.document,
+        sourceLabel: `${migrationFilePreview?.source === "hermes" ? "Hermes Agent" : "Grok Bot"} manifest`,
+        name: profile.name,
+        title: profile.title ?? "",
+        description: stringField("description"),
+        instructions: stringField("instructions"),
+      },
+    });
+    setMigrationFilePreview(null);
+    setMigration(null);
+  };
+
   const visible = agents.filter((agent) => showArchived || agent.archived_at === null);
-  const modeInfo = APPROVAL_MODES.find((m) => m.value === draft?.approval_mode);
+  const engineLabels = new Map(engines.map((engine) => [engine.id, engine.label]));
+  const searchEnabled = shouldShowAgentSearch(visible.length);
+  const filteredAgents = filterAgents(visible, searchEnabled ? agentFilter : "", engineLabels);
+  const unavailableEngines = unavailableEnginesInUse(visible, engines);
+  const initialLead = draft !== null && draft.id !== null && team?.team?.lead_agent_id === draft.id;
+  const leadDirty = draft !== null && roleChoice?.id === draft.id && roleChoice.value !== initialLead;
+  const membersDirty = draft !== null && isLead && Object.entries(memberChoices).some(([id, included]) => included !== (team?.agents.some((member) => member.id === Number(id)) ?? false));
+  const templateSkillsDirty = fromTemplate !== null && (
+    fromTemplate.skills.length !== fromTemplate.template.skills.length ||
+    fromTemplate.template.skills.some((skill) => !fromTemplate.skills.includes(skill.name))
+  );
+  const editorDirty = draft !== null && (
+    (originalDraft !== null && draftSignature(draft) !== draftSignature(originalDraft)) || leadDirty || membersDirty || templateSkillsDirty
+  );
+  const availableApprovalModes = approvalModesForProvider(draft?.provider);
+  const modeInfo = availableApprovalModes.find((m) => m.value === draft?.approval_mode);
+  const canEditConnectedApps = draft !== null && draft.id !== null && supportsConnectedApps(draft.provider);
   const heading = draft
     ? draft.id === null
       ? fromTemplate ? `New agent · ${fromTemplate.template.name}` : "New agent"
@@ -367,31 +682,91 @@ export function AgentsPanel({
       ? `Notes · ${notes.agent.name}`
       : exporting
         ? `Export · ${exporting.agent.name}`
-        : importing
+        : migration
+          ? "Migrate agent setup"
+          : importing
           ? "Import agent"
           : computerOf
             ? `Computer · ${computerOf.name}`
             : skillsOf
               ? `Skills · ${skillsOf.name}`
-              : "Agents";
+              : historyOf
+                ? `History · ${historyOf.name}`
+                : pictureOf
+                  ? `Picture · ${pictureOf.name}`
+                  : t("sidebar.agents");
+  const openDraft = (nextDraft: Draft) => {
+    setDraft(nextDraft);
+    setOriginalDraft(nextDraft);
+    setEditorSection("basics");
+    setRoleChoice(null);
+    setMemberChoices({});
+    setDiscardConfirm(false);
+    setCloseAfterDiscard(false);
+    setError(null);
+  };
   const back = () => {
     setGallery(fromTemplate !== null && draft !== null);
     setFromTemplate(null);
     setDraft(null);
+    setOriginalDraft(null);
+    setEditorSection("basics");
     setRoleChoice(null);
     setMemberChoices({});
     setNotes(null);
     setExporting(null);
     setImporting(null);
+    setMigration(null);
+    setMigrationFilePreview(null);
+    setOpenBotDatabase(null);
     setComputerOf(null);
     setSkillsOf(null);
+    setHistoryOf(null);
+    setPictureOf(null);
     setDeleteConfirm(null);
+    setDiscardConfirm(false);
+    setCloseAfterDiscard(false);
     setError(null);
   };
 
+  const requestClose = (closeDialog: boolean) => {
+    if (draft && editorDirty) {
+      setCloseAfterDiscard(closeDialog);
+      setDiscardConfirm(true);
+      return;
+    }
+    if (closeDialog) onClose();
+    else back();
+  };
+
+  const discardAndClose = () => {
+    const closeDialog = closeAfterDiscard;
+    setDiscardConfirm(false);
+    setCloseAfterDiscard(false);
+    if (closeDialog) onClose();
+    else back();
+  };
+
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }} title={heading} size={gallery ? "lg" : "wide"}>
-          {error && (
+    <Dialog
+      open
+      onOpenChange={(open) => { if (!open) requestClose(true); }}
+      title={heading}
+      size={draft || gallery ? "lg" : "wide"}
+      footer={draft ? (
+        <AgentEditorFooter
+          dirty={editorDirty}
+          saving={busy}
+          error={error}
+          canSave={draft.name.trim() !== "" && editorDirty && !discardConfirm}
+          saveLabel="Save"
+          cancelLabel={t("common.cancel")}
+          onCancel={() => requestClose(false)}
+          form="agent-editor-form"
+        />
+      ) : undefined}
+    >
+          {error && !draft && (
             <p role="alert" className="mb-3 text-sm text-danger">
               {error}
             </p>
@@ -399,172 +774,254 @@ export function AgentsPanel({
 
           {draft ? (
             <form
-              className="space-y-3"
+              id="agent-editor-form"
+              className="flex min-h-[min(28rem,calc(85dvh-8rem))] flex-col"
               onSubmit={(event) => {
                 event.preventDefault();
                 save();
               }}
             >
-              {draft.id === null && onSetupChat && admin && <AgentSetupEntry agents={agents} engines={engines} onStart={onSetupChat} onCreateLead={() => setRoleChoice({ id: null, value: true })} />}
-              <label className="block text-xs text-muted">
-                Name
-                <input
-                  autoFocus
-                  value={draft.name}
-                  maxLength={80}
-                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                  placeholder="Code reviewer"
-                  className={`${FIELD} mt-1`}
-                />
-              </label>
-              <label className="block text-xs text-muted">
-                Title
-                <input
-                  value={draft.title}
-                  maxLength={200}
-                  onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                  placeholder="Reviews pull requests before merge"
-                  className={`${FIELD} mt-1`}
-                />
-              </label>
-              <label className="block text-xs text-muted">
-                Description
-                <textarea
-                  value={draft.description}
-                  rows={2}
-                  maxLength={4000}
-                  onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                  placeholder="For you: what this agent is for. Not sent to Claude."
-                  className={`${FIELD} mt-1 resize-y`}
-                />
-              </label>
-              <label className="block text-xs text-muted">
-                Instructions
-                <textarea
-                  value={draft.instructions}
-                  rows={5}
-                  onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
-                  placeholder="How this agent should behave. Added to every conversation it starts."
-                  className={`${FIELD} mt-1 resize-y`}
-                />
-              </label>
-              {draft.id === null && (
-                <label className="block text-xs text-muted">
-                  Starter notes
-                  <textarea
-                    value={draft.starter_notes}
-                    rows={3}
-                    onChange={(e) => setDraft({ ...draft, starter_notes: e.target.value })}
-                    placeholder={"- The project uses pnpm\n- Releases go out on Fridays"}
-                    className={`${FIELD} mt-1 resize-y font-mono`}
-                  />
-                  <span className="mt-1 block">The agent&apos;s first notes (MEMORY.md). It keeps them up to date itself.</span>
-                </label>
-              )}
-              {draft.id === null && fromTemplate && fromTemplate.template.skills.length > 0 && (
-                <TemplateSkillChoices
-                  skills={fromTemplate.template.skills}
-                  chosen={fromTemplate.skills}
-                  disabled={busy}
-                  onChange={(skills) => setFromTemplate({ ...fromTemplate, skills })}
-                />
-              )}
-              <EngineModelFields engines={engines} provider={draft.provider} model={draft.model} disabled={busy} hasComputer={agents.some((agent) => agent.id === draft.id && agent.computer != null)} onChange={(provider, model) => setDraft({ ...draft, provider, model })} />
-              <p className="text-xs text-muted">Engine changes apply to new conversations. Existing conversations keep their engine.</p>
-              {admin && <fieldset className="space-y-2 rounded-field border border-line p-3">
-                <legend className="px-1 text-sm font-medium">Team permissions</legend>
-                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isLead} disabled={busy || !team || (!roleSupported && !isLead)} onChange={event => setRoleChoice({ id: draft.id, value: event.target.checked })} />Team lead (Chief of Staff)</label>
-                <p className="text-xs text-muted">Can create and configure specialists, delegate work, and follow up with the agents selected below. Each agent keeps its own approvals. One lead per team; enabling this replaces the current lead.</p>
-                {!team && <p className="text-xs text-warning">Team permissions could not be loaded yet. Reopen Agents to retry.</p>}
-                {!roleSupported && <p className="text-xs text-warning">Choose Claude or Codex to use team tools.</p>}
-                {team?.enabled === false && <p className="text-xs text-warning">Teams are disabled in settings. This role takes effect when Teams are enabled.</p>}
-                {isLead && <div className="space-y-2"><p className="text-xs font-medium">Agents this lead can coordinate</p>{agents.filter(agent => !agent.archived_at && agent.id !== draft.id).map(agent => <label key={agent.id} className="flex items-center gap-2 text-xs"><input type="checkbox" disabled={busy} checked={memberChoices[agent.id] ?? team?.agents.some(member => member.id === agent.id) ?? false} onChange={event => setMemberChoices({ ...memberChoices, [agent.id]: event.target.checked })} />{agent.name}</label>)}<p className="text-xs text-muted">Selection is saved with this agent. Removing the role keeps team membership and existing work.</p></div>}
-              </fieldset>}
-
-              <label className="block text-xs text-muted">
-                Fallback engine when limited
-                <select
-                  aria-label="Fallback engine"
-                  value={draft.fallback_provider && draft.fallback_provider !== draft.provider ? draft.fallback_provider : ""}
-                  disabled={busy}
-                  onChange={(e) => setDraft({ ...draft, fallback_provider: e.target.value || null, fallback_model: null })}
-                  className={`${FIELD} mt-1`}
-                >
-                  <option value="">None</option>
-                  {engines.filter((engine) => engine.id !== draft.provider).map((engine) => (
-                    <option key={engine.id} value={engine.id}>{engine.label}</option>
-                  ))}
-                </select>
-              </label>
-              {draft.fallback_provider && draft.fallback_provider !== draft.provider && (
-                <label className="block text-xs text-muted">
-                  Fallback model
-                  <input
-                    aria-label="Fallback model"
-                    value={draft.fallback_model ?? ""}
-                    onChange={(e) => setDraft({ ...draft, fallback_model: e.target.value || null })}
-                    placeholder="Engine default"
-                    maxLength={200}
-                    className={`${FIELD} mt-1`}
-                  />
-                </label>
-              )}
-              <p className="text-xs text-muted">When the engine refuses a message for a usage or rate limit before starting on it, the message goes to the fallback, if it can do everything the turn needs. The conversation shows the switch.</p>
-              <label className="block text-xs text-muted">
-                Workspace folder
-                <input
-                  value={draft.workspace_path}
-                  onChange={(e) => setDraft({ ...draft, workspace_path: e.target.value })}
-                  placeholder="Leave empty for the agent's own folder"
-                  className={`${FIELD} mt-1 font-mono`}
-                />
-              </label>
-              <fieldset className="text-xs text-muted">
-                <legend>Approvals</legend>
-                <div className="mt-1 flex flex-wrap gap-2">
-                  {APPROVAL_MODES.map((mode) => (
-                    <label
-                      key={mode.value}
-                      className={`cursor-pointer rounded-md border px-3 py-1.5 text-sm ${
-                        draft.approval_mode === mode.value
-                          ? "border-accent bg-inset"
-                          : "border-line"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="approval-mode"
-                        className="sr-only"
-                        checked={draft.approval_mode === mode.value}
-                        onChange={() => setDraft({ ...draft, approval_mode: mode.value })}
-                      />
-                      {mode.label}
-                    </label>
-                  ))}
+              {discardConfirm && (
+                <div role="group" aria-labelledby="discard-agent-title" className="mb-3 flex flex-wrap items-center gap-2 rounded-field border border-warning/50 bg-warning/10 p-3 text-sm">
+                  <p id="discard-agent-title" className="min-w-0 flex-1 font-medium">Discard unsaved changes?</p>
+                  <Button ref={keepEditingRef} type="button" variant="secondary" onClick={() => { setDiscardConfirm(false); setCloseAfterDiscard(false); }}>Keep editing</Button>
+                  <Button type="button" variant="danger" onClick={discardAndClose}>Discard changes</Button>
                 </div>
-                {modeInfo && <p className="mt-2">{modeInfo.description}</p>}
-              </fieldset>
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-muted">
-                <input
-                  type="checkbox"
-                  checked={draft.memory_enabled}
-                  onChange={() => setDraft({ ...draft, memory_enabled: !draft.memory_enabled })}
-                />
-                Use notes: load this agent&apos;s MEMORY.md into each conversation
-              </label>
-              <div className="flex gap-2 pt-1">
-                <button type="submit" disabled={busy || draft.name.trim() === ""} className={PRIMARY}>
-                  {busy ? "Saving…" : "Save"}
-                </button>
-                <button type="button" onClick={back} disabled={busy} className={BUTTON}>
-                  Cancel
-                </button>
-              </div>
+              )}
+              <Tabs
+                value={editorSection}
+                onValueChange={(value) => setEditorSection(value as EditorSection)}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <TabList label="Agent settings sections">
+                  <Tab value="basics">Basics</Tab>
+                  <Tab value="model">Model and approvals</Tab>
+                  {canEditConnectedApps && <Tab value="apps">Connected apps</Tab>}
+                  <Tab value="memory">Memory and notes</Tab>
+                </TabList>
+                <div className="min-h-0 flex-1 overflow-y-auto pb-4 pt-4">
+                  <TabPanel value="basics" className="space-y-3">
+                    {draft.id === null && onSetupChat && admin && (
+                      <SetupEntryDisclosure agents={agents} engines={engines} onStart={onSetupChat} onCreateLead={() => setRoleChoice({ id: null, value: true })} />
+                    )}
+                    <label className="block text-xs text-muted">
+                      Name
+                      <input
+                        autoFocus
+                        value={draft.name}
+                        maxLength={80}
+                        onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                        placeholder="Code reviewer"
+                        className={`${FIELD} mt-1`}
+                      />
+                    </label>
+                    <label className="block text-xs text-muted">
+                      Title
+                      <input
+                        value={draft.title}
+                        maxLength={200}
+                        onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                        placeholder="Reviews pull requests before merge"
+                        className={`${FIELD} mt-1`}
+                      />
+                    </label>
+                    <label className="block text-xs text-muted">
+                      Description
+                      <textarea
+                        value={draft.description}
+                        rows={2}
+                        maxLength={4000}
+                        onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                        placeholder="For you: what this agent is for. Not sent to Claude."
+                        className={`${FIELD} mt-1 resize-y`}
+                      />
+                    </label>
+                    <label className="block text-xs text-muted">
+                      Instructions
+                      <textarea
+                        value={draft.instructions}
+                        rows={5}
+                        onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
+                        placeholder="How this agent should behave. Added to every conversation it starts."
+                        className={`${FIELD} mt-1 resize-y`}
+                      />
+                    </label>
+                    <label className="block text-xs text-muted">
+                      Workspace folder
+                      <input
+                        value={draft.workspace_path}
+                        onChange={(e) => setDraft({ ...draft, workspace_path: e.target.value })}
+                        placeholder="Leave empty for the agent's own folder"
+                        className={`${FIELD} mt-1 font-mono`}
+                      />
+                    </label>
+                    {draft.id === null && fromTemplate && fromTemplate.template.skills.length > 0 && (
+                      <TemplateSkillChoices
+                        skills={fromTemplate.template.skills}
+                        chosen={fromTemplate.skills}
+                        disabled={busy}
+                        onChange={(skills) => setFromTemplate({ ...fromTemplate, skills })}
+                      />
+                    )}
+                  </TabPanel>
+
+                  <TabPanel value="model" className="space-y-4">
+                    <section className="space-y-2">
+                      <h3 className="text-sm font-medium text-ink">Model</h3>
+                      <EngineModelFields engines={engines} provider={draft.provider} model={draft.model} effort={draft.effort} disabled={busy} hasComputer={agents.some((agent) => agent.id === draft.id && agent.computer != null)} onChange={(provider, model, effort) => setDraft({ ...draft, provider, model, effort: effort ?? null, approval_mode: approvalModesForProvider(provider).some((mode) => mode.value === draft.approval_mode) ? draft.approval_mode : "ask" })} />
+                      <p className="text-xs text-muted">Engine changes apply to new conversations. Existing conversations keep their engine.</p>
+                    </section>
+
+                    {admin && <fieldset className="space-y-2 rounded-field border border-line p-3">
+                      <legend className="px-1 text-sm font-medium">{t("agentTeam.teamPermissionsTitle")}</legend>
+                      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isLead} disabled={busy || !team || (!roleSupported && !isLead)} onChange={event => setRoleChoice({ id: draft.id, value: event.target.checked })} />{t("agentTeam.leadRole")}</label>
+                      <p className="text-xs text-muted">{t("agentTeam.leadRoleDescription")}</p>
+                      {!team && <p className="text-xs text-warning">{t("agentTeam.teamPermissionsRetry")}</p>}
+                      {!roleSupported && <p className="text-xs text-warning">{t("agentTeam.teamEngineChoice")}</p>}
+                      {team?.enabled === false && <p className="text-xs text-warning">{t("agentTeam.teamsDisabled")}</p>}
+                      {isLead && <div className="space-y-2"><p className="text-xs font-medium">{t("agentTeam.leadCoordinates")}</p>{agents.filter(agent => !agent.archived_at && agent.id !== draft.id).map(agent => <label key={agent.id} className="flex items-center gap-2 text-xs"><input type="checkbox" disabled={busy} checked={memberChoices[agent.id] ?? team?.agents.some(member => member.id === agent.id) ?? false} onChange={event => setMemberChoices({ ...memberChoices, [agent.id]: event.target.checked })} />{agent.name}</label>)}<p className="text-xs text-muted">{t("agentTeam.memberSelectionSaved")}</p></div>}
+                    </fieldset>}
+
+                    {admin && draft.provider === "claude" && claudeAccounts.length > 0 && (
+                      <label className="block text-xs text-muted">
+                        Claude account
+                        <Select
+                          aria-label="Claude account"
+                          value={draft.claude_account && claudeAccounts.some((a) => a.id === draft.claude_account) ? draft.claude_account : ""}
+                          disabled={busy}
+                          onChange={(e) => setDraft({ ...draft, claude_account: e.target.value || null })}
+                          className={`${FIELD} mt-1`}
+                        >
+                          <option value="">Default account</option>
+                          {claudeAccounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                        </Select>
+                        <span className="mt-1 block">New conversations use this account. Accounts are added and signed in through the API for now.</span>
+                      </label>
+                    )}
+                    <label className="block text-xs text-muted">
+                      Fallback engine when limited
+                      <Select
+                        aria-label="Fallback engine"
+                        value={draft.fallback_provider && draft.fallback_provider !== draft.provider ? draft.fallback_provider : ""}
+                        disabled={busy}
+                        onChange={(e) => setDraft({ ...draft, fallback_provider: e.target.value || null, fallback_model: null })}
+                        className={`${FIELD} mt-1`}
+                      >
+                        <option value="">None</option>
+                        {engines.filter((engine) => engine.id !== draft.provider).map((engine) => (
+                          <option key={engine.id} value={engine.id}>{engine.label}</option>
+                        ))}
+                      </Select>
+                    </label>
+                    {draft.fallback_provider && draft.fallback_provider !== draft.provider && (
+                      <label className="block text-xs text-muted">
+                        Fallback model
+                        <input
+                          aria-label="Fallback model"
+                          value={draft.fallback_model ?? ""}
+                          onChange={(e) => setDraft({ ...draft, fallback_model: e.target.value || null })}
+                          placeholder="Engine default"
+                          maxLength={200}
+                          className={`${FIELD} mt-1`}
+                        />
+                      </label>
+                    )}
+                    <p className="text-xs text-muted">{t("agentTeam.fallbackEngineDescription")}</p>
+                    <fieldset className="space-y-2 text-xs text-muted">
+                      <legend>Approvals</legend>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {availableApprovalModes.map((mode) => (
+                          <label
+                            key={mode.value}
+                            className={`cursor-pointer rounded-md border px-3 py-2 text-sm touch:min-h-11 ${
+                              draft.approval_mode === mode.value
+                                ? "border-accent bg-inset text-ink"
+                                : "border-line"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="approval-mode"
+                                className="peer sr-only"
+                              checked={draft.approval_mode === mode.value}
+                              onChange={() => setDraft({ ...draft, approval_mode: mode.value })}
+                            />
+                              <span className="inline-flex min-h-8 items-center rounded-md peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent touch:min-h-11">{mode.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                      {modeInfo && <p>{modeInfo.description}</p>}
+                    </fieldset>
+                  </TabPanel>
+
+                  {canEditConnectedApps && (
+                    <TabPanel value="apps" className="space-y-3">
+                      <ConnectedAppsSection
+                        appAccounts={appAccounts}
+                        connectorScopes={draft.connector_scopes}
+                        connectorAccountScopes={draft.connector_account_scopes}
+                        connectorShares={draft.connector_shares}
+                        busy={busy}
+                        onScopesChange={(connector_scopes) => setDraft({ ...draft, connector_scopes })}
+                        onAccountScopesChange={(connector_account_scopes) => setDraft({ ...draft, connector_account_scopes })}
+                        onSharesChange={(connector_shares) => setDraft({ ...draft, connector_shares })}
+                      />
+                      <ShadowResultsPanel
+                        agentId={draft.id}
+                        connectorScopes={draft.connector_scopes}
+                        onSharesChanged={(connector_shares) => {
+                          // An accepted suggestion is already saved: keep the editor's copies in step so saving it does not undo the change.
+                          setDraft((current) => current ? { ...current, connector_shares } : current);
+                          setOriginalDraft((current) => current ? { ...current, connector_shares } : current);
+                        }}
+                      />
+                      <WorkerLabelsPanel agentId={draft.id} connectorScopes={draft.connector_scopes} />
+                      <HistoryLearningPanel agentId={draft.id} connectorScopes={draft.connector_scopes} />
+                      <LessonsPanel agentId={draft.id} connectorScopes={draft.connector_scopes} />
+                    </TabPanel>
+                  )}
+
+                  <TabPanel value="memory" className="space-y-3">
+                    {draft.id === null && (
+                      <label className="block text-xs text-muted">
+                        Starter notes
+                        <textarea
+                          value={draft.starter_notes}
+                          rows={5}
+                          onChange={(e) => setDraft({ ...draft, starter_notes: e.target.value })}
+                          placeholder={"- The project uses pnpm\n- Releases go out on Fridays"}
+                          className={`${FIELD} mt-1 resize-y font-mono`}
+                        />
+                        <span className="mt-1 block">{t("agentTeam.firstNotesHelp")}</span>
+                      </label>
+                    )}
+                    <label className="flex cursor-pointer items-center gap-2 rounded-md border border-line p-3 text-sm text-ink touch:min-h-11">
+                      <input
+                        type="checkbox"
+                        checked={draft.memory_enabled}
+                        disabled={busy}
+                        onChange={() => setDraft({ ...draft, memory_enabled: !draft.memory_enabled })}
+                      />
+                      Use notes: load this agent&apos;s MEMORY.md into each conversation
+                    </label>
+                  </TabPanel>
+                </div>
+              </Tabs>
             </form>
           ) : gallery ? (
             <div className="space-y-3">
-              <TemplatesGallery onAdd={addTemplate} />
-              <button type="button" onClick={back} className={BUTTON}>
+              {hireSeveral ? (
+                <ChooseTeam skipLabel="Skip · back to templates" onSkip={() => setHireSeveral(false)} onHired={onChanged} onUndone={onChanged} />
+              ) : (
+                <>
+                  <button type="button" onClick={() => setHireSeveral(true)} className={BUTTON}>
+                    Hire several
+                  </button>
+                  {hireNote && <p role="status" className="text-xs text-muted">{hireNote}</p>}
+                  <TemplatesGallery onAdd={addTemplate} onHire={(template) => void hireOne(template)} />
+                </>
+              )}
+              <button type="button" onClick={() => { setHireSeveral(false); back(); }} className={BUTTON}>
                 Back to agents
               </button>
             </div>
@@ -576,6 +1033,20 @@ export function AgentsPanel({
                 engineSupportsComputers={engines.find((engine) => engine.id === computerOf.provider)?.capabilities.computers}
                 engineLabel={engines.find((engine) => engine.id === computerOf.provider)?.label ?? computerOf.provider}
               />
+              <button onClick={back} className={BUTTON}>
+                Back
+              </button>
+            </div>
+          ) : historyOf ? (
+            <div className="space-y-3">
+              <AgentHistory key={historyOf.id} agent={historyOf} onRestored={onChanged} />
+              <button onClick={back} className={BUTTON}>
+                Back
+              </button>
+            </div>
+          ) : pictureOf ? (
+            <div className="space-y-3">
+              <AgentImageGenerator key={pictureOf.id} agent={pictureOf} onChanged={() => setPictureTick((n) => n + 1)} />
               <button onClick={back} className={BUTTON}>
                 Back
               </button>
@@ -628,12 +1099,223 @@ export function AgentsPanel({
                 </button>
               </div>
             </div>
+          ) : migration ? (
+            <div className="space-y-3 text-sm">
+              {migration.source === null ? (
+                <>
+                  <p>Choose a source for the instructions and profile details you want to bring in.</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setMigration({ ...migration, source: "grok" })} className={BUTTON}>Grok Bot export</button>
+                    <button type="button" onClick={() => setMigration({ ...migration, source: "hermes" })} className={BUTTON}>Hermes Agent export</button>
+                    <button
+                      type="button"
+                      onClick={() => { setOpenBotDatabase(null); setMigration({ ...migration, source: "openbot" }); }}
+                      disabled={!canReadOpenBotDatabase}
+                      className={BUTTON}
+                      title={canReadOpenBotDatabase ? undefined : "Available only when connected to a local backend."}
+                    >
+                      OpenBot database{canReadOpenBotDatabase ? "" : " · local app only"}
+                    </button>
+                    <button type="button" onClick={() => setMigration({ ...migration, source: "other" })} className={BUTTON}>Another agent JSON</button>
+                  </div>
+                  <button type="button" onClick={back} className={BUTTON}>Cancel</button>
+                </>
+              ) : migration.source === "openbot" ? (
+                <>
+                  <input
+                    ref={openBotDatabaseInput}
+                    type="file"
+                    accept=".db,.sqlite,.sqlite3,application/vnd.sqlite3"
+                    className="hidden"
+                    aria-label="Choose OpenBot database"
+                    onChange={(event) => previewOpenBotDatabase(event.target.files?.[0])}
+                  />
+                  <p>
+                    Choose the OpenBot <code>openbot.db</code> file. Close OpenBot first so its latest changes are saved.
+                    The read-only file can be up to 128 MB and must use a supported schema version.
+                  </p>
+                  <p className="text-xs text-muted">
+                    The file is sent only to the local Suparagent backend for preview and discarded afterward. Only
+                    agent names, titles and role text are returned; memories, skills, routines, connections, messages,
+                    credentials, tools and other settings are not imported. This option is unavailable on hosted accounts.
+                  </p>
+                  {!openBotDatabase ? (
+                    <button
+                      type="button"
+                      onClick={() => openBotDatabaseInput.current?.click()}
+                      disabled={busy}
+                      className={PRIMARY}
+                    >
+                      {busy ? "Reading…" : "Choose openbot.db"}
+                    </button>
+                  ) : (
+                    <>
+                      <p className="text-xs text-muted">Found {openBotDatabase.profiles.length} agent{openBotDatabase.profiles.length === 1 ? "" : "s"} in schema version {openBotDatabase.schema_version}. Choose one to review; import the others one at a time.</p>
+                      <div className="max-h-64 space-y-2 overflow-auto rounded-md border border-line p-2">
+                        {openBotDatabase.profiles.map((profile) => (
+                          <button
+                            key={profile.key}
+                            type="button"
+                            onClick={() => reviewOpenBotDatabaseProfile(profile)}
+                            className="block w-full rounded-md px-3 py-2 text-left hover:bg-hover"
+                          >
+                            <span className="block font-medium">{profile.name}</span>
+                            {profile.title && <span className="block text-xs text-muted">{profile.title}</span>}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenBotDatabase(null); openBotDatabaseInput.current?.click(); }}
+                        disabled={busy}
+                        className={BUTTON}
+                      >
+                        Choose another file
+                      </button>
+                    </>
+                  )}
+                  <button type="button" onClick={back} disabled={busy} className={BUTTON}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <p>
+                    {migration.source === "grok"
+                      ? canReadLocalBackend ? "Copy the bundle prompt into Grok Bot, then paste its versioned manifest for roster preview." : "Copy the basic single-profile prompt into Grok Bot, then paste its JSON reply below."
+                      : migration.source === "hermes"
+                        ? canReadLocalBackend ? "Copy the bundle prompt into Hermes Agent, then paste its versioned manifest for roster preview." : "Copy the basic single-profile prompt into Hermes Agent, then paste its JSON reply below."
+                        : "Paste one native agent JSON export. We will read its name, title, description and instructions."}
+                  </p>
+                  {migration.source === "grok" || migration.source === "hermes" ? (
+                    <details className="rounded-md border border-line p-3">
+                      <summary className="cursor-pointer font-medium">Export prompt</summary>
+                      <div className="mt-2 space-y-2">
+                        <textarea readOnly aria-label={`${migration.source} export prompt`} value={migration.source === "hermes" ? canReadLocalBackend ? HERMES_AGENT_EXPORT_PROMPT : HERMES_AGENT_BASIC_EXPORT_PROMPT : canReadLocalBackend ? GROK_AGENT_EXPORT_PROMPT : GROK_AGENT_BASIC_EXPORT_PROMPT} rows={9} className={`${FIELD} font-mono text-xs`} />
+                        <button type="button" onClick={copyMigrationPrompt} className={BUTTON}>{migration.copied ? "Copied" : "Copy prompt"}</button>
+                      </div>
+                    </details>
+                  ) : migration.source === "other" ? (
+                    <div className="rounded-md border border-line p-3 text-xs text-muted">Expected fields: name, title, description and instructions. Other settings are ignored.</div>
+                  ) : null}
+                  {migration.source === "grok" || migration.source === "hermes" ? (
+                    <>
+                      <input ref={migrationFileInput} type="file" accept=".json,.zip,application/json,application/zip" className="hidden" aria-label="Choose migration manifest file" onChange={(event) => previewAgentMigrationFile(event.target.files?.[0])} />
+                      <div className="rounded-md border border-line p-3">
+                        <p className="text-xs text-muted">On the local app, pasted JSON and JSON/ZIP files are previewed as a full roster. Hosted accounts use the basic single-profile paste fallback. File content is sent only to this device&apos;s Suparagent backend.</p>
+                        <button type="button" onClick={() => migrationFileInput.current?.click()} disabled={!canReadLocalBackend || busy} title={!canReadLocalBackend ? "Available only in the local app." : undefined} className={`${BUTTON} mt-2`}>
+                          Choose manifest file{canReadLocalBackend ? "" : " · local app only"}
+                        </button>
+                        {!canReadLocalBackend && <p className="mt-1 text-xs text-muted">File import is unavailable for hosted accounts. Paste the source response below instead.</p>}
+                      </div>
+                      {migrationFilePreview && (
+                        <div className="space-y-2 rounded-md border border-line p-3">
+                          <p className="font-medium">{migrationFilePreview.profiles.length} profile{migrationFilePreview.profiles.length === 1 ? "" : "s"} found · {migrationFilePreview.source}</p>
+                          {migrationFilePreview.skipped.length > 0 && <p className="text-xs text-muted">Skipped from manifest: {migrationFilePreview.skipped.join(", ")}</p>}
+                          <div className="max-h-56 space-y-1 overflow-auto">
+                            {migrationFilePreview.profiles.map((profile) => (
+                              <div key={profile.key} className="rounded-md px-3 py-2 hover:bg-hover">
+                                <p className="font-medium">{profile.name}{profile.title ? ` · ${profile.title}` : ""}</p>
+                                <p className="mt-1 text-xs text-muted">Included: {["name", "title", "description", "instructions", ...(profile.document.notes ? ["notes"] : []), ...(Array.isArray(profile.document.skills) && profile.document.skills.length ? ["text-only skills"] : [])].filter((field) => field === "name" ? Boolean(profile.name) : field === "title" ? Boolean(profile.title) : field === "notes" || field === "text-only skills" ? true : Boolean((profile.document.agent as Record<string, unknown> | undefined)?.[field])).join(", ") || "None"}</p>
+                                <p className="mt-1 text-xs text-muted">Skipped: {profile.skipped.length ? profile.skipped.join(", ") : "None"}</p>
+                                <p className="mt-1 text-xs text-muted">Redacted: {profile.redacted.length ? profile.redacted.join(", ") : "None"}</p>
+                                <button type="button" onClick={() => reviewMigrationFileProfile(profile)} className={`${BUTTON} mt-2`}>Review profile</button>
+                              </div>
+                            ))}
+                          </div>
+                          <button type="button" onClick={() => { setMigrationFilePreview(null); migrationFileInput.current?.click(); }} disabled={busy || !canReadLocalBackend} className={BUTTON}>Choose another file</button>
+                        </div>
+                      )}
+                    </>
+                  ) : null}
+                  <label className="block space-y-1">
+                    <span className="text-xs font-medium">{migration.source === "grok" || migration.source === "hermes" ? canReadLocalBackend ? "Paste versioned manifest" : "Paste basic agent JSON" : "Paste JSON export"}</span>
+                    <textarea
+                      aria-label="Paste agent setup JSON"
+                      value={migration.text}
+                      onChange={(event) => setMigration({ ...migration, text: event.target.value, copied: false })}
+                      rows={9}
+                      className={`${FIELD} font-mono text-xs`}
+                      placeholder={migration.source === "grok" || migration.source === "hermes" ? canReadLocalBackend ? '{"format":"suparagent.agent-migration","version":1,"source":"grok","agents":[...]}' : '{"name":"Research assistant","instructions":"..."}' : '{"name":"Research assistant","instructions":"..."}'}
+                    />
+                  </label>
+                  <p className="text-xs text-muted">
+                    On hosted accounts, paste creates one basic profile from name, title, description and instructions.
+                    Local manifest preview can include notes and text-only skills. Credentials, connections, routines,
+                    executable skills, files and conversation history are excluded.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={previewMigration}
+                      disabled={!migration.text.trim() || busy}
+                      className={PRIMARY}
+                    >
+                      {busy ? "Previewing…" : canReadLocalBackend && (migration.source === "grok" || migration.source === "hermes") ? "Preview manifest roster" : "Review import"}
+                    </button>
+                    <button type="button" onClick={back} disabled={busy} className={BUTTON}>Cancel</button>
+                  </div>
+                </>
+              )}
+            </div>
           ) : importing ? (
             <div className="space-y-3 text-sm">
-              <p>
-                Add <span className="font-medium">{importing.name}</span> as a new agent. It starts on &quot;Ask first&quot;
-                with the default model and its own folder; a name already in use gets a number.
-              </p>
+              {importing.migration ? (
+                <>
+                  <div className="rounded-md border border-line p-3">
+                    <p className="font-medium">Source: {importing.migration.sourceLabel}</p>
+                    {importing.migration.mappingNotice && (
+                      <p className="mt-1 text-xs text-muted">{importing.migration.mappingNotice}</p>
+                    )}
+                    <p className="mt-1 text-xs text-muted">
+                      The following fields will be copied to a new agent. It starts on &quot;Ask first&quot; with the
+                      default model and its own folder.
+                    </p>
+                    <dl className="mt-3 space-y-2">
+                      <div>
+                        <dt className="text-xs font-medium text-muted">Name</dt>
+                        <dd className="break-words">{importing.migration.name}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-medium text-muted">Title</dt>
+                        <dd className="break-words">{importing.migration.title || "Not provided"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-medium text-muted">Description</dt>
+                        <dd className="max-h-20 overflow-auto whitespace-pre-wrap break-words">
+                          {importing.migration.description || "Not provided"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs font-medium text-muted">Instructions</dt>
+                        <dd>
+                          <details className="mt-1">
+                            <summary className="cursor-pointer">Review full instructions</summary>
+                            <div className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded border border-line p-2 text-xs">
+                              {importing.migration.instructions}
+                            </div>
+                          </details>
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                  <p className="text-xs text-muted">
+                    {importing.migration
+                      ? "Only the reviewed profile fields and optional notes or text-only skills can be copied. Schedules, tools, files, avatars, conversations and full workspace state are not imported."
+                      : "Skills, routines, connected apps, credentials, memories, tools, files and chat history are not transferred. Configure those separately after reviewing the agent."}
+                  </p>
+                  {importing.migrationFileProfile && (
+                    <div className="rounded-md border border-line p-3 text-xs">
+                      <p className="font-medium">Preview details</p>
+                      <p className="mt-1">Skipped: {importing.migrationFileProfile.skipped.length ? importing.migrationFileProfile.skipped.join(", ") : "None reported"}</p>
+                      <p className="mt-1">Redacted: {importing.migrationFileProfile.redacted.length ? importing.migrationFileProfile.redacted.join(", ") : "None reported"}</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p>
+                  Add <span className="font-medium">{importing.name}</span> as a new agent. It starts on &quot;Ask first&quot;
+                  with the default model and its own folder; a name already in use gets a number.
+                </p>
+              )}
               {importing.hasNotes && (
                 <label className="flex cursor-pointer items-center gap-2 text-xs text-muted">
                   <input
@@ -641,12 +1323,18 @@ export function AgentsPanel({
                     checked={importing.includeNotes}
                     onChange={() => setImporting({ ...importing, includeNotes: !importing.includeNotes })}
                   />
-                  Keep the file&apos;s starter notes
+                  Include notes as starter notes
+                </label>
+              )}
+              {importing.hasSkills && (
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-muted">
+                  <input type="checkbox" checked={importing.includeSkills} onChange={() => setImporting({ ...importing, includeSkills: !importing.includeSkills })} />
+                  Include text-only skills; imported skills start disabled
                 </label>
               )}
               <div className="flex gap-2">
                 <button
-                  onClick={() => run(() => api.importAgent(importing.document, importing.includeNotes), back)}
+                  onClick={() => run(() => api.importAgent(importing.document, importing.includeNotes, importing.includeSkills), back)}
                   disabled={busy}
                   className={PRIMARY}
                 >
@@ -659,101 +1347,120 @@ export function AgentsPanel({
             </div>
           ) : (
             <>
+              <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <div className="flex shrink-0 items-center gap-3">
+                  <Button variant="primary" onClick={() => openDraft({ ...EMPTY })}>
+                    {t("sidebar.newAgent")}
+                  </Button>
+                  {onSetupChat && admin && (
+                    <SetupEntryDisclosure agents={agents} engines={engines} onStart={onSetupChat} onCreateLead={() => { openDraft({ ...EMPTY }); setRoleChoice({ id: null, value: true }); }} />
+                  )}
+                </div>
+                {searchEnabled && (
+                  <label className="min-w-[12rem] flex-1">
+                    <span className="sr-only">Search agents</span>
+                    <input
+                      type="search"
+                      aria-label="Search agents"
+                      value={agentFilter}
+                      onChange={(event) => setAgentFilter(event.target.value)}
+                      placeholder="Search agents"
+                      className={`${FIELD} h-9 py-1.5`}
+                    />
+                  </label>
+                )}
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  <Button onClick={() => setGallery(true)}>Templates…</Button>
+                  <Button onClick={() => { setError(null); setOpenBotDatabase(null); setMigration({ source: null, text: "", copied: false }); }}>
+                    Migrate…
+                  </Button>
+                  <Button onClick={() => fileInput.current?.click()}>Import…</Button>
+                  <label className="flex min-h-9 cursor-pointer items-center gap-2 px-1 text-xs text-muted touch:min-h-11">
+                    <input type="checkbox" checked={showArchived} onChange={() => setShowArchived((on) => !on)} />
+                    {t("sidebar.showArchived")}
+                  </label>
+                </div>
+              </div>
               {visible.length === 0 ? (
                 <p className="text-sm text-muted">
                   No agents yet. An agent keeps its own instructions, model, workspace, approval mode and notes.
                 </p>
+              ) : filteredAgents.length === 0 ? (
+                <p className="text-sm text-muted">No agents match that search.</p>
               ) : (
-                <ul className="space-y-2">
-                  {visible.map((agent) => {
+                <>
+                {unavailableEngines.length > 0 && (
+                  <div role="status" aria-label="AI connection status" className="mb-2 flex min-w-0 items-center gap-2 rounded-field border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+                    <p className="min-w-0 flex-1 truncate" title={unavailableEngines.map((engine) => `${engine.label}: ${engine.signed_in === false ? "not signed in" : engine.reason ?? "unavailable"}`).join(" · ")}>
+                      Connect an AI: {unavailableEngines.map((engine) => `${engine.label} ${engine.signed_in === false ? "is not signed in" : engine.reason ?? "is unavailable"}`).join(" · ")}
+                    </p>
+                    <Link href="/settings/engines/" className="shrink-0 font-medium underline underline-offset-2">Engine settings</Link>
+                  </div>
+                )}
+                <ul className="space-y-1">
+                  {filteredAgents.map((agent) => {
                     const archived = agent.archived_at !== null;
+                    const engine = engines.find((candidate) => candidate.id === agent.provider);
+                    const description = agent.description?.trim() || (agent.title?.trim() ? "" : agent.instructions?.trim() || "No description yet.");
                     return (
-                      <li key={agent.id} className="rounded-md border border-line p-3">
-                        <p className="truncate text-sm font-medium">
-                          {agent.name}
-                          {agent.pinned && <span className="ml-2 rounded bg-hover px-1.5 text-xs font-normal">pinned</span>}
-                          {agent.title && <span className="ml-2 text-xs font-normal text-muted">{agent.title}</span>}
-                          {archived && <span className="ml-2 text-xs font-normal text-muted">archived</span>}
-                        </p>
-                        <p className="text-xs text-muted">
-                          {engines.find((engine) => engine.id === agent.provider)?.label ?? agent.provider} · {modelLabel(agent.model)} · {approvalModeLabel(agent.approval_mode)}
-                          {agent.memory_enabled === false && " · notes off"}
-                          {agent.memory_enabled !== false && agent.recall_enabled === false && " · recall off"}
-                          {agent.computer && ` · computer: ${computerStateLabel(agent.computer.state).toLowerCase()}`}
-                        </p>
-                        {agent.instructions && (
-                          <p className="mt-1 line-clamp-2 text-xs text-muted">{agent.instructions}</p>
-                        )}
-                        {engines.find((engine) => engine.id === agent.provider)?.available === false && <p className="mt-1 text-xs text-warning">Connect an AI: {engines.find((engine) => engine.id === agent.provider)?.reason} <a href="/settings/" className="underline">Open engine settings</a></p>}
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          <button onClick={() => { setDraft(toDraft(agent)); setRoleChoice(null); setMemberChoices({}); }} disabled={busy} className={SMALL}>
-                            Edit
-                          </button>
-                          <button onClick={() => openNotes(agent)} disabled={busy} className={SMALL}>
-                            Notes
-                          </button>
-                          <button onClick={() => setSkillsOf(agent)} disabled={busy} className={SMALL}>
-                            Skills
-                          </button>
-                          {!archived && (
-                            <button onClick={() => setComputerOf(agent)} disabled={busy} className={SMALL}>
-                              Computer
-                            </button>
-                          )}
-                          {!archived && (
-                            <button onClick={() => run(() => api.duplicateAgent(agent.id))} disabled={busy} className={SMALL}>
-                              Duplicate
-                            </button>
-                          )}
-                          {!archived && (
-                            <button
-                              onClick={() => run(() => api.updateAgent(agent.id, { pinned: !agent.pinned }))}
-                              disabled={busy}
-                              className={SMALL}
+                      <li key={agent.id} className="rounded-card border border-line bg-raised px-2.5 py-1.5">
+                        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                          <div className="flex min-w-0 flex-1 items-start gap-3">
+                            <AgentImage agentId={agent.id} name={agent.name} size="md" tick={pictureTick} />
+                            <div className="min-w-0 flex-1 space-y-0">
+                              <div className="flex min-w-0 flex-wrap items-center gap-1.5 leading-4">
+                                <p className="min-w-0 truncate text-sm font-semibold text-ink">{agent.name}</p>
+                                {agent.title?.trim() && <span className="min-w-0 max-w-[12rem] truncate rounded-full border border-line px-1.5 py-0.5 text-[11px] font-medium text-muted" title={agent.title}>{agent.title}</span>}
+                                {agent.pinned && <Badge tone="accent">Pinned</Badge>}
+                                {archived && <Badge>Archived</Badge>}
+                                {engine?.available === false && <span role="img" className="inline-block size-2 shrink-0 rounded-full bg-warning" title={engine.reason ?? `${engine.label} is not available`} aria-label={`${engine.label} is not available`} />}
+                              </div>
+                              {description && <p className="truncate text-xs leading-4 text-muted" title={description}>{description}</p>}
+                              <div className="flex min-w-0 flex-wrap gap-1" role="group" aria-label="Agent configuration">
+                                <Badge className="max-w-full truncate !px-1.5 !py-0 text-[10px]">{engine?.label ?? agent.provider}</Badge>
+                                <Badge className="max-w-full truncate !px-1.5 !py-0 text-[10px]">{modelLabel(agent.model)}</Badge>
+                                <Badge className="max-w-full truncate !px-1.5 !py-0 text-[10px]">{approvalModeLabel(agent.approval_mode)}</Badge>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 flex-wrap items-center gap-1" role="group" aria-label={`Actions for ${agent.name}`}>
+                            <Button size="sm" variant="secondary" onClick={() => openDraft(toDraft(agent))} disabled={busy}>Edit</Button>
+                            <Button size="sm" variant="ghost" onClick={() => openNotes(agent)} disabled={busy}>Notes</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setSkillsOf(agent)} disabled={busy}>Skills</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setHistoryOf(agent)} disabled={busy}>History</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setPictureOf(agent)} disabled={busy}>Picture</Button>
+                            {!archived && <Button size="sm" variant="ghost" onClick={() => setComputerOf(agent)} disabled={busy}>Computer</Button>}
+                            <Menu
+                              align="start"
+                              trigger={<IconButton label={`More actions for ${agent.name}`} disabled={busy}><Ellipsis size={18} aria-hidden="true" /></IconButton>}
                             >
-                              {agent.pinned ? "Unpin" : "Pin"}
-                            </button>
-                          )}
-                          <button
-                            onClick={() => setExporting({ agent, includeNotes: false, notice: null })}
-                            disabled={busy}
-                            className={SMALL}
-                          >
-                            Export
-                          </button>
-                          <button
-                            onClick={() => run(() => api.updateAgent(agent.id, { archived: !archived }))}
-                            disabled={busy}
-                            className={SMALL}
-                          >
-                            {archived ? "Restore" : "Archive"}
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirm(agent)}
-                            disabled={busy}
-                            className={`${SMALL} text-danger`}
-                          >
-                            Delete
-                          </button>
+                              {!archived && <MenuItem onSelect={() => run(() => api.duplicateAgent(agent.id))}>Duplicate</MenuItem>}
+                              {!archived && <MenuItem onSelect={() => run(() => api.updateAgent(agent.id, { pinned: !agent.pinned }))}>{agent.pinned ? "Unpin" : "Pin"}</MenuItem>}
+                              <MenuItem onSelect={() => setExporting({ agent, includeNotes: false, notice: null })}>Export</MenuItem>
+                              <MenuItem onSelect={() => run(() => api.updateAgent(agent.id, { archived: !archived }))}>{archived ? "Restore" : "Archive"}</MenuItem>
+                              <MenuSeparator />
+                              <MenuItem onSelect={() => setDeleteConfirm(agent)} danger>Delete</MenuItem>
+                            </Menu>
+                          </div>
                         </div>
                         {deleteConfirm?.id === agent.id && (
-                          <div role="alert" className="mt-3 rounded-md border border-danger/50 p-3 text-xs">
+                          <div ref={deleteConfirmationRef} role="alert" className="mt-3 rounded-md border border-danger/50 p-3 pb-4 text-xs">
                             <p className="font-medium">Delete {agent.name} permanently?</p>
                             <p className="mt-1 text-muted">
                               This removes the agent, its notes and skills, and its computer. Its conversations stay in history
                               but become unlinked and continue without this agent&apos;s instructions. Its workspace folder stays;
-                              routines assigned to it will fail and pause. This cannot be undone.
+                              routines assigned to it will be safely turned off. This cannot be undone.
                             </p>
                             <div className="mt-2 flex flex-wrap gap-2">
+                              <button ref={keepAgentRef} onClick={() => setDeleteConfirm(null)} disabled={busy} className={SMALL}>
+                                Keep agent
+                              </button>
                               <button
                                 onClick={() => run(() => api.deleteAgent(agent.id), () => setDeleteConfirm(null))}
                                 disabled={busy}
                                 className={`${SMALL} border-danger/50 text-danger`}
                               >
                                 {busy ? "Deleting…" : "Delete permanently"}
-                              </button>
-                              <button onClick={() => setDeleteConfirm(null)} disabled={busy} className={SMALL}>
-                                Keep agent
                               </button>
                             </div>
                           </div>
@@ -762,31 +1469,16 @@ export function AgentsPanel({
                     );
                   })}
                 </ul>
+                </>
               )}
-              {onSetupChat && admin && <div className="mt-4"><AgentSetupEntry agents={agents} engines={engines} onStart={onSetupChat} onCreateLead={() => { setDraft(EMPTY); setRoleChoice({ id: null, value: true }); }} /></div>}
-              <div className="mt-4 flex flex-wrap items-center gap-3">
-                <button onClick={() => setDraft(EMPTY)} className={PRIMARY}>
-                  New agent
-                </button>
-                <button onClick={() => setGallery(true)} className={BUTTON}>
-                  Templates…
-                </button>
-                <button onClick={() => fileInput.current?.click()} className={BUTTON}>
-                  Import…
-                </button>
-                <input
-                  ref={fileInput}
-                  type="file"
-                  accept=".json,application/json"
-                  className="hidden"
-                  aria-label="Agent file to import"
-                  onChange={(e) => pickImport(e.target.files?.[0])}
-                />
-                <label className="flex cursor-pointer items-center gap-2 text-xs text-muted">
-                  <input type="checkbox" checked={showArchived} onChange={() => setShowArchived((on) => !on)} />
-                  Show archived
-                </label>
-              </div>
+              <input
+                ref={fileInput}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                aria-label="Agent file to import"
+                onChange={(e) => pickImport(e.target.files?.[0])}
+              />
             </>
           )}
     </Dialog>
@@ -818,6 +1510,7 @@ function NotesEditor({
   onReload: () => void;
   onBack: () => void;
 }) {
+  const t = useT();
   const { memory } = notes;
   if (!memory) return <p className="text-sm text-muted">Loading notes…</p>;
   const gauge = memoryGauge(memory);
@@ -847,7 +1540,7 @@ function NotesEditor({
       />
       {notes.conflict && (
         <div role="alert" className="rounded-md border border-warning/60 p-3 text-xs">
-          <p>The agent changed these notes while you were editing. Load its version, or keep yours and overwrite it.</p>
+          <p>{t("agentTeam.agentNotesConflict")}</p>
           <div className="mt-2 flex gap-2">
             <button onClick={onLoadTheirs} disabled={busy} className={SMALL}>
               Load its version

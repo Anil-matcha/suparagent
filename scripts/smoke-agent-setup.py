@@ -18,7 +18,7 @@ spec.loader.exec_module(module)
 
 
 def main():
-    with tempfile.TemporaryDirectory(prefix='open-dots-agent-ui-') as folder:
+    with tempfile.TemporaryDirectory(prefix='suparagent-agent-ui-') as folder:
         root = Path(folder)
         backend = module.ServerBackend(root / 'server', ROOT / 'frontend/out')
         owner = None

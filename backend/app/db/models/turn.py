@@ -77,3 +77,7 @@ class Turn(Base):
     # Who started the turn: person, routine, outside (a webhook), or peer (another
     # agent). Null for turns from before this was recorded.
     origin: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Which signed-in member sent it, if any. The name is kept as it was then, so history
+    # still reads right after the person is renamed or removed.
+    person_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    person_label: Mapped[str | None] = mapped_column(String, nullable=True)

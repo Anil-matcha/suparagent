@@ -30,7 +30,7 @@ async def test_a_topic_note_is_created_listed_read_and_deleted(api):
     assert saved.json()["redacted"] == 1 and "abcdef123456" not in saved.json()["text"]
     listed = (await api.get(f"/api/v1/agents/{agent['id']}/memory/topics")).json()
     assert [(t["name"], t["title"]) for t in listed["topics"]] == [("travel.md", "Trips")]
-    assert listed["max_topics"] == memory_topics.MAX_TOPICS and listed["folder"].endswith("/memory")
+    assert listed["max_topics"] == memory_topics.MAX_TOPICS and listed["folder"].replace("\\", "/").endswith("/memory")
     assert (await api.delete(topic_url(agent))).status_code == 204
     assert (await api.delete(topic_url(agent))).status_code == 404
 

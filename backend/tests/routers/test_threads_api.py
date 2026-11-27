@@ -104,6 +104,7 @@ ROUTES = [
     ("PATCH", "/api/v1/threads/1", {"title": "renamed"}),
     ("DELETE", "/api/v1/threads/1", None),
     ("POST", "/api/v1/threads/1/stop", None),
+    ("POST", "/api/v1/threads/1/branch", {"turn_id": 1, "prompt_text": "hi"}),
 ]
 
 
@@ -228,6 +229,33 @@ async def test_a_second_message_continues_the_same_session(api, cli):
         await wait_for_terminals(api, thread["id"], 1 if prompt == "first" else 2)
     assert [mode for mode, _ in cli.launches()] == ["new", "resume"]
     assert len({sid for _, sid in cli.launches()}) == 1
+
+
+async def test_a_past_message_can_be_edited_into_a_branch(api, cli):
+    thread = await create(api)
+    cli.script({"type": "chat", "text": "one"}, {"type": "chat", "text": "two"}, {"type": "chat", "text": "three"})
+    for n, prompt in enumerate(("first", "second"), start=1):
+        assert (await api.post(f"/api/v1/threads/{thread['id']}/turns", json={"prompt_text": prompt})).status_code == 202
+        await wait_for_terminals(api, thread["id"], n)
+    detail = (await api.get(f"/api/v1/threads/{thread['id']}")).json()
+    second = detail["turns"][1]["id"]
+
+    branched = await api.post(
+        f"/api/v1/threads/{thread['id']}/branch", json={"turn_id": second, "prompt_text": "second, reworded"}
+    )
+    assert branched.status_code == 201, branched.text
+    branch = branched.json()
+    assert branch["id"] != thread["id"] and branch["branched_from_thread_id"] == thread["id"]
+    await wait_for_terminals(api, branch["id"], 2)
+    prompts = [t["prompt_text"] for t in (await api.get(f"/api/v1/threads/{branch['id']}")).json()["turns"]]
+    assert prompts == ["first", "second, reworded"]
+    # The original is untouched.
+    original = (await api.get(f"/api/v1/threads/{thread['id']}")).json()
+    assert [t["prompt_text"] for t in original["turns"]] == ["first", "second"]
+    assert original["branched_from_thread_id"] is None
+
+    missing = await api.post(f"/api/v1/threads/{thread['id']}/branch", json={"turn_id": 10**9, "prompt_text": "x"})
+    assert missing.status_code == 404
 
 
 async def test_a_blank_or_oversized_message_is_a_422_and_starts_nothing(api, sessions):
@@ -498,6 +526,21 @@ async def test_rename_sets_the_title_and_trims_it(api):
     assert response.status_code == 200
     assert response.json()["title"] == "A better name"
     assert (await api.get(f"/api/v1/threads/{thread['id']}")).json()["title"] == "A better name"
+
+
+async def test_reasoning_effort_can_be_changed_and_cleared(api):
+    thread = await create(api, model="sonnet", effort="medium")
+
+    changed = await api.patch(f"/api/v1/threads/{thread['id']}", json={"effort": "high"})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["model"] == "sonnet" and changed.json()["effort"] == "high"
+
+    cleared = await api.patch(
+        f"/api/v1/threads/{thread['id']}", json={"model": "sonnet", "effort": None}
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["effort"] is None
+    assert (await api.get(f"/api/v1/threads/{thread['id']}")).json()["effort"] is None
 
 
 @pytest.mark.parametrize("body", [{}, {"title": "   "}, {"title": ""}, {"title": "x" * 201}, {"archived": "maybe"}])

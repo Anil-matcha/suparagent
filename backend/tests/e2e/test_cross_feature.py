@@ -61,7 +61,7 @@ def pending(client, thread_id: int) -> dict | None:
 def test_a_routine_on_an_agent_with_a_computer_waits_for_an_approval_under_sign_in(backends, tmp_path):
     docker = FakeDocker(tmp_path / "fake-docker")
     docker.add_image()
-    b = make(backends, tmp_path / "b", env={"OPEN_DOTS_DOCKER": str(docker.path)}).start()
+    b = make(backends, tmp_path / "b", env={"SUPARAGENT_DOCKER": str(docker.path)}).start()
     owner = Owner(b)
     try:
         # Signed out, nothing but the public routes answers.

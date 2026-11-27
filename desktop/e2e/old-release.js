@@ -9,7 +9,7 @@
 // `tar` and `uv` on PATH. The page is not rebuilt: the old release is only run as a
 // window and a backend, so the current build of the page is copied in as its page.
 //
-// OPEN_DOTS_E2E_OLD_RELEASE_DIR points at a copy that was prepared some other way
+// SUPARAGENT_E2E_OLD_RELEASE_DIR points at a copy that was prepared some other way
 // (for example offline); it is used as it is.
 
 const fs = require("node:fs");
@@ -32,25 +32,25 @@ function lastLines(result) {
 // Returns { desktop } (the folder to start Electron with), or { skip } with the reason
 // this cannot run here. Throws only when preparing a copy started and then failed.
 function prepareOldRelease({ commit, repoRoot, uiFrom }) {
-  const given = (process.env.OPEN_DOTS_E2E_OLD_RELEASE_DIR ?? "").trim();
+  const given = (process.env.SUPARAGENT_E2E_OLD_RELEASE_DIR ?? "").trim();
   if (given) {
     const prepared = layout(given);
     if (!fs.existsSync(path.join(prepared.desktop, "main.js")) || !fs.existsSync(prepared.python) || !fs.existsSync(path.join(prepared.ui, "index.html"))) {
-      return { skip: "OPEN_DOTS_E2E_OLD_RELEASE_DIR is not a prepared copy (it needs desktop/main.js, a backend environment and a built page)." };
+      return { skip: "SUPARAGENT_E2E_OLD_RELEASE_DIR is not a prepared copy (it needs desktop/main.js, a backend environment and a built page)." };
     }
-    return { desktop: prepared.desktop, source: "OPEN_DOTS_E2E_OLD_RELEASE_DIR" };
+    return { desktop: prepared.desktop, source: "SUPARAGENT_E2E_OLD_RELEASE_DIR" };
   }
 
   const known = run("git", ["-C", repoRoot, "cat-file", "-e", `${commit}^{commit}`]);
   if (known.error || known.status !== 0) {
-    return { skip: `release ${commit} is not in this checkout's Git history (a shallow clone?). Fetch full history, or set OPEN_DOTS_E2E_OLD_RELEASE_DIR.` };
+    return { skip: `release ${commit} is not in this checkout's Git history (a shallow clone?). Fetch full history, or set SUPARAGENT_E2E_OLD_RELEASE_DIR.` };
   }
   for (const tool of ["tar", "uv"]) {
     const found = run(tool, ["--version"]);
     if (found.error || found.status !== 0) return { skip: `\`${tool}\` was not found on PATH.` };
   }
 
-  const dir = path.join(os.tmpdir(), "open-dots-e2e-old-release", commit);
+  const dir = path.join(os.tmpdir(), "suparagent-e2e-old-release", commit);
   const marker = path.join(dir, ".ready");
   const prepared = layout(dir);
   if (!fs.existsSync(marker)) {

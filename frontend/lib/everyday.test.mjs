@@ -78,8 +78,14 @@ test('conversation totals count only reported turns', () => {
 test('attachments are checked like the server does', () => {
   assert.equal(attachmentProblem({ name: 'a.png', type: 'image/png', size: 10 }), null);
   assert.equal(attachmentProblem({ name: 'notes.MD', type: '', size: 10 }), null);
+  assert.equal(attachmentProblem({ name: 'document.pdf', type: 'application/pdf', size: 100 }), null);
+  assert.equal(attachmentProblem({ name: 'report.docx', type: '', size: 100 }), null);
+  assert.equal(attachmentProblem({ name: 'data.xlsx', type: '', size: 100 }), null);
+  assert.equal(attachmentProblem({ name: 'clip.mp4', type: 'video/mp4', size: 1000 }), null);
   assert.match(attachmentProblem({ name: 'big.png', type: 'image/png', size: 11 * 1024 * 1024 }), /10 MB/);
   assert.match(attachmentProblem({ name: 'big.txt', type: 'text/plain', size: 2 * 1024 * 1024 }), /1 MB/);
+  assert.match(attachmentProblem({ name: 'big.pdf', type: 'application/pdf', size: 26 * 1024 * 1024 }), /25 MB/);
+  assert.match(attachmentProblem({ name: 'big.mp4', type: 'video/mp4', size: 55 * 1024 * 1024 }), /50 MB/);
   assert.match(attachmentProblem({ name: 'setup.exe', type: 'application/x-msdownload', size: 10 }), /can't be attached/);
   assert.match(attachmentProblem({ name: 'empty.txt', type: 'text/plain', size: 0 }), /empty/);
 });
@@ -162,4 +168,10 @@ test('an interrupted turn says whether the engine had the message', () => {
   assert.match(interruptedText('lease_expired', 'unknown'), /just after the engine received this message/);
   assert.match(interruptedText('shutdown', ''), /^The app was closed while the agent was working/);
   assert.ok(failureNextStep('engine_limited'));
+});
+
+test('audio transcript segments survive event replay for source review', () => {
+  const transcript = { text: 'Uncertain name.', segments: [{ id: 1, start: 0, end: 1, text: 'Uncertain name.' }] };
+  const state = applyEvent(emptyTranscript(), { thread_id: 1, seq: 1, type: 'turn.started', turn_id: 1, data: { prompt_text: 'Summarize.', attachments: [{ id: 'a'.repeat(32), name: 'recording.wav', mime: 'audio/wav', bytes: 100, kind: 'audio', transcript }] } });
+  assert.deepEqual(state.items[0].attachments[0].transcript, transcript);
 });

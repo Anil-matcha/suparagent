@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from app.computers import docker_cli, grants
+from app.computers.provider import CLOUD_PROVIDERS
 
 WIDTH, HEIGHT = 1280, 800
 INPUT_NAMES = frozenset({"click", "double_click", "move", "drag", "type", "key", "scroll"})
@@ -81,6 +82,23 @@ def held(state_dir: Path) -> bool:
     return isinstance(until, (float, int)) and until > time.time()
 
 
+WATCHING_FILE = "watching.json"
+WATCHING_SECONDS = 10
+
+
+def watched(state_dir: Path) -> bool:
+    """Someone is viewing this browser without holding it (the live view refreshes the marker while open)."""
+    until = read_state(state_dir / WATCHING_FILE).get("until", 0)
+    return isinstance(until, (float, int)) and until > time.time()
+
+
+def mark_watching(state_dir: Path, on: bool = True) -> None:
+    if on:
+        write_state(state_dir / WATCHING_FILE, {"until": time.time() + WATCHING_SECONDS})
+    else:
+        (state_dir / WATCHING_FILE).unlink(missing_ok=True)
+
+
 @contextmanager
 def driver_lock(state_dir: Path):
     """Cross-process lock around owner checks and desktop actions."""
@@ -144,6 +162,14 @@ class Screen:
             if name == "wait":
                 time.sleep(args["seconds"])
                 return _text(f"Waited {args['seconds']} seconds.")
+            if getattr(s, "provider", "docker") in CLOUD_PROVIDERS:
+                result = s._provider_tool(name, args)
+                if name == "screenshot" and not result.get("isError"):
+                    self.observed_epoch = epoch
+                    self.needs_observation = False
+                elif name in INPUT_NAMES and result.get("isError"):
+                    self.needs_observation = True
+                return result
             if name == "screenshot":
                 time.sleep(max(0, .25-(time.monotonic()-self.last_capture)))
                 self.last_capture = time.monotonic()

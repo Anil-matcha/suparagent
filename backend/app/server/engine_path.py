@@ -7,7 +7,7 @@ so an engine installed in the service account's own home (an npm global prefix, 
 user-level install) is not found even though it works in that account's shell.
 
 At start the server adds the usual per-user and local program folders to the END of
-the PATH, so nothing already on it is overridden, and `OPEN_DOTS_EXTRA_PATH` can name
+the PATH, so nothing already on it is overridden, and `SUPARAGENT_EXTRA_PATH` can name
 more folders. Only folders that exist are added.
 """
 
@@ -18,7 +18,7 @@ from pathlib import Path
 # Where per-user installs of the engines usually put their programs.
 USER_DIRS = (".local/bin", ".npm-global/bin", ".claude/local")
 SYSTEM_DIRS = ("/usr/local/bin",)
-EXTRA_SETTING = "OPEN_DOTS_EXTRA_PATH"
+EXTRA_SETTING = "SUPARAGENT_EXTRA_PATH"
 
 
 def _same(a: str, b: str) -> bool:

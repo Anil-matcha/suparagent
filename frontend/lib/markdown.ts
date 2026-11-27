@@ -10,21 +10,23 @@ export type Inline =
   | { type: "strong"; children: Inline[] }
   | { type: "em"; children: Inline[] }
   | { type: "del"; children: Inline[] }
-  | { type: "link"; href: string; children: Inline[] };
+  | { type: "link"; href: string; children: Inline[] }
+  | { type: "workspace-file"; path: string; children: Inline[] };
 
 export type Block =
   | { type: "paragraph"; children: Inline[] }
   | { type: "heading"; level: number; children: Inline[] }
   | { type: "code"; lang: string; text: string; closed: boolean }
   | { type: "quote"; blocks: Block[] }
-  | { type: "list"; ordered: boolean; start: number; items: Inline[][] }
+  // `sub[i]` holds the blocks nested under item i (usually one list); empty when it has none.
+  | { type: "list"; ordered: boolean; start: number; items: Inline[][]; sub: Block[][] }
   | { type: "table"; header: Inline[][]; rows: Inline[][][]; align: (string | null)[] }
   | { type: "rule" };
 
 const SAFE_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
-// Only these links become clickable; anything else (javascript:, data:, ...) is
-// shown as the text it was written with.
+// Only these URL protocols become links. Local file paths are parsed separately
+// and can become a workspace-scoped download action in a conversation.
 export function safeHref(raw: string): string | null {
   const href = raw.trim();
   if (!href) return null;
@@ -48,6 +50,56 @@ function indexOfUnescaped(text: string, needle: string, from: number): number {
     i += 1;
   }
   return -1;
+}
+
+// Position of the `)` that closes a link target starting at `from`, or -1.
+// Parentheses inside the target must balance, as in a Wikipedia address.
+function closingParen(text: string, from: number): number {
+  let depth = 0;
+  for (let i = from; i < text.length; i += 1) {
+    if (text[i] === "(") depth += 1;
+    else if (text[i] === ")") {
+      if (depth === 0) return i;
+      depth -= 1;
+    }
+  }
+  return -1;
+}
+
+function linkDestination(text: string, from: number): { target: string; end: number } | null {
+  // Angle brackets allow paths with spaces, as in [video](</workspace/output/sample video.mp4>).
+  if (text[from] === "<") {
+    const angle = text.indexOf(">", from + 1);
+    if (angle !== -1 && text[angle + 1] === ")") {
+      return { target: text.slice(from + 1, angle), end: angle + 1 };
+    }
+  }
+  const end = closingParen(text, from);
+  if (end === -1) return null;
+  const target = text.slice(from, end).trim().split(/\s+/)[0] ?? "";
+  return { target, end };
+}
+
+function absoluteWorkspaceFilePath(target: string): boolean {
+  return target.startsWith("/") || /^[A-Za-z]:[\\/]/.test(target);
+}
+
+// Map an absolute path from an assistant answer to the workspace-relative path
+// accepted by the download API. Keep this check in the client as an additional
+// guard; the server still performs canonical containment and file safety checks.
+export function workspaceRelativePath(path: string, workspacePath: string | null): string | null {
+  if (!workspacePath) return null;
+  const normalize = (value: string) => value.replaceAll("\\", "/");
+  let root = normalize(workspacePath);
+  if (root.length > 1) root = root.replace(/\/+$/, "");
+  const target = normalize(path);
+  const windows = /^[A-Za-z]:/i.test(root);
+  const compare = (value: string) => windows ? value.toLowerCase() : value;
+  const prefix = root.endsWith("/") ? root : `${root}/`;
+  if (!compare(target).startsWith(compare(prefix))) return null;
+  const relative = target.slice(prefix.length);
+  if (!relative || relative.split("/").some((part) => !part || part === "." || part === "..")) return null;
+  return relative;
 }
 
 const ESCAPABLE = "\\`*_{}[]()#+-.!|~>";
@@ -124,15 +176,16 @@ export function parseInline(text: string): Inline[] {
     if (ch === "[") {
       const close = indexOfUnescaped(text, "]", i + 1);
       if (close !== -1 && text[close + 1] === "(") {
-        const paren = text.indexOf(")", close + 2);
-        if (paren !== -1) {
+        const destination = linkDestination(text, close + 2);
+        if (destination) {
           const label = text.slice(i + 1, close);
-          const target = text.slice(close + 2, paren).trim().split(/\s+/)[0] ?? "";
-          const href = safeHref(target);
+          const href = safeHref(destination.target);
           flush();
           if (href) out.push({ type: "link", href, children: parseInline(label) });
-          else out.push(...parseInline(label));
-          i = paren + 1;
+          else if (absoluteWorkspaceFilePath(destination.target)) {
+            out.push({ type: "workspace-file", path: destination.target, children: parseInline(label) });
+          } else out.push(...parseInline(label));
+          i = destination.end + 1;
           continue;
         }
       }
@@ -161,7 +214,7 @@ export function parseInline(text: string): Inline[] {
 }
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([^\s`]*)[^`]*$/;
-const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+const HEADING = /^ {0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/;
 const RULE = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/;
 const BULLET = /^( {0,3})[-*+]\s+(.*)$/;
 const ORDERED = /^( {0,3})(\d{1,9})[.)]\s+(.*)$/;
@@ -270,20 +323,35 @@ export function parseMarkdown(source: string): Block[] {
       const isOrdered = ordered !== null && bullet === null;
       const start = isOrdered ? Number(ordered![2]) : 1;
       const items: Inline[][] = [];
+      const sub: Block[][] = [];
+      const baseIndent = (bullet ?? ordered)![1].length;
       while (i < lines.length) {
         const b = BULLET.exec(lines[i]);
         const o = ORDERED.exec(lines[i]);
-        if (isOrdered ? o && !b : b && !RULE.test(lines[i])) {
+        const indent = (b ?? o)?.[1].length ?? 0;
+        if ((isOrdered ? o && !b : b && !RULE.test(lines[i])) && indent < baseIndent + 2) {
           items.push(parseInline(isOrdered ? o![3] : b![2]));
+          sub.push([]);
           i += 1;
-          // A continuation line is indented and belongs to the item above.
-          while (i < lines.length && /^ {2,}\S/.test(lines[i]) && !BULLET.test(lines[i]) && !ORDERED.test(lines[i])) {
-            items[items.length - 1].push({ type: "text", text: " " }, ...parseInline(lines[i].trim()));
+          const nested: string[] = [];
+          while (i < lines.length && /^ {2,}\S/.test(lines[i])) {
+            const deep = /^ +([-*+]|\d{1,9}[.)])\s+\S/.test(lines[i]) && lines[i].length - lines[i].trimStart().length >= baseIndent + 2;
+            if (nested.length > 0 || deep) {
+              // Everything indented under a nested marker belongs to the nested list.
+              nested.push(lines[i]);
+            } else if (!BULLET.test(lines[i]) && !ORDERED.test(lines[i])) {
+              // A continuation line is indented and belongs to the item above.
+              items[items.length - 1].push({ type: "text", text: " " }, ...parseInline(lines[i].trim()));
+            } else break;
             i += 1;
+          }
+          if (nested.length > 0) {
+            const cut = Math.min(...nested.map((l) => l.length - l.trimStart().length));
+            sub[sub.length - 1] = parseMarkdown(nested.map((l) => l.slice(cut)).join("\n"));
           }
         } else break;
       }
-      blocks.push({ type: "list", ordered: isOrdered, start, items });
+      blocks.push({ type: "list", ordered: isOrdered, start, items, sub });
       continue;
     }
 

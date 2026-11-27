@@ -31,7 +31,7 @@ async def test_a_new_agent_has_empty_notes_in_its_own_folder(api):
     assert agent["memory_enabled"] is True
     memory = await memory_of(api, agent)
     assert memory["text"] == "" and memory["lines"] == 0 and memory["enabled"] is True
-    assert memory["path"].endswith(f"agents/{agent['id']}/MEMORY.md")
+    assert memory["path"].replace("\\", "/").endswith(f"agents/{agent['id']}/MEMORY.md")
     assert (memory["max_lines"], memory["max_bytes"]) == (agent_memory.MAX_LINES, agent_memory.MAX_BYTES)
 
 
@@ -137,7 +137,8 @@ async def test_switched_off_notes_stay_out_of_the_turn(api, rt, sessions, launch
     agent = await make(api, starter_notes="- hidden fact", memory_enabled=False)
     thread = (await thread_from(api, agent)).json()
     await send(api, rt, sessions, thread["id"], 1)
-    assert launches[-1]["system_prompt"] is None
+    # Only the note about asking for a connected app may be there; the switched-off notes must not.
+    assert "hidden fact" not in (launches[-1]["system_prompt"] or "")
 
 
 # --- export and import ----------------------------------------------------------------

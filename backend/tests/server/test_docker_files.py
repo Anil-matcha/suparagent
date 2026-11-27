@@ -41,7 +41,7 @@ def compose_default(name: str, variable: str) -> str:
 
 def test_the_build_context_never_includes_settings_or_private_notes():
     ignored = text(".dockerignore").splitlines()
-    for pattern in (".env", ".env.*", "**/.env", ".internal", "**/open-dots.env", ".git", "**/node_modules", "**/.venv", "backend/tests"):
+    for pattern in (".env", ".env.*", "**/.env", ".internal", "**/suparagent.env", ".git", "**/node_modules", "**/.venv", "backend/tests"):
         assert pattern in ignored, pattern
 
 
@@ -58,7 +58,7 @@ def test_the_image_carries_no_setting_secret_or_engine_by_default():
 def test_the_image_runs_as_a_non_root_user_with_its_home_on_the_volume():
     steps = instructions(text("Dockerfile"))
     users = [step for step in steps if step.startswith("USER ")]
-    assert users and users[-1] != "USER root" and users[-1].startswith("USER opendots")
+    assert users and users[-1] != "USER root" and users[-1].startswith("USER suparagent")
     assert any("useradd" in step and "--home-dir /data" in step for step in steps)
     assert 'VOLUME ["/data"]' in steps
     assert any(step.startswith("HEALTHCHECK") and "/api/v1/health" in step for step in steps)
@@ -69,7 +69,7 @@ def test_the_image_runs_as_a_non_root_user_with_its_home_on_the_volume():
 
 def test_the_image_listens_on_the_container_address_only_with_the_explicit_opt_in():
     steps = " ".join(instructions(text("Dockerfile")))
-    assert "OPEN_DOTS_HOST=0.0.0.0" in steps and "OPEN_DOTS_ALLOW_PUBLIC_BIND=1" in steps
+    assert "SUPARAGENT_HOST=0.0.0.0" in steps and "SUPARAGENT_ALLOW_PUBLIC_BIND=1" in steps
 
 
 def test_the_image_versions_agree_with_the_rest_of_the_repository():
@@ -85,19 +85,19 @@ def test_the_image_versions_agree_with_the_rest_of_the_repository():
 
 def test_compose_publishes_on_the_loopback_and_believes_no_proxy_unless_one_is_named():
     compose = uncommented("compose.yaml")
-    assert re.search(r'"\$\{OPEN_DOTS_BIND:-127\.0\.0\.1\}:\$\{OPEN_DOTS_PORT:-8000\}:8000"', compose)
-    assert "TRUSTED_PROXIES: ${OPEN_DOTS_TRUSTED_PROXIES:-}" in compose  # empty by default: loopback only, no network named
+    assert re.search(r'"\$\{SUPARAGENT_BIND:-127\.0\.0\.1\}:\$\{SUPARAGENT_PORT:-8000\}:8000"', compose)
+    assert "TRUSTED_PROXIES: ${SUPARAGENT_TRUSTED_PROXIES:-}" in compose  # empty by default: loopback only, no network named
     for forbidden in ("network_mode", "docker.sock", "privileged", "TOKEN_ENCRYPTION_KEYS", "LOCAL_EXECUTION_ENABLED", "TRUSTED_PROXIES: '*'", 'TRUSTED_PROXIES: "*"'):
         assert forbidden not in compose, forbidden
-    assert "env_file:" in compose and "OPEN_DOTS_ENV_FILE" in compose
-    assert "ENGINES: ${OPEN_DOTS_ENGINES:-}" in compose  # empty by default
+    assert "env_file:" in compose and "SUPARAGENT_ENV_FILE" in compose
+    assert "ENGINES: ${SUPARAGENT_ENGINES:-}" in compose  # empty by default
 
 
 def test_the_network_reserves_the_proxy_address_so_a_stray_container_cannot_land_on_it():
-    subnet = ipaddress.ip_network(compose_default("compose.yaml", "OPEN_DOTS_SUBNET"))
-    gateway = ipaddress.ip_address(compose_default("compose.yaml", "OPEN_DOTS_GATEWAY"))
-    dynamic = ipaddress.ip_network(compose_default("compose.yaml", "OPEN_DOTS_DYNAMIC_RANGE"))
-    proxy = ipaddress.ip_address(compose_default("deploy/proxy/compose.nginx.yaml", "OPEN_DOTS_PROXY_IP"))
+    subnet = ipaddress.ip_network(compose_default("compose.yaml", "SUPARAGENT_SUBNET"))
+    gateway = ipaddress.ip_address(compose_default("compose.yaml", "SUPARAGENT_GATEWAY"))
+    dynamic = ipaddress.ip_network(compose_default("compose.yaml", "SUPARAGENT_DYNAMIC_RANGE"))
+    proxy = ipaddress.ip_address(compose_default("deploy/proxy/compose.nginx.yaml", "SUPARAGENT_PROXY_IP"))
     assert subnet.is_private and gateway in subnet and dynamic.subnet_of(subnet)
     assert proxy in subnet and proxy != gateway
     assert proxy not in dynamic and gateway not in dynamic  # unassigned containers get addresses from the dynamic range only
@@ -107,13 +107,13 @@ def test_the_network_reserves_the_proxy_address_so_a_stray_container_cannot_land
 def test_a_proxy_overlay_trusts_exactly_the_proxy_address_and_never_a_network(overlay):
     body = uncommented(f"deploy/proxy/{overlay}")
     default = "172.31.250.10"
-    assert "TRUSTED_PROXIES: ${OPEN_DOTS_TRUSTED_PROXIES:-${OPEN_DOTS_PROXY_IP:-" + default + "}}" in body
-    assert "ipv4_address: ${OPEN_DOTS_PROXY_IP:-" + default + "}" in body  # the proxy keeps the address the app trusts
-    assert compose_default(f"deploy/proxy/{overlay}", "OPEN_DOTS_PROXY_IP") == default
+    assert "TRUSTED_PROXIES: ${SUPARAGENT_TRUSTED_PROXIES:-${SUPARAGENT_PROXY_IP:-" + default + "}}" in body
+    assert "ipv4_address: ${SUPARAGENT_PROXY_IP:-" + default + "}" in body  # the proxy keeps the address the app trusts
+    assert compose_default(f"deploy/proxy/{overlay}", "SUPARAGENT_PROXY_IP") == default
     assert proxies.parse(default) == (*proxies.LOOPBACK, default)  # one address, not a range
     for forbidden in ("network_mode", "docker.sock", "privileged", "TOKEN_ENCRYPTION_KEYS"):
         assert forbidden not in body, forbidden
-    assert "${OPEN_DOTS_DOMAIN:?" in body  # no default name: the owner must say which one
+    assert "${SUPARAGENT_DOMAIN:?" in body  # no default name: the owner must say which one
 
 
 # -- the proxy configurations -------------------------------------------------------------------------
@@ -136,7 +136,7 @@ def test_the_caddy_config_provides_what_the_server_relies_on():
     conf = uncommented("deploy/proxy/Caddyfile")
     assert "flush_interval -1" in conf
     assert int(re.search(r"max_size (\d+)MB", conf).group(1)) >= 12
-    assert "reverse_proxy open-dots:8000" in conf
-    assert "{$OPEN_DOTS_DOMAIN}" in conf and "{$OPEN_DOTS_CADDY_TLS}" in conf
+    assert "reverse_proxy suparagent:8000" in conf
+    assert "{$SUPARAGENT_DOMAIN}" in conf and "{$SUPARAGENT_CADDY_TLS}" in conf
     # Caddy replaces a client-supplied X-Forwarded-For unless told to trust upstream proxies: never tell it to.
     assert "trusted_proxies" not in conf and "encode" not in conf

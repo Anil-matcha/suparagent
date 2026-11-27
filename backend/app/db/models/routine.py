@@ -14,7 +14,9 @@ ROUTINE_RUN_STATES = (
 )
 ACTIVE_RUN_STATES = ("queued", "running", "needs_input")
 # "retry" is a new attempt of a failed run (Routine.retry_limit).
-ROUTINE_TRIGGERS = ("schedule", "manual", "webhook", "retry")
+ROUTINE_TRIGGERS = ("schedule", "manual", "webhook", "retry", "app_event")
+# The triggers whose runs read connected apps like a scheduled run (BL-177). A webhook run does not: its text is outside text.
+SCHEDULED_TRIGGERS = ("schedule", "manual", "app_event")
 
 
 class Routine(Base):
@@ -41,6 +43,9 @@ class Routine(Base):
     paused: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=expression.false()
     )
+    # Optional new-mail trigger beside the schedule (BL-177): {"app": "gmail", "account_id": ..., "query": ...,
+    # "debounce_minutes": 5, "max_runs_per_day": 12, "quiet": {"from": "20:00", "to": "07:00"}}. Null = none.
+    app_event: Mapped[dict | None] = mapped_column(JSONValue, nullable=True)
     # Why the app paused it (agent gone), not set when a person pauses it.
     paused_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
@@ -62,6 +67,9 @@ class Routine(Base):
     retry_delay_minutes: Mapped[int] = mapped_column(
         Integer, nullable=False, default=5, server_default="5"
     )
+    quiet_reporting: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=expression.false())
+    connected_app_grants: Mapped[list] = mapped_column(JSONValue, nullable=False, default=list, server_default="[]")
+    uninterrupted_access: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=expression.false())
     # SHA-256 hex of the webhook secret; null means the webhook is off. The
     # secret itself is never stored.
     webhook_secret_hash: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -92,6 +100,15 @@ class RoutineRun(Base):
             sqlite_where=text("trigger = 'schedule'"),
             postgresql_where=text("trigger = 'schedule'"),
         ),
+        # One queued wake per time slot for a routine woken by new mail (BL-177).
+        Index(
+            "uq_routine_run_app_event_slot",
+            "routine_id",
+            "scheduled_for",
+            unique=True,
+            sqlite_where=text("trigger = 'app_event'"),
+            postgresql_where=text("trigger = 'app_event'"),
+        ),
         # A failed run gets at most one new attempt, so two schedulers that
         # both settle it cannot both queue a retry.
         Index("uq_routine_run_retry_of", "retry_of", unique=True),
@@ -102,6 +119,9 @@ class RoutineRun(Base):
     routine_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("routine.id", name="fk_routine_run_routine_id_routine"), nullable=False
     )
+    connected_app_grants: Mapped[list] = mapped_column(JSONValue, nullable=False, default=list, server_default="[]")
+    uninterrupted_access: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=expression.false())
+    capability_snapshot: Mapped[dict] = mapped_column(JSONValue, nullable=False, default=dict, server_default="{}")
     trigger: Mapped[str] = mapped_column(String, nullable=False)
     state: Mapped[str] = mapped_column(String, nullable=False, default="queued", server_default="queued")
     scheduled_for: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
@@ -111,6 +131,8 @@ class RoutineRun(Base):
     # conversation keeps the run history.
     thread_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     turn_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    outcome: Mapped[str | None] = mapped_column(String, nullable=True)
+    outcome_details: Mapped[dict | None] = mapped_column(JSONValue, nullable=True)
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # While needs_input: since when. waited_seconds totals earlier waits, which
@@ -125,6 +147,28 @@ class RoutineRun(Base):
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime, server_default=func.now(), nullable=False
     )
+
+
+class RoutineAppAction(Base):
+    """Durable connector decision receipt, and at-most-once write reservation."""
+
+    __tablename__ = "routine_app_action"
+    __table_args__ = (
+        Index("uq_routine_app_action_request", "run_id", "account_id", "request_key", unique=True),
+        {"sqlite_autoincrement": True},
+    )
+
+    id: Mapped[int] = mapped_column(BigIntPK, Identity(always=True), primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("routine_run.id", name="fk_routine_app_action_run_id", ondelete="CASCADE"), nullable=False
+    )
+    tool: Mapped[str] = mapped_column(String, nullable=False)
+    account_id: Mapped[str] = mapped_column(String, nullable=False)
+    request_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    code: Mapped[str | None] = mapped_column(String, nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSONValue, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
 
 
 class WebhookReceipt(Base):

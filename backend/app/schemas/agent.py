@@ -3,9 +3,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app import agent_shares
 from app.schemas.computer import ComputerSummary
 
-ApprovalMode = Literal["ask", "accept_edits", "plan"]
+ApprovalMode = Literal["ask", "accept_edits", "approve_for_me", "plan", "full_access"]
 
 # Standing instructions are capped in bytes, not characters, so the limit means
 # the same thing in every language.
@@ -34,6 +35,23 @@ def _optional_line(value: str | None) -> str | None:
     return _one_line(value, "title")
 
 
+class ShareEntry(BaseModel):
+    """One account's share of a mailbox in an update request (checked again in routers/agents.py)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    percent: int = Field(ge=1, le=100, strict=True)
+    pins: list[str] | None = Field(default=None, max_length=agent_shares.MAX_PINS)
+    reshuffle: bool = False
+
+    @field_validator("pins")
+    @classmethod
+    def _pins(cls, value):
+        if value is not None and any(not pin or len(pin) > agent_shares.MAX_PIN_LENGTH for pin in value):
+            raise ValueError("a pin is a thread id of at most 200 characters")
+        return value
+
+
 class AgentCreateRequest(BaseModel):
     make_lead: bool = False
     name: str = Field(min_length=1, max_length=80)
@@ -45,6 +63,7 @@ class AgentCreateRequest(BaseModel):
     # model is checked against it (422 `unknown_model`).
     provider: str = Field(default="claude", min_length=1, max_length=64)
     model: str | None = Field(default=None, max_length=200)
+    effort: str | None = Field(default=None, max_length=64)
     # Omitted: the agent gets its own folder under the default workspace root.
     # Otherwise an absolute path (or `~/...`) to an existing folder.
     workspace_path: str | None = Field(default=None, max_length=1000)
@@ -66,6 +85,8 @@ class AgentCreateRequest(BaseModel):
     # before starting on it (docs/ENGINES.md). It must differ from `provider`.
     fallback_provider: str | None = Field(default=None, min_length=1, max_length=64)
     fallback_model: str | None = Field(default=None, max_length=200)
+    # A named Claude account id; null is the default account.
+    claude_account: str | None = Field(default=None, max_length=64)
     # Optional first contents of the agent's notes (MEMORY.md).
     starter_notes: str | None = Field(default=None, max_length=256 * 1024)
 
@@ -86,7 +107,7 @@ class AgentCreateRequest(BaseModel):
 
 
 class AgentUpdateRequest(BaseModel):
-    """Change any of these; send at least one. `title`, `description`, `model`
+    """Change any of these; send at least one. `title`, `description`, `model`, `effort`
     and `workspace_path` accept an explicit null to go back to the default."""
 
     make_lead: bool | None = None
@@ -98,6 +119,7 @@ class AgentUpdateRequest(BaseModel):
     # change without `model` goes back to the new engine's default model.
     provider: str | None = Field(default=None, min_length=1, max_length=64)
     model: str | None = Field(default=None, max_length=200)
+    effort: str | None = Field(default=None, max_length=64)
     workspace_path: str | None = Field(default=None, max_length=1000)
     approval_mode: ApprovalMode | None = None
     pinned: bool | None = None
@@ -106,9 +128,18 @@ class AgentUpdateRequest(BaseModel):
     memory_upkeep: bool | None = None
     compaction_summary: bool | None = None
     use_helper: bool | None = None
+    # Connected apps this agent may read, {app: "read"}; {} or null turns them all off.
+    connector_scopes: dict[str, str] | None = None
+    # Exact Composio account IDs the agent may use, keyed by app. Empty denies all accounts.
+    connector_account_scopes: dict[str, list[str]] | None = None
+    # The share of a mailbox the agent may see, {"gmail": {account id: {percent, pins?, reshuffle?}}}. Omitted keeps it,
+    # {} or null clears it (the whole mailbox). The server keeps each account's seed; `reshuffle` picks a new share.
+    connector_shares: dict[str, dict[str, ShareEntry]] | None = None
     # An explicit null removes the fallback engine (and its model).
     fallback_provider: str | None = Field(default=None, min_length=1, max_length=64)
     fallback_model: str | None = Field(default=None, max_length=200)
+    # A named Claude account id; null is the default account.
+    claude_account: str | None = Field(default=None, max_length=64)
     archived: bool | None = None
 
     @field_validator("name")
@@ -146,6 +177,7 @@ class AgentResponse(BaseModel):
     instructions: str
     provider: str
     model: str | None
+    effort: str | None = None
     # Null: a thread started from this agent gets its own folder, named by the
     # agent's id, under the default workspace root.
     workspace_path: str | None
@@ -158,6 +190,11 @@ class AgentResponse(BaseModel):
     use_helper: bool = True
     fallback_provider: str | None = None
     fallback_model: str | None = None
+    claude_account: str | None = None
+    connector_scopes: dict | None = None
+    connector_account_scopes: dict[str, list[str]] = Field(default_factory=dict)
+    # {"gmail": {account id: {"percent": 1-100, "pins": [...]}}}; never the seed. No entry means the whole mailbox.
+    connector_shares: dict = Field(default_factory=dict)
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -169,6 +206,12 @@ class AgentResponse(BaseModel):
     instructions_reviewed_at: datetime | None = None
     computer_id: int | None = None
     computer: ComputerSummary | None = None
+
+    @field_validator("connector_shares", mode="before")
+    @classmethod
+    def _no_seed(cls, value):
+        # The seed decides which threads are in a share, so no response carries it, whatever builds one.
+        return agent_shares.public(value)
 
 
 class AgentMemoryResponse(BaseModel):
@@ -217,6 +260,37 @@ class AgentImportRequest(BaseModel):
     include_notes: bool = True
     # False leaves the file's skills out. Imported skills always start off.
     include_skills: bool = True
+
+
+class AgentMigrationProfilePreview(BaseModel):
+    key: str
+    name: str
+    title: str | None
+    # A normalized native agent package; send it to the existing import API.
+    document: dict
+    skipped: list[str]
+    redacted: list[str]
+
+
+class AgentMigrationPreviewResponse(BaseModel):
+    format: Literal["suparagent.agent-migration"]
+    version: Literal[1]
+    source: Literal["grok", "hermes"]
+    profiles: list[AgentMigrationProfilePreview]
+    skipped: list[str]
+
+
+class OpenBotDatabaseProfilePreview(BaseModel):
+    key: str
+    name: str
+    title: str
+    instructions: str
+    document: dict
+
+
+class OpenBotDatabasePreviewResponse(BaseModel):
+    schema_version: int
+    profiles: list[OpenBotDatabaseProfilePreview]
 
 
 # --- topic notes, the journal and proposed notes (docs/MEMORY.md) ------------------------

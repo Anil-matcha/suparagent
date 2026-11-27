@@ -13,12 +13,13 @@ UPDATE; the caller learns whether it won from the return value.
 
 Event payloads, so adapters and readers agree:
 
-    turn.started        {"prompt_text", "attachments"?: [{"id", "name", "mime", "bytes", "kind"}]}
+    turn.started        {"prompt_text", "attachments"?: [...], "person"?: {"id", "label"} (the member who sent it)}
+    turn.steered        {"text"}
     assistant.message   {"text", "incomplete"?}
     tool.started        {"call_id", "name", "input"}
     tool.completed      {"call_id", "ok", "output", "truncated"}
     approval.requested  {"approval_id", "tool", "kind", "summary", "input"}
-    approval.resolved   {"approval_id", "status"}
+    approval.resolved   {"approval_id", "status", "person"?: {"id", "label"} (the member who answered)}
     turn.completed / turn.failed / turn.cancelled / turn.interrupted
     session.reset
 
@@ -150,11 +151,16 @@ async def rename_thread(db: AsyncSession, thread_id: int, title: str) -> Thread:
     return await _change_quietly(db, thread_id, title=title)
 
 
-async def set_model(db: AsyncSession, thread_id: int, model: str | None) -> Thread:
+async def set_model(db: AsyncSession, thread_id: int, model: str | None, effort: str | None = None) -> Thread:
     """Change the model the next turns ask for (None: the engine's default).
     Not activity: the list order does not change. Raises ThreadNotFound."""
-    await _locked_thread(db, thread_id)
-    return await _change_quietly(db, thread_id, model=model)
+    thread = await _locked_thread(db, thread_id)
+    state = dict(thread.provider_state or {})
+    if effort is not None:
+        state["effort"] = effort
+    else:
+        state.pop("effort", None)
+    return await _change_quietly(db, thread_id, model=model, provider_state=state)
 
 
 async def set_archived(db: AsyncSession, thread_id: int, archived: bool) -> Thread:
@@ -250,6 +256,8 @@ def history_items(events: list[Event]) -> list[dict]:
         data = event.data or {}
         if event.type == "turn.started":
             items.append({"role": "user", "text": data.get("prompt_text", ""), "turn_id": event.turn_id})
+        elif event.type == "turn.steered":
+            items.append({"role": "user", "text": data.get("text", ""), "turn_id": event.turn_id})
         elif event.type == "assistant.message":
             items.append(
                 {
@@ -353,6 +361,7 @@ async def create_thread(
     kind: str = "chat",
     job_id: int | None = None,
     room_id: int | None = None,
+    effort: str | None = None,
     commit: bool = True,
 ) -> Thread:
     if not provider.strip():
@@ -361,6 +370,9 @@ async def create_thread(
     if workspace_path is None:
         from app.services.local_claude_runner import workspace_dir
         workspace_path = str(workspace_dir().resolve())
+    if effort:
+        provider_state = dict(provider_state or {})
+        provider_state["effort"] = effort
     await begin_write(db)
     now = utcnow()
     thread = Thread(
@@ -443,10 +455,25 @@ async def append_event(
     turn_id: int | None = None,
 ) -> Event:
     """Store one event with the thread's next seq and commit."""
-    await begin_write(db)
-    event = await _add_event(db, thread_id, type_, data, turn_id)
+    event = await add_event_in_transaction(db, thread_id, type_, data, turn_id=turn_id)
     await db.commit()
     return event
+
+
+async def add_event_in_transaction(
+    db: AsyncSession,
+    thread_id: int,
+    type_: str,
+    data: dict | None = None,
+    *,
+    turn_id: int | None = None,
+) -> Event:
+    """Add an event to the caller's current transaction without committing it.
+
+    This lets a domain change and its user-visible event become durable together.
+    """
+    await begin_write(db)
+    return await _add_event(db, thread_id, type_, data, turn_id)
 
 
 async def append_turn_event(
@@ -489,6 +516,8 @@ async def start_turn(
     owner_instance: str | None = None,
     attachments: list[dict] | None = None,
     origin: str | None = None,
+    person_id: int | None = None,
+    person_label: str | None = None,
 ) -> Turn:
     """Start the thread's next turn and store its `turn.started` event.
 
@@ -515,6 +544,8 @@ async def start_turn(
         owner_instance=owner_instance,
         engine_phase="preparing",
         origin=origin,
+        person_id=person_id,
+        person_label=person_label,
         heartbeat_at=now,
         started_at=now,
     )
@@ -529,6 +560,8 @@ async def start_turn(
     started = {"prompt_text": prompt_text}
     if attachments:
         started["attachments"] = attachments
+    if person_label:
+        started["person"] = {"id": person_id, "label": person_label}
     await _add_event(db, thread_id, "turn.started", started, turn.id)
     await db.commit()
     return turn
@@ -770,20 +803,23 @@ async def create_approval(
 
 
 async def decide_approval(
-    db: AsyncSession, approval_id: str, decision: str, *, by: dict | None = None
+    db: AsyncSession, approval_id: str, decision: str, *, by: dict | None = None,
+    person_id: int | None = None, person_label: str | None = None,
 ) -> bool:
     """The person's decision. One statement: it wins only if the approval is
     still pending AND its turn is still running. False means nothing changed
     (decided already, cancelled, or the turn is no longer running) and the
     caller must answer 409 and authorize nothing. `by` is added to the
     `approval.resolved` event when something other than a person decided
-    (for example {"by": "saved_rule", "rule_id": 3}), so the chat can say so."""
+    (for example {"by": "saved_rule", "rule_id": 3}), so the chat can say so. A member who answered is
+    recorded on the approval and in the event (`person`), by the name they had then."""
     _check(decision, DECISIONS, "decision")
     await begin_write(db)
     updated = await db.execute(
         update(Approval)
         .where(Approval.id == approval_id, Approval.status == "pending", _turn_is_running())
-        .values(status=decision, decided_at=utcnow())
+        .values(status=decision, decided_at=utcnow(),
+                decided_by_person_id=person_id, decided_by_label=person_label)
         .returning(Approval.thread_id, Approval.turn_id)
         .execution_options(synchronize_session=False)
     )
@@ -793,7 +829,10 @@ async def decide_approval(
         return False
     thread_id, turn_id = row
     await _add_event(
-        db, thread_id, "approval.resolved", {**(by or {}), "approval_id": approval_id, "status": decision}, turn_id
+        db, thread_id, "approval.resolved",
+        {**(by or {}), "approval_id": approval_id, "status": decision,
+         **({"person": {"id": person_id, "label": person_label}} if person_label else {})},
+        turn_id,
     )
     await db.commit()
     return True
@@ -853,6 +892,29 @@ async def mark_allow_delivered(db: AsyncSession, approval_id: str, owner_token: 
     )
     await db.commit()
     return result.rowcount == 1
+
+
+async def deny_undelivered_allow(db: AsyncSession, approval_id: str, owner_token: str, *, source: str) -> bool:
+    """Withdraw an automatic Allow before it reaches the provider after revocation."""
+    await begin_write(db)
+    owned = exists().where(
+        Turn.id == Approval.turn_id, Turn.status == "running", Turn.owner_token == owner_token
+    )
+    updated = await db.execute(
+        update(Approval).where(Approval.id == approval_id, Approval.status == "allowed",
+                               Approval.delivered_at.is_(None), owned)
+        .values(status="denied", decided_at=utcnow())
+        .returning(Approval.thread_id, Approval.turn_id)
+        .execution_options(synchronize_session=False)
+    )
+    row = updated.one_or_none()
+    if row is None:
+        await db.rollback()
+        return False
+    await _add_event(db, row.thread_id, "approval.resolved",
+                     {"approval_id": approval_id, "status": "denied", "by": source}, row.turn_id)
+    await db.commit()
+    return True
 
 
 async def _cancel_open_approvals(db: AsyncSession, thread_id: int, turn_id: int) -> None:

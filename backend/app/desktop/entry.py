@@ -32,7 +32,7 @@ EXIT_KEY_MISMATCH = 3
 EXIT_DATABASE = 4
 EXIT_UI_MISSING = 5
 
-READY_PREFIX = "OPEN_DOTS_READY "
+READY_PREFIX = "SUPARAGENT_READY "
 
 # After the launcher has gone, the server gets this long to finish cleanly.
 SHUTDOWN_BACKSTOP_SECONDS = 20
@@ -132,6 +132,14 @@ def main(stdin=None, handshake_timeout: float = handshake.DEFAULT_TIMEOUT_SECOND
         claude_cli_path=message.claude_cli_path,
         native_control=message.native_control,
     )
+    # App-managed engines are separate from any CLI installed by the person.
+    # These stable paths also discover a completed install without an app restart.
+    import os
+    managed = []
+    for name in ("claude", "codex", "opencode"):
+        managed.append(str(desktop.data_dir / "engine-runtimes" / name / "current" / "bin"))
+        managed.append(str(desktop.data_dir / "engine-runtimes" / name / "current"))
+    os.environ["PATH"] = os.pathsep.join([*managed, os.environ.get("PATH", "")])
     profile.activate(desktop)
     launch_auth.install(message.token)
 

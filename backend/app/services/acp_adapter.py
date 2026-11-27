@@ -26,6 +26,7 @@ without one. What an agent does without asking is up to the agent.
 """
 
 import asyncio
+import os
 import json
 import shlex
 import shutil
@@ -74,7 +75,7 @@ class InvalidConfig(ValueError):
 
 def split_command(command: str) -> list[str]:
     try:
-        argv = shlex.split(command)
+        argv = shlex.split(command, posix=os.name != "nt")
     except ValueError as exc:
         raise InvalidConfig(f"The command could not be read: {exc}.") from None
     if not argv:
@@ -233,7 +234,7 @@ class AcpAdapter:
     async def auth_failure_allowed(self, env: dict, config: dict) -> bool:
         return False
 
-    async def select_model(self, call, session_id: str, session: dict, model: str | None) -> str | None:
+    async def select_model(self, call, session_id: str, session: dict, model: str | None, effort: str | None = None) -> str | None:
         return None
 
     def signed_out_message(self) -> str:
@@ -322,10 +323,25 @@ class AcpAdapter:
         return result
 
 
+def normalize_effort(value: str) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.lower().replace("-", "_")
+    if normalized in ("low", "medium", "high", "xhigh", "max"):
+        return normalized
+    if normalized in ("minimal", "none", "off"):
+        return "low"
+    if normalized == "thinking":
+        return "high"
+    if normalized in ("extra_high", "very_high"):
+        return "xhigh"
+    return None
+
+
 def _initialize_params() -> dict:
     return {
         "protocolVersion": PROTOCOL_VERSION,
-        "clientInfo": {"name": "open-dots", "version": "0"},
+        "clientInfo": {"name": "zed", "title": "Suparagent", "version": "0.1.0"},
         "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False},
     }
 
@@ -478,6 +494,7 @@ class _AcpTurn:
         caps = init.get("agentCapabilities") if isinstance(init.get("agentCapabilities"), dict) else {}
         can_load = caps.get("loadSession") is True
         self.preamble = ""
+        resumed = False
         if self.ctx.resume and self.saved_session and can_load:
             try:
                 # Replayed history arrives before the prompt and is dropped.
@@ -486,19 +503,25 @@ class _AcpTurn:
                     {"sessionId": self.saved_session, "cwd": str(self.workspace), "mcpServers": self._mcp_servers()},
                     handle_incoming=True,
                 )
+                self.session_id = self.saved_session
+                resumed = True
             except RpcError as exc:
                 if self.adapter.is_auth_error(exc):
                     return self._failed(self.adapter.signed_out_message(), "engine_signed_out")
-                return self._failed(
-                    "The agent could not load this conversation's session, so it cannot continue it. "
-                    f"Start a new session to go on. ({exc})",
-                    "session_resume_failed",
-                    session_state="broken",
-                )
+                if getattr(self.adapter, "auto_recover_session", False):
+                    logger.info("Could not load previous session (%s); starting a new session with replayed history", exc)
+                    self.saved_session = None
+                else:
+                    return self._failed(
+                        "The agent could not load this conversation's session, so it cannot continue it. "
+                        f"Start a new session to go on. ({exc})",
+                        "session_resume_failed",
+                        session_state="broken",
+                    )
             except (RpcClosed, asyncio.TimeoutError) as exc:
                 return self._failed(self._why(exc, "The agent did not load the session."), "cli_error")
-            self.session_id = self.saved_session
-        else:
+
+        if not resumed:
             if self.ctx.resume:
                 try:
                     self.preamble = history_preamble(await self.ctx.history(), self.ctx.turn_id)
@@ -525,7 +548,8 @@ class _AcpTurn:
             return self._failed("The engine could not confirm its tool approval mode.", "engine_permission_mode_unavailable")
         try:
             self.confirmed_model = await self.adapter.select_model(
-                self._call, self.session_id, session or {}, self.ctx.model or config.get("model")
+                self._call, self.session_id, session or {}, self.ctx.model or config.get("model"),
+                effort=getattr(self.ctx, "effort", None)
             )
         except (RpcError, RpcClosed, asyncio.TimeoutError, InvalidConfig):
             return self._failed("The engine could not confirm the selected model. Choose another model in Settings → Engines.", "engine_model_unavailable")

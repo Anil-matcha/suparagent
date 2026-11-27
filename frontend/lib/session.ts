@@ -1,5 +1,7 @@
 // Session helpers with no runtime imports, so node tests can load them (docs/AUTH.md).
 
+import type { PairingScope } from "./access-label";
+
 export type AuthStatus = {
   owner_configured: boolean;
   setup_allowed: boolean;
@@ -8,20 +10,36 @@ export type AuthStatus = {
 };
 
 export type SessionInfo = {
-  kind: "desktop" | "loopback" | "browser" | "device";
+  // "grant": a person signed in by the hosted control plane (docs/AUTH.md, hosted workspace grants).
+  kind: "desktop" | "loopback" | "browser" | "device" | "grant";
   scopes: string[];
   label: string | null;
   session_id: number | null;
   user_id: string | null;
   csrf_token: string | null;
   owner_configured: boolean;
+  // Set when a signed-in member (not a paired device) is acting.
+  person_id?: number | null;
+  role?: PersonRole | null;
+  display_name?: string | null;
+  // What a signed-in member may do; null or missing for a device, the desktop app and the like.
+  permissions?: string[] | null;
 };
+
+export type PersonRole = "owner" | "admin" | "member" | "viewer";
+
+// The invitation arrives in the URL fragment (#token=…&email=…), which never reaches a server log.
+export function inviteFromHash(hash: string): { token: string; email: string } | null {
+  const params = new URLSearchParams(hash.replace(/^#/, ""));
+  const token = params.get("token")?.trim();
+  return token ? { token, email: params.get("email")?.trim() ?? "" } : null;
+}
 
 export type PairingCode = {
   id: number;
   code: string;
   display_code: string;
-  scope: "admin" | "chat";
+  scope: PairingScope;
   label: string;
   expires_at: string;
 };
@@ -66,10 +84,18 @@ export async function migrateLegacyIdentity(
 }
 
 // Only a same-site path: never send someone to another site after sign-in.
-export function safeNextPath(raw: string | null): string {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return "/chat";
-  if (raw.startsWith("/login") || raw.startsWith("/pair")) return "/chat";
+// `base` is the prefix the pages are served under (lib/paths.ts), "" unless a deployment sets one.
+export function safeNextPath(raw: string | null, base = ""): string {
+  const chat = `${base}/chat`;
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return chat;
+  const inside = base && raw.startsWith(`${base}/`) ? raw.slice(base.length) : raw;
+  if (inside.startsWith("/login") || inside.startsWith("/pair") || inside.startsWith("/join")) return chat;
   return raw;
+}
+
+/** A link an invited person opens. The secret rides in the fragment, as pairing codes do. */
+export function inviteLink(origin: string, basePath: string, invite: { token: string; email: string }): string {
+  return `${origin}${basePath}/join/#token=${encodeURIComponent(invite.token)}&email=${encodeURIComponent(invite.email)}`;
 }
 
 export function pairingCodeFromHash(hash: string): string {

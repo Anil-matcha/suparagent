@@ -1,6 +1,6 @@
 # Architecture
 
-Open Duet is a local-first agent workspace. A web or Electron client talks to
+Suparagent is a local-first agent workspace. A web or Electron client talks to
 one FastAPI backend, which owns conversations, approval decisions, agent data,
 and routine scheduling.
 
@@ -63,9 +63,17 @@ Optional legacy path: Telegram and Boat sandbox tasks
   available on every engine without a helper.
 - **Storage and access.** Alembic manages PostgreSQL and SQLite schemas. API
   credentials are encrypted at rest, and the desktop app uses operating-system
-  secret storage. Web users authenticate as one owner; paired devices receive
-  scoped, revocable tokens. The self-hosted server remains a single-owner
-  product.
+  secret storage. Web users sign in as the owner (passphrase) or as an invited
+  member (email and password), and a member's rights are read from their role
+  and permissions on every request, so a change or a removal applies at once.
+  Paired devices receive scoped, revocable tokens. A self-hosted server is one
+  workspace with one owner; invited members share its agents, conversations,
+  files and memory (see [authentication](AUTH.md#members)). A hosted deployment
+  can instead run each workspace behind an account service: with
+  `HOSTED_WORKSPACE_ID` and `HOSTED_GRANT_PUBLIC_KEYS` set, every request must
+  carry a short-lived token signed for exactly that workspace, the server holds
+  only public keys, and the person in the token is mirrored into the people
+  table for attribution (see [hosted workspace grants](AUTH.md#hosted-workspace-grants)).
 
 ## Capability boundaries
 

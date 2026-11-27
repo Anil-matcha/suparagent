@@ -66,9 +66,9 @@ async def test_parallel_search_task_launch(
     if enabled:
         assert argv[5] == "--mcp-config"
         config = json.loads(argv[6])
-        assert config == {"mcpServers": {"open-dots-parallel-search": {
+        assert config == {"mcpServers": {"suparagent-parallel-search": {
             "type": "http", "url": "https://search.parallel.ai/mcp",
-            "headers": {"User-Agent": "OpenDuet/0.1 (+https://github.com/Anil-matcha/open-duet)"},
+            "headers": {"User-Agent": "Suparagent/0.1 (+https://github.com/Anil-matcha/suparagent)"},
         }}}
         assert len(argv) == 9
     else:
@@ -84,6 +84,6 @@ async def test_parallel_search_task_launch(
 
 def test_parallel_search_is_opt_in(monkeypatch):
     monkeypatch.delenv("PARALLEL_SEARCH_ENABLED", raising=False)
-    assert Settings(_env_file=None).PARALLEL_SEARCH_ENABLED is False
+    assert Settings(_env_file=None, TOKEN_ENCRYPTION_KEYS="dummy-test-key").PARALLEL_SEARCH_ENABLED is False
     monkeypatch.setenv("PARALLEL_SEARCH_ENABLED", "true")
-    assert Settings(_env_file=None).PARALLEL_SEARCH_ENABLED is True
+    assert Settings(_env_file=None, TOKEN_ENCRYPTION_KEYS="dummy-test-key").PARALLEL_SEARCH_ENABLED is True

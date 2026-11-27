@@ -2,6 +2,15 @@
 
 A team has a lead and specialists. Existing agents keep their settings until you choose a lead or add them to the team. A team can contain an agent on any engine; team tools are available through Claude and Codex. Choose the lead and coordinated agents in the new-agent form or existing agent settings. See [chat management](CHAT_MANAGEMENT.md) for conversational setup, supported controls and verification limits.
 
+As of Suparagent `a2e6404` (2026-11-03), Team coordination opens a full-screen
+workspace with **Agents**, **Work** and **Rooms** views. Agents shows the lead
+and specialists, their configured engine and current idle, working or waiting
+state, along with the existing membership controls. Work groups delegated jobs
+by attention, running, waiting and finished; cards show the requester, assignee,
+parent job, elapsed or completion time, and the existing approval, open-work and
+stop actions. Search narrows jobs by brief, status or agent. Rooms lists the
+shared conversations that can be opened directly.
+
 The database stores team membership, creation records, jobs, room membership and reply queues. Chat threads keep their existing kind after migration. Job and member work use their own conversation records; room conversation records hold visible messages.
 
 The foundation migration uses additive columns and new tables, with an SQLite-safe downgrade. It does not start paid work or change existing agents automatically.
@@ -13,6 +22,10 @@ and one visible transcript. Create one from the Chat page's Rooms panel or let
 a Claude or Codex team lead create it with `create_room`. Choose one to twelve agents
 when creating it. You can edit the
 room name, shared instructions, roster and default responder setting later.
+
+In a workspace shared with teammates, a member's post carries their name, so the transcript and the agents
+see who said what, and agents treat a member's lines as another person's, not the owner's. Posting needs the
+**Reply** permission and creating or editing rooms needs **Manage agents** (see [AUTH.md](AUTH.md#members)).
 
 Room settings adds or removes members without deleting the conversation or any
 member's work history. Choose one to twelve distinct live agents you own; agents
@@ -51,6 +64,12 @@ work. Owners can hold or resume a member, stop work, retry a failed dispatch,
 and export the room transcript as Markdown or JSON. Tool approvals still use
 each agent's normal approval mode.
 
+The room conversation fills the workspace, with a docked message composer and
+a details panel for member controls, shared instructions and room actions. The
+reply queue shows its order and routing reason. The `@` picker supports keyboard
+selection; when agent names match, it adds the selected agent's ID to the
+mention token so the intended member receives the message.
+
 There is no model-based automatic responder for untagged messages.
 
 ## Handing work out without waiting
@@ -66,6 +85,8 @@ A teammate's chat that fails, stalls (nothing happened for `TURN_STALL_SECONDS`)
 The lead can call `retry_thread` to continue that conversation. It refuses with a code when the caller is not the lead, the teammate or thread is not on the team, the thread is a room or job conversation, it is running, it finished a run since it was reported, it was already retried twice within the hour, or its session is broken. The teammate keeps its own permission mode, and is told the lead asked. Each thread has at most five reports an hour: the third says retries are used up, after the fifth they are muted and you are told once.
 
 If the lead is busy, reports wait and are folded into one turn when it is free; none is refused. If there is no lead, the lead itself failed, or it cannot take the report, you get a notification instead (not twice for something you already heard about, such as a failed routine).
+
+**Self-edits without a prompt** (setting `TEAM_PROFILE_AUTO`, off by default): when on, an agent changing its own name, title, description or standing instructions at your request through `propose_profile` is allowed without a permission prompt, in a conversation you started. The result card still shows the change with Undo. Working folder, engine, other agents and unattended or plan-mode turns still need your decision. The lead already skips the prompt for all configuration while `TEAM_LEAD_AUTO` is on.
 
 **Escalations** (setting `TEAM_ESCALATIONS`, off by default): a teammate can call `raise_escalation` to flag a gate only you can lift, and an approval left unanswered for ten minutes is flagged the same way. The lead is told in "Team escalations" and assigns nothing: it tells you what is asked and where to answer. Three flags an hour per thread, then muted.
 

@@ -10,7 +10,7 @@ function trustedUpdateRequest(event, window, origin) {
 const ACTIONS = ["state", "check", "download", "install", "release-page"];
 
 function registerUpdates({ ipcMain, openExternal, updater, getWindow, getOrigin }) {
-  ipcMain.handle("open-dots:update", async (event, action) => {
+  ipcMain.handle("suparagent:update", async (event, action) => {
     if (!trustedUpdateRequest(event, getWindow(), getOrigin())) throw new Error("Updates are only available in the app's window.");
     if (!ACTIONS.includes(action)) throw new Error("Unknown update action.");
     if (action === "check") {

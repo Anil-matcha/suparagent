@@ -1,4 +1,4 @@
-# Caddy for Open Duet. With a real domain Caddy gets and renews the certificate by itself.
+# Caddy for Suparagent. With a real domain Caddy gets and renews the certificate by itself.
 #
 # What the server relies on, and this file provides (Caddy does the first three by default):
 #   - X-Forwarded-For is set to the connecting address: Caddy does not believe a header the client
@@ -8,15 +8,15 @@
 #   - The event stream is not buffered (flush_interval -1).
 #   - Uploads up to the server's own 10 MB image limit (plus form overhead) pass.
 #   - /hooks/ goes to the app like everything else: webhooks carry their own per-routine secret.
-# OPEN_DOTS_CADDY_TLS is empty for automatic HTTPS, or `tls internal` for a private name or a test.
-{$OPEN_DOTS_DOMAIN} {
-	{$OPEN_DOTS_CADDY_TLS}
+# SUPARAGENT_CADDY_TLS is empty for automatic HTTPS, or `tls internal` for a private name or a test.
+{$SUPARAGENT_DOMAIN} {
+	{$SUPARAGENT_CADDY_TLS}
 
 	request_body {
 		max_size 20MB
 	}
 
-	reverse_proxy open-dots:8000 {
+	reverse_proxy suparagent:8000 {
 		flush_interval -1
 	}
 }

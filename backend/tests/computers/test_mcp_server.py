@@ -64,7 +64,7 @@ def test_it_lists_four_tools_and_answers_ping(machine):
         {"jsonrpc": "2.0", "id": 3, "method": "ping"},
         {"jsonrpc": "2.0", "id": 4, "method": "resources/list"},
     )
-    assert replies[1]["result"]["serverInfo"]["name"] == "open-dots-computer"
+    assert replies[1]["result"]["serverInfo"]["name"] == "suparagent-computer"
     assert [t["name"] for t in replies[2]["result"]["tools"]] == ["exec", "read_file", "write_file", "list_files"]
     assert replies[3]["result"] == {}
     assert replies[4]["error"]["code"] == -32601

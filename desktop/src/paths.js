@@ -29,7 +29,7 @@ function packagedLayout(resourcesPath, platform = process.platform) {
   const folder = path.join(resourcesPath, "backend");
   return {
     resources: resourcesPath,
-    python: path.join(folder, platform === "win32" ? "open-dots-backend.exe" : "open-dots-backend"),
+    python: path.join(folder, platform === "win32" ? "suparagent-backend.exe" : "suparagent-backend"),
     backendScript: null,
     ui: path.join(resourcesPath, "ui"),
   };

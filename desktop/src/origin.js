@@ -2,7 +2,7 @@
 // started, and nowhere else. The page never sees it: the browser session adds the
 // header to requests on their way out.
 
-const HEADER = "X-Open-Dots-Token";
+const HEADER = "X-Suparagent-Token";
 
 function sameOrigin(url, origin) {
   try {

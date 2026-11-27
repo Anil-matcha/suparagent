@@ -1,4 +1,4 @@
-"""OPEN_DOTS_PUBLIC_URL: one value for the address a self-hosted server is reached at
+"""SUPARAGENT_PUBLIC_URL: one value for the address a self-hosted server is reached at
 (app/core/public_url.py and its use in Settings and the pairing CLI)."""
 
 import os
@@ -46,7 +46,7 @@ def test_normalize_keeps_only_the_origin(given, expected):
     ],
 )
 def test_normalize_refuses_anything_that_is_not_an_origin(given):
-    with pytest.raises(ValueError, match="OPEN_DOTS_PUBLIC_URL"):
+    with pytest.raises(ValueError, match="SUPARAGENT_PUBLIC_URL"):
         public_url.normalize(given)
 
 
@@ -61,10 +61,10 @@ def test_a_pairing_link_keeps_the_code_in_the_fragment():
 
 
 def test_settings_answer_to_the_public_host_without_listing_it_twice():
-    config = Settings(OPEN_DOTS_PUBLIC_URL="https://Dots.Example.com/", TRUSTED_HOSTS="localhost")
+    config = Settings(SUPARAGENT_PUBLIC_URL="https://Dots.Example.com/", TRUSTED_HOSTS="localhost")
     assert config.PUBLIC_ORIGIN == "https://dots.example.com"
     assert config.TRUSTED_HOST_LIST == ["localhost", "dots.example.com"]
-    listed = Settings(OPEN_DOTS_PUBLIC_URL="https://dots.example.com", TRUSTED_HOSTS="localhost,dots.example.com")
+    listed = Settings(SUPARAGENT_PUBLIC_URL="https://dots.example.com", TRUSTED_HOSTS="localhost,dots.example.com")
     assert listed.TRUSTED_HOST_LIST == ["localhost", "dots.example.com"]
 
 
@@ -75,12 +75,12 @@ def test_without_a_public_url_nothing_changes():
 
 
 def test_a_bad_public_url_stops_the_server_from_starting_and_says_why():
-    with pytest.raises(ValidationError, match="OPEN_DOTS_PUBLIC_URL"):
-        Settings(OPEN_DOTS_PUBLIC_URL="https://dots.example.com/app")
+    with pytest.raises(ValidationError, match="SUPARAGENT_PUBLIC_URL"):
+        Settings(SUPARAGENT_PUBLIC_URL="https://dots.example.com/app")
 
 
 def test_the_host_check_accepts_the_public_name_and_still_refuses_others(monkeypatch):
-    monkeypatch.setattr(settings, "OPEN_DOTS_PUBLIC_URL", "https://dots.example.com")
+    monkeypatch.setattr(settings, "SUPARAGENT_PUBLIC_URL", "https://dots.example.com")
     monkeypatch.setattr(settings, "TRUSTED_HOSTS", "localhost,127.0.0.1,[::1]")
     assert host_is_trusted("dots.example.com")
     assert host_is_trusted("localhost")
@@ -101,7 +101,7 @@ def test_the_pairing_command_prints_a_full_link_only_when_the_address_is_set(tmp
     }
 
     def pairing_output(public: str) -> str:
-        env = {**environment, "OPEN_DOTS_PUBLIC_URL": public}
+        env = {**environment, "SUPARAGENT_PUBLIC_URL": public}
         result = subprocess.run(
             [sys.executable, "-m", "app.auth.cli", "pairing-code", "--scope", "chat"],
             cwd=BACKEND_DIR, env=env, capture_output=True, text=True, timeout=60,

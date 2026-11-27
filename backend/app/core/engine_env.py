@@ -5,7 +5,7 @@ An engine turn, and every shell command or tool server it starts, can be
 steered by text from outside (a routine reading a web page, a webhook body).
 Whatever is in its environment is readable by that text, so only names an
 engine or a normal shell needs are passed. A name the operator needs on top
-(a token for `gh`, a proxy login) is listed in `OPEN_DOTS_ENGINE_ENV`.
+(a token for `gh`, a proxy login) is listed in `SUPARAGENT_ENGINE_ENV`.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable, Mapping
 
-EXTRA_NAMES_VARIABLE = "OPEN_DOTS_ENGINE_ENV"
+EXTRA_NAMES_VARIABLE = "SUPARAGENT_ENGINE_ENV"
 
 # What a shell, a runtime and the OS's own tools expect, on every platform.
 _NAMES = frozenset(
@@ -37,7 +37,7 @@ _NAMES = frozenset(
 
 # The engines' own settings and provider keys. Cloud-account routes (AWS for
 # Bedrock, Google Cloud for Vertex, Azure) and `SSH_AUTH_SOCK` carry more than
-# a model key, so they are opt-in through `OPEN_DOTS_ENGINE_ENV`.
+# a model key, so they are opt-in through `SUPARAGENT_ENGINE_ENV`.
 _PREFIXES = (
     "LC_", "XDG_", "NPM_CONFIG_", "npm_config_",
     "ANTHROPIC_", "CLAUDE_", "CODEX_", "OPENAI_", "GEMINI_",
@@ -50,7 +50,7 @@ _NEVER = frozenset(
         "POSTGRES_PASSWORD", "DATABASE_URL", "SQLITE_PATH", "SECRET_KEY", EXTRA_NAMES_VARIABLE,
     }
 )
-_NEVER_PREFIXES = ("OPEN_DOTS_", "POSTGRES_", "TOKEN_ENCRYPTION")
+_NEVER_PREFIXES = ("SUPARAGENT_", "POSTGRES_", "TOKEN_ENCRYPTION")
 
 
 def _never(name: str) -> bool:

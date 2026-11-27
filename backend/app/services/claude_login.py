@@ -16,9 +16,14 @@ from app.core import data_lease, engine_processes
 from app.services import cli_probe
 from app.services.codex_login import LoginError
 from app.services.local_claude_runner import child_env
+from app.core import host_exec
 
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _HOSTS = {"claude.ai", "claude.com", "console.anthropic.com", "platform.claude.com"}
+
+
+# Claude Code 2.1 prints https://claude.com/cai/oauth/authorize; older builds print /oauth/authorize.
+_AUTHORIZE_PATH = re.compile(r"(/[a-z]{1,8})?/oauth/authorize")
 
 
 def authorization_url(output: str) -> str | None:
@@ -30,7 +35,7 @@ def authorization_url(output: str) -> str | None:
             try:
                 parsed = urlsplit(candidate)
                 if (parsed.scheme == "https" and parsed.hostname in _HOSTS
-                        and parsed.path == "/oauth/authorize" and parsed.query
+                        and _AUTHORIZE_PATH.fullmatch(parsed.path) and parsed.query
                         and not parsed.username and not parsed.password
                         and parsed.port in {None, 443} and not parsed.fragment):
                     return candidate
@@ -47,16 +52,19 @@ class ClaudeLogin:
         self.lifetime = 300
         self.prompt_timeout = 30
 
-    async def start(self, owner: str, executable: Path):
+    async def start(self, owner: str, executable: Path, config_dir: Path | None = None):
         if self.task and not self.task.done():
             raise LoginError("A Claude sign-in is already running.")
         env = child_env()
+        if config_dir is not None:
+            from app.services.local_claude_runner import account_env
+            env = account_env(env, config_dir)
         home = Path(env.get("CLAUDE_CONFIG_DIR") or str(Path.home() / ".claude"))
         if not home.is_absolute():
             raise LoginError("Use an absolute CLAUDE_CONFIG_DIR before signing in.")
         home = home.resolve()
         home.mkdir(parents=True, exist_ok=True)
-        fd = os.open(home / ".open-dots-login.lock", os.O_RDWR | os.O_CREAT, 0o600)
+        fd = os.open(home / ".suparagent-login.lock", os.O_RDWR | os.O_CREAT, 0o600)
         if not data_lease._try_lock(fd):
             os.close(fd)
             raise LoginError("Another Claude sign-in is running for this account.")
@@ -128,6 +136,7 @@ class ClaudeLogin:
                 # Prevent the server from opening a local browser; the owner
                 # opens the validated URL in their own browser instead.
                 env = {**env, "NO_COLOR": "1", "BROWSER": "true"}
+                host_exec.ensure_allowed("an engine sign-in")
                 starting = asyncio.create_task(asyncio.create_subprocess_exec(
                     str(executable), "auth", "login", stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,

@@ -1,7 +1,26 @@
 import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview, SkillLearnSource } from "./skills";
-import type { TemplateCatalog, TemplateSkill } from "./templates";
-const API_BASE =
+import type { SpendLimits, SpendLimitsChange, SpendOverview, WorkerSpend } from "./spend";
+import type { HireReceipt, LatestSuggestion, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
+import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
+import type { AppEventConfig, AppEventStatus } from "./app-event";
+import type { ShadowReport } from "./shadow-report";
+import type { FeedbackBody, FeedbackResult, ShareSuggestion } from "./shadow-feedback";
+import type { UndoResult, WorkerLabels } from "./worker-labels";
+import type { AccountUpdate, ForgetResult, HistoryAccount, HistoryLearning, Lesson, Lessons } from "./history-learning";
+import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
+import type { CustomMcpConnection, CustomMcpDraft, CustomMcpTool } from "./custom-mcp";
+import type { ServiceAudit, ServiceCandidate, ServiceKind, ServicePreset, ServiceProvider, ServiceResource } from "./agent-services";
+export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
+
+export function isLocalApiEndpoint(): boolean {
+  try {
+    const hostname = new URL(API_BASE).hostname.toLowerCase();
+    return hostname === "localhost" || hostname.endsWith(".localhost") || hostname.startsWith("127.") || hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
 
 class ApiError extends Error {
   status: number;
@@ -120,13 +139,25 @@ export function setSignedOutHandler(handler: (() => void) | null) {
 }
 
 export function isSignedOutError(err: unknown): boolean {
-  return err instanceof ApiError && (err.code === "auth_required" || err.code === "session_invalid");
+  return err instanceof ApiError && (err.code === "auth_required" || err.code === "session_invalid" || err.code === "account_sign_in_required");
 }
 
 function authHeaders(method: string | undefined): Record<string, string> {
   const safe = !method || ["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   return !safe && csrfToken ? { "X-CSRF-Token": csrfToken } : {};
 }
+
+export type ShadowReportResponse = ShadowReport;
+export type ShadowFeedbackBody = FeedbackBody;
+export type ShadowFeedbackResult = FeedbackResult;
+export type ShareSuggestionResponse = ShareSuggestion;
+export type WorkerLabelsResponse = WorkerLabels;
+export type WorkerLabelsUndoResponse = UndoResult;
+export type HistoryLearningResponse = HistoryLearning;
+export type HistoryAccountResponse = HistoryAccount;
+export type LessonsResponse = Lessons;
+export type LessonResponse = Lesson;
+export type HistoryForgetResponse = ForgetResult;
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -373,7 +404,7 @@ export type PermissionAsk = {
   answered_at: string | null;
 };
 
-export type ApprovalMode = "ask" | "accept_edits" | "plan";
+export type ApprovalMode = "ask" | "accept_edits" | "approve_for_me" | "plan" | "full_access";
 
 // An agent's own isolated machine (a Docker container) where its turns run
 // their commands and file edits. Older backends never send these fields.
@@ -381,6 +412,13 @@ export type ComputerNetwork = "none" | "default";
 
 export type ControlSnapshot = { held: boolean; since: number | null; viewers: number };
 export type TakeControl = ControlSnapshot & { owned: boolean; lease_id?: string; ticket?: string };
+export function browserViewerUrl(agentId: number, ticket: string, pageUrl: string): string {
+  const url = new URL(`${API_BASE}/agents/${agentId}/browser/viewer`, pageUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("ticket", ticket);
+  return url.toString();
+}
+
 export function desktopViewerUrl(id: number, ticket: string, pageUrl: string): string {
   const url = new URL(`${API_BASE}/computers/${id}/viewer`, pageUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -406,6 +444,8 @@ export type ComputerHealth = {
   available: boolean;
   version: string | null;
   error: string | null;
+  hosted?: boolean;
+  browser_local?: boolean;
 };
 
 export type ComputerLastCommand = {
@@ -455,6 +495,8 @@ export type ComputerSettings = {
 
 // A named agent: instructions, model, workspace and how much it asks first.
 // Conversations started with it keep using it.
+export type ClaudeAccount = { id: string; label: string; created_at: string | null };
+
 export type Agent = {
   id: number;
   name: string;
@@ -464,6 +506,7 @@ export type Agent = {
   instructions: string | null;
   provider: string;
   model: string | null;
+  effort?: string | null;
   workspace_path: string | null;
   approval_mode: ApprovalMode;
   pinned?: boolean;
@@ -471,6 +514,12 @@ export type Agent = {
   memory_enabled?: boolean;
   // Off: no notes or earlier conversations are recalled before a turn.
   recall_enabled?: boolean;
+  // Connected apps (Composio) the agent may read, {app: "read"}; null for none.
+  connector_scopes?: Record<string, string> | null;
+  // Exact connected accounts this agent may use, keyed by Composio app slug.
+  connector_account_scopes?: Record<string, string[]>;
+  // The share of a mailbox it may see, {app: {accountId: {percent, pins}}}; no entry means all mail. Never a seed.
+  connector_shares?: Record<string, Record<string, { percent: number; pins?: string[] }>>;
   // Off: no quick model call files facts noticed in its conversations.
   memory_upkeep?: boolean;
   compaction_summary?: boolean;
@@ -479,12 +528,44 @@ export type Agent = {
   // refuses it for a limit before starting on it (docs/ENGINES.md).
   fallback_provider?: string | null;
   fallback_model?: string | null;
+  // A named Claude account id; null or missing is the default account.
+  claude_account?: string | null;
   archived_at: string | null;
   created_at?: string;
   updated_at?: string;
   // Its computer, when it has one; its turns then run their tools there.
   computer_id?: number | null;
   computer?: ComputerSummary | null;
+};
+
+export type AgentMigrationFileProfilePreview = {
+  key: string;
+  name: string;
+  title: string | null;
+  document: Record<string, unknown>;
+  skipped: string[];
+  redacted: string[];
+};
+
+export type AgentMigrationFilePreview = {
+  format: "suparagent.agent-migration";
+  version: number;
+  source: "grok" | "hermes";
+  profiles: AgentMigrationFileProfilePreview[];
+  skipped: string[];
+};
+
+export type OpenBotDatabaseProfilePreview = {
+  key: string;
+  name: string;
+  title: string;
+  instructions: string;
+  document: Record<string, unknown>;
+};
+
+export type OpenBotDatabasePreview = {
+  schema_version: number;
+  profiles: OpenBotDatabaseProfilePreview[];
 };
 
 export type AgentInput = {
@@ -495,6 +576,7 @@ export type AgentInput = {
   instructions?: string;
   provider?: string;
   model?: string | null;
+  effort?: string | null;
   workspace_path?: string | null;
   approval_mode?: ApprovalMode;
   pinned?: boolean;
@@ -505,11 +587,26 @@ export type AgentInput = {
   use_helper?: boolean;
   fallback_provider?: string | null;
   fallback_model?: string | null;
+  // A named Claude account id; null or missing is the default account.
+  claude_account?: string | null;
+  // Update only: connected apps this agent may read, {app: "read"}; null or {} for none.
+  connector_scopes?: Record<string, string> | null;
+  // Update only: exact connected account IDs this agent may use, keyed by app.
+  connector_account_scopes?: Record<string, string[]>;
+  // Update only: the share of a mailbox it may see per account ({gmail: {accountId: {percent}}}); omit to leave it unchanged.
+  connector_shares?: Record<string, Record<string, { percent: number; pins?: string[] }>>;
   // Create only: the first contents of the agent's notes.
   starter_notes?: string | null;
 };
 
-export type EngineModel = { id: string; label: string; default: boolean };
+export type EngineModel = {
+  id: string;
+  label: string;
+  default: boolean;
+  default_reasoning_effort?: string | null;
+  supported_reasoning_efforts?: string[];
+  reasoning_effort_configurable?: boolean;
+};
 export type EngineConfigField = {
   name: keyof EngineConfigInput;
   label: string;
@@ -531,7 +628,7 @@ export type Engine = {
   models: EngineModel[];
   default_model: string | null;
   custom_models: boolean;
-  capabilities: { tools: boolean; approvals: boolean; mcp: boolean; images: boolean; resume: boolean; computers: boolean };
+  capabilities: { tools: boolean; approvals: boolean; mcp: boolean; images: boolean; resume: boolean; computers: boolean; steering?: boolean };
   configurable: boolean;
   can_write_text?: boolean;
   config: Record<string, unknown> | null;
@@ -541,11 +638,31 @@ export type Engine = {
   // Set while the engine refuses turns for a usage or rate limit or no credits.
   limit?: EngineLimit | null;
 };
+export type EnginePreference = {
+  provider: string | null;
+  model: string | null;
+  effort?: string | null;
+};
 export type EngineLimit = {
   kind: "usage_limit" | "rate_limit" | "credits";
   resets_at: string | null;
   since: string;
   message: string;
+};
+export type EngineUsageWindow = {
+  name: string;
+  left_percent: number;
+  used_percent: number;
+  resets_at: string | null;
+};
+export type EngineUsageReport = {
+  engine: string;
+  name: string;
+  user_email?: string | null;
+  checked_at: number;
+  windows: EngineUsageWindow[];
+  primary_left_percent: number;
+  tone: "fine" | "near" | "out";
 };
 export type EngineConfigInput = {
   command?: string;
@@ -557,6 +674,9 @@ export type EngineConfigInput = {
   context_tokens?: number;
 };
 
+export type ComposioStatus = { configured: boolean; apps: ComposioApp[] };
+export type { CatalogApp as ComposioCatalogApp, CatalogPage as ComposioCatalogPage, CatalogTool as ComposioCatalogTool } from "./apps-catalog";
+
 export type CodexLoginOperation = {
   id: string;
   phase: "running" | "succeeded" | "failed" | "expired" | "cancelled";
@@ -567,12 +687,24 @@ export type CodexLoginOperation = {
 
 export type ClaudeLoginOperation = Omit<CodexLoginOperation, "user_code"> & { code_sent?: boolean };
 
+export type VersionInfo = {
+  current_version: string;
+  commit?: string | null;
+  latest_version?: string | null;
+  update_available: boolean;
+  install_kind: "docker" | "service" | "git" | "source";
+  update_command: string;
+  release_notes_url: string;
+};
+
 export type GoogleSetupOperation = {
   id: string;
   kind: "install" | "sign_in" | "models";
   phase: "running" | "succeeded" | "failed" | "cancelled";
   authorization_url: string | null;
   error: string | null;
+  progress?: number | null;
+  detail?: string | null;
 };
 
 // Topic notes (memory/<topic>.md), the journal and proposed notes (docs/MEMORY.md).
@@ -632,6 +764,8 @@ export type MemoryUpkeepStatus = {
 // Installation-wide: the same for every agent.
 export type MemorySettings = {
   learn_from_rooms: boolean;
+  // Keep recent Claude and Codex chats cached with a tiny message every few minutes (off by default).
+  keep_cache_warm?: boolean;
   tidy_hour: number;
   helper_models: Record<string, string>;
   // The saved helper, and the one in force (the environment can set or switch it off).
@@ -639,6 +773,29 @@ export type MemorySettings = {
   helper_active?: { engine: string; model: string | null; source: "environment" | "settings" } | null;
 };
 export type LearnedFact = { id: string; text: string; line: string; agent_id: number | null; agent_name: string; at: number };
+// The workspace's business profile: one short note per field that every agent reads and only the person writes.
+export type BusinessProfile = {
+  fields: Record<string, string>;
+  hash: string;
+  limits: Record<string, number>;
+  labels: Record<string, string>;
+  updated_at: number;
+  empty: boolean;
+};
+// A change a worker suggested to one profile field. It waits for the person; nothing is applied until they accept.
+export type ProfileProposal = {
+  id: string;
+  field: string;
+  label: string;
+  text: string;
+  reason: string;
+  agent_id: number | null;
+  agent_name: string;
+  // What the field said when the suggestion was made.
+  base_text: string;
+  created_at: number;
+};
+export type ProfileProposals = { items: ProfileProposal[]; max_pending: number };
 export type AboutMe = { text: string; hash: string; learned: LearnedFact[]; max_chars: number; redacted?: number };
 export type MemoryProposal = {
   id: string;
@@ -684,13 +841,17 @@ export type AgentExport = {
 
 export type Thread = {
   id: number;
+  kind?: string;
   // Present once the backend supports named agents; null for a plain chat.
   agent_id?: number | null;
   title: string | null;
   provider: string;
   model: string | null;
+  effort?: string | null;
   // The folder Claude works in; saved command rules can be tied to it.
   workspace_path?: string | null;
+  // The conversation this one was branched from (edit and resend), if any.
+  branched_from_thread_id?: number | null;
   // The computer this conversation's tools run in (its agent's), or null.
   computer?: ComputerSummary | null;
   // new | active | broken | none. "broken": the Claude session cannot be found
@@ -803,6 +964,8 @@ export type RoutineRun = {
   scheduled_for: string | null;
   thread_id: number | null;
   turn_id: number | null;
+  outcome?: "no_change" | "report" | "unknown" | "source_failed" | "failed" | "interrupted" | "partial" | null;
+  outcome_details?: Record<string, unknown> | null;
   result: string | null;
   error: string | null;
   waiting_since: string | null;
@@ -811,6 +974,30 @@ export type RoutineRun = {
   retry_of: number | null;
   started_at: string | null;
   finished_at: string | null;
+  created_at: string;
+};
+
+// A routine run paused on questions, for the agent's own chat. Answer through
+// answerThreadApproval with thread_id.
+export type WaitingRoutineRun = {
+  run_id: number;
+  routine_id: number;
+  routine_name: string;
+  thread_id: number;
+  waiting_since: string | null;
+  approval_timeout_minutes: number;
+  approvals: { id: string; tool: string; summary: string | null; kind: string | null; input: Record<string, unknown>; created_at: string }[];
+};
+
+// Routine connector grants are exact read tools, each bound to one connected account.
+export type ConnectedAppGrant = { tool: string; account_id: string };
+export type RoutineAppAction = {
+  id: number;
+  tool: string;
+  account_id: string;
+  status: string;
+  code: string | null;
+  result: Record<string, unknown> | null;
   created_at: string;
 };
 
@@ -829,15 +1016,22 @@ export type Routine = {
   approval_mode: ApprovalMode;
   approval_timeout_minutes: number;
   catch_up_minutes: number;
+  quiet_reporting?: boolean;
   retry_limit: number;
   retry_delay_minutes: number;
   last_run_at: string | null;
   created_at: string;
   updated_at: string;
   summary: string;
+  status?: "on" | "off" | "done";
   next_dates: string[];
   webhook_enabled: boolean;
   latest_run: RoutineRun | null;
+  connected_app_grants: ConnectedAppGrant[];
+  uninterrupted_access: boolean;
+  // The optional new-mail trigger and how it is doing (BL-177); absent on a server that predates it.
+  app_event?: AppEventConfig | null;
+  app_event_status?: AppEventStatus | null;
 };
 
 export type RoutineInput = {
@@ -851,12 +1045,121 @@ export type RoutineInput = {
   approval_mode: ApprovalMode;
   approval_timeout_minutes: number;
   catch_up_minutes: number;
+  quiet_reporting?: boolean;
   retry_limit: number;
   retry_delay_minutes: number;
+  connected_app_grants: ConnectedAppGrant[];
+  uninterrupted_access: boolean;
+  // A config turns the trigger on, null removes it, leaving it out keeps what the routine has.
+  app_event?: AppEventConfig | null;
 };
 
 export type SchedulePreview = { summary: string; next_dates: string[] };
 export type WebhookSecret = { routine: Routine; secret: string; path: string };
+
+
+export type WorkflowStep = {
+  id: string;
+  name: string;
+  type: "action" | "llm" | "agent" | "condition" | "approval" | "end" | "note" | "shape" | "trigger" | "section" | "text";
+  trigger_type?: "manual" | "schedule" | "webhook" | "message";
+  schedule_kind?: "daily" | "hourly" | "weekly" | "monthly" | "cron";
+  schedule_days?: string;
+  schedule_time?: string;
+  schedule_hours?: number;
+  schedule_cron?: string;
+  webhook_url?: string;
+  webhook_secret?: string;
+  message_keyword?: string;
+  agent_id?: number;
+  prompt?: string;
+  text?: string;
+  font_size?: string;
+  shape?: "rectangle" | "circle" | "diamond" | "triangle" | "inverted" | "oval" | "star";
+  tone?: string;
+  ink?: string;
+  font?: string;
+  size?: string | number;
+  align?: string;
+  bold?: boolean;
+  model?: string;
+  effort?: string | null;
+  system_prompt?: string | null;
+  approval_mode?: ApprovalMode;
+  next_step_id?: string | null;
+  target_port?: "text" | "image" | "file";
+  target?: string;
+  operator?: "contains" | "not_contains" | "equals" | "not_equals" | "matches_regex" | "is_empty" | "is_not_empty";
+  value?: string;
+  if_true?: string;
+  if_true_target_port?: "text" | "image" | "file";
+  if_false?: string;
+  if_false_target_port?: "text" | "image" | "file";
+  timeout_minutes?: number;
+  on_approve?: string;
+  on_approve_target_port?: "text" | "image" | "file";
+  on_reject?: string | null;
+  on_reject_target_port?: "text" | "image" | "file";
+  status?: "completed" | "failed";
+  message?: string;
+  color?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+};
+
+export type Workflow = {
+  id: number;
+  owner_id: string;
+  name: string;
+  description: string | null;
+  trigger_type: "manual" | "schedule" | "webhook";
+  trigger_spec: Record<string, unknown>;
+  steps: WorkflowStep[];
+  paused: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkflowRun = {
+  id: number;
+  workflow_id: number;
+  owner_id: string;
+  trigger: string;
+  status: "running" | "waiting_approval" | "completed" | "failed" | "cancelled";
+  current_step_id: string | null;
+  context: Record<string, unknown>;
+  step_states: Record<string, {
+    id: string;
+    name: string;
+    type: string;
+    status: string;
+    output?: string;
+    result?: boolean;
+    branch_taken?: string;
+    decision?: string;
+    notes?: string;
+    prompt?: string;
+    message?: string;
+    started_at?: string;
+    finished_at?: string;
+  }>;
+  pending_approval: {
+    step_id: string;
+    name: string;
+    prompt: string;
+    timeout_minutes: number;
+    on_approve?: string;
+    on_reject?: string | null;
+    requested_at: string;
+  } | null;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 export type AppNotification = {
   id: number;
@@ -870,10 +1173,47 @@ export type AppNotification = {
   created_at: string;
 };
 
+export type NotificationPreferences = {
+  desktop_enabled: boolean;
+  notify_needs_you: boolean;
+  notify_failures: boolean;
+  notify_task_due: boolean;
+  notify_turn_completed?: boolean;
+  sound_enabled: boolean;
+  quiet_hours_enabled?: boolean;
+  quiet_hours_start?: string;
+  quiet_hours_end?: string;
+};
+
 export const api = {
+  speak: (body: { text: string; voice?: string }, signal?: AbortSignal) => requestSpeech(body, signal),
+  speechVoices: () => request<import("./speechReplies").SpeechVoices>("/speech/voices"),
+  clearSavedSpeech: () => request<{ removed: number }>("/speech/cache", { method: "DELETE" }),
+  listImageProviders: () => request<import("./image-gen").ImageProvider[]>("/images/providers"),
+  generateImage: (body: { prompt: string; provider?: string; size?: string }) =>
+    request<import("./image-gen").GeneratedImage>("/images/generate", { method: "POST", body: JSON.stringify(body) }),
+  generatedImageUrl: (imageId: string) => requestBlobUrl(`/images/${encodeURIComponent(imageId)}`),
+  setAgentAvatar: (agentId: number, imageId: string) =>
+    request<void>(`/agents/${agentId}/avatar`, { method: "PUT", body: JSON.stringify({ image_id: imageId }) }),
+  clearAgentAvatar: (agentId: number) => request<void>(`/agents/${agentId}/avatar`, { method: "DELETE" }),
+  agentAvatarUrl: (agentId: number) => requestBlobUrl(`/agents/${agentId}/avatar`),
+  listAgentRevisions: (agentId: number) => request<import("./agent-history").AgentRevision[]>(`/agents/${agentId}/revisions`),
+  restoreAgentRevision: (agentId: number, number: number, expectedRevision: number | null) =>
+    request<Agent>(`/agents/${agentId}/revisions/${number}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ expected_revision: expectedRevision }),
+    }),
+  listWorkspaceSnapshots: (threadId: number) => request<import("./workspace-undo").WorkspaceSnapshot[]>(`/threads/${threadId}/snapshots`),
+  restoreWorkspaceSnapshot: (threadId: number, snapshotId: string) =>
+    request<import("./workspace-undo").RestoreResult>(`/threads/${threadId}/snapshots/${encodeURIComponent(snapshotId)}/restore`, { method: "POST" }),
+  getVersionInfo: (refresh = false) => request<VersionInfo>(`/version${refresh ? "?refresh=true" : ""}`),
   roomExportUrl: (id: number, format: "md" | "json") => requestBlobUrl(`/rooms/${id}/export?format=${format}`),
+  getNeedsYou: () => request<import("./needs-you").NeedsYouSnapshot>("/needs-you?refresh=true"),
   requestTeamLead: (agentId: number) => request<{ id: number; lead_agent_id: number }>("/team/lead", { method: "POST", body: JSON.stringify({ agent_id: agentId }) }),
   getEngines: (refresh = false) => request<Engine[]>(`/engines${refresh ? "?refresh=true" : ""}`),
+  getEngineUsageLimits: (engineId: string) => request<EngineUsageReport | null>(`/engines/${encodeURIComponent(engineId)}/usage-limits`),
+  getEnginePreference: () => request<EnginePreference>("/engines/preference"),
+  setEnginePreference: (preference: EnginePreference) => request<EnginePreference>("/engines/preference", { method: "PUT", body: JSON.stringify(preference) }),
   logoutClaudeEngine: () => request<void>("/engines/claude/logout", { method: "POST" }),
   logoutCodexEngine: () => request<void>("/engines/codex/logout", { method: "POST" }),
   startClaudeEngineLogin: () => request<ClaudeLoginOperation>("/engines/claude/login", { method: "POST" }),
@@ -890,6 +1230,139 @@ export const api = {
   saveEngineConfig: (engineId: string, config: EngineConfigInput) =>
     request<Engine>(`/engines/${encodeURIComponent(engineId)}/config`, { method: "PUT", body: JSON.stringify(config) }),
   deleteEngineConfig: (engineId: string) => request<void>(`/engines/${encodeURIComponent(engineId)}/config`, { method: "DELETE" }),
+  getComposioCatalog: (query: { search?: string; category?: string | null; cursor?: string | null; limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (query.search) params.set("search", query.search);
+    if (query.category) params.set("category", query.category);
+    if (query.cursor) params.set("cursor", query.cursor);
+    if (query.limit) params.set("limit", String(query.limit));
+    const text = params.toString();
+    return request<import("./apps-catalog").CatalogPage>(`/integrations/composio/catalog${text ? `?${text}` : ""}`);
+  },
+  getComposioStatus: () => request<ComposioStatus>("/integrations/composio"),
+  saveComposioKey: (apiKey: string) => request<ComposioStatus>("/integrations/composio/key", { method: "PUT", body: JSON.stringify({ api_key: apiKey }) }),
+  deleteComposioKey: () => request<void>("/integrations/composio/key", { method: "DELETE" }),
+  listComposioAccounts: () => request<ComposioAccount[]>("/integrations/composio/accounts"),
+  // A support worker's shadow-mode comparison (numbers and thread ids only). `refresh` asks the server to recompute; it may answer 429.
+  getShadowReport: (agentId: number, options: { days?: number; refresh?: boolean } = {}) =>
+    request<ShadowReportResponse>(`/agents/${agentId}/shadow-report?days=${options.days ?? 28}&refresh=${options.refresh ? "true" : "false"}`),
+  // The owner's "that was wrong, and why" about a thread the worker predicted, and the proposal to raise or lower its share of the
+  // mailbox (a proposal only: the share changes when the owner saves it through updateAgent).
+  sendShadowFeedback: (agentId: number, body: ShadowFeedbackBody) =>
+    request<ShadowFeedbackResult>(`/agents/${agentId}/shadow-feedback`, { method: "POST", body: JSON.stringify(body) }),
+  getShareSuggestion: (agentId: number, options: { refresh?: boolean } = {}) =>
+    request<ShareSuggestionResponse>(`/agents/${agentId}/share-suggestion?refresh=${options.refresh ? "true" : "false"}`),
+  // The labels a support worker added under Worker/ (counts and names only), and the one-click removal of exactly those.
+  getWorkerLabels: (agentId: number) => request<WorkerLabelsResponse>(`/agents/${agentId}/worker-labels`),
+  undoWorkerLabels: (agentId: number) => request<WorkerLabelsUndoResponse>(`/agents/${agentId}/worker-labels/undo`, { method: "POST" }),
+  // Learning from the owner's past replies (BL-174): the opt-in per Gmail account, and the lessons to review.
+  getHistoryLearning: (agentId: number) => request<HistoryLearningResponse>(`/agents/${agentId}/history-learning`),
+  updateHistoryLearning: (agentId: number, accountId: string, body: AccountUpdate) =>
+    request<HistoryAccountResponse>(`/agents/${agentId}/history-learning/${encodeURIComponent(accountId)}`, { method: "PUT", body: JSON.stringify(body) }),
+  forgetHistoryLearning: (agentId: number) => request<HistoryForgetResponse>(`/agents/${agentId}/history-learning`, { method: "DELETE" }),
+  getLessons: (agentId: number) => request<LessonsResponse>(`/agents/${agentId}/lessons`),
+  acceptLesson: (agentId: number, lessonId: string, text?: string) =>
+    request<LessonResponse>(`/agents/${agentId}/lessons/${encodeURIComponent(lessonId)}/accept`, { method: "POST", body: JSON.stringify(text === undefined ? {} : { text }) }),
+  dismissLesson: (agentId: number, lessonId: string) =>
+    request<void>(`/agents/${agentId}/lessons/${encodeURIComponent(lessonId)}/dismiss`, { method: "POST" }),
+  connectComposioApp: (toolkit: string, alias?: string) =>
+    request<ComposioLink>("/integrations/composio/connect", { method: "POST", body: JSON.stringify(alias ? { toolkit, alias } : { toolkit }) }),
+  disconnectComposioAccount: (id: string) => request<void>(`/integrations/composio/accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  // Community MCP marketplace. Credentials are sent only to the signed-in backend.
+  getMarketplaceCatalog: () => request<MarketplaceCatalog>("/integrations/marketplace"),
+  listMarketplaceConnections: () => request<MarketplaceConnection[]>("/integrations/marketplace/connections"),
+  installMarketplaceListing: (section: MarketplaceSection, slug: string, manifestDigest: string) =>
+    request<MarketplaceConnection>(`/integrations/marketplace/${section}/${encodeURIComponent(slug)}/install`, {
+      method: "POST", body: JSON.stringify({ manifest_digest: manifestDigest }),
+    }),
+  disconnectMarketplaceListing: (connectionId: string) =>
+    request<void>(`/integrations/marketplace/connections/${encodeURIComponent(connectionId)}`, { method: "DELETE" }),
+  discoverMarketplaceTools: (connectionId: string) =>
+    request<MarketplaceTool[]>(`/integrations/marketplace/connections/${encodeURIComponent(connectionId)}/tools`),
+  saveMarketplaceCredential: (connectionId: string, credential: string) =>
+    request<MarketplaceConnection>(`/integrations/marketplace/connections/${encodeURIComponent(connectionId)}/credential`, {
+      method: "PUT", body: JSON.stringify({ credential }),
+    }),
+  removeMarketplaceCredential: (connectionId: string) =>
+    request<void>(`/integrations/marketplace/connections/${encodeURIComponent(connectionId)}/credential`, { method: "DELETE" }),
+  getMarketplaceAgentGrants: (connectionId: string, agentId: number) =>
+    request<{ tool_names: string[] }>(`/integrations/marketplace/connections/${encodeURIComponent(connectionId)}/agents/${agentId}/grants`),
+  saveMarketplaceAgentGrants: (connectionId: string, agentId: number, tools: { name: string; schema_digest: string }[]) =>
+    request<{ tool_names: string[] }>(`/integrations/marketplace/connections/${encodeURIComponent(connectionId)}/agents/${agentId}/grants`, {
+      method: "PUT", body: JSON.stringify({ tools }),
+    }),
+  // First-party MuAPI data API. The key stays in the backend's encrypted credential store.
+  getMuapiIntegration: () => request<{ configured: boolean }>("/integrations/muapi"),
+  saveMuapiIntegration: (apiKey: string) =>
+    request<{ configured: boolean }>("/integrations/muapi", { method: "PUT", body: JSON.stringify({ api_key: apiKey }) }),
+  deleteMuapiIntegration: () => request<void>("/integrations/muapi", { method: "DELETE" }),
+  getMuapiAgentGrants: (agentId: number) =>
+    request<{ tool_names: string[] }>(`/integrations/muapi/agents/${agentId}/grants`),
+  setMuapiAgentGrants: (agentId: number, tools: string[]) =>
+    request<{ tool_names: string[] }>(`/integrations/muapi/agents/${agentId}/grants`, {
+      method: "PUT", body: JSON.stringify({ tools }),
+    }),
+  // Owner-added custom MCP servers. Secrets are write-only: no route ever returns one.
+  listCustomMcp: () => request<CustomMcpConnection[]>("/integrations/custom-mcp/connections"),
+  createCustomMcp: (draft: CustomMcpDraft) =>
+    request<CustomMcpConnection>("/integrations/custom-mcp/connections", { method: "POST", body: JSON.stringify(draft) }),
+  updateCustomMcp: (id: string, body: Record<string, unknown>) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
+  testCustomMcp: (id: string, revision: number) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/test`, { method: "POST", body: JSON.stringify({ revision }) }),
+  setCustomMcpEnabled: (id: string, revision: number, enabled: boolean) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/${enabled ? "enable" : "disable"}`, {
+      method: "POST", body: JSON.stringify({ revision }),
+    }),
+  getCustomMcpRedirect: () =>
+    request<{ redirect_uri: string | null; fixed: boolean; pattern: string | null }>("/integrations/custom-mcp/oauth/redirect-uri"),
+  startCustomMcpSignIn: (id: string, revision: number) =>
+    request<{ authorization_url: string }>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/oauth/start`, {
+      method: "POST", body: JSON.stringify({ revision }),
+    }),
+  signOutCustomMcp: (id: string, revision: number) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/oauth/sign-out`, {
+      method: "POST", body: JSON.stringify({ revision }),
+    }),
+  setCustomMcpSharing: (id: string, revision: number, shared: boolean) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/sharing`, {
+      method: "POST", body: JSON.stringify({ revision, shared }),
+    }),
+  removeCustomMcpCredential: (id: string, revision: number) =>
+    request<CustomMcpConnection>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/credential?revision=${revision}`, { method: "DELETE" }),
+  deleteCustomMcp: (id: string) =>
+    request<void>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  getCustomMcpTools: (id: string) =>
+    request<CustomMcpTool[]>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/tools`),
+  getCustomMcpGrants: (id: string, agentId: number) =>
+    request<{ tool_names: string[] }>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/agents/${agentId}/grants`),
+  saveCustomMcpGrants: (id: string, agentId: number, revision: number, tools: { name: string; schema_digest: string }[]) =>
+    request<{ tool_names: string[] }>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/agents/${agentId}/grants`, {
+      method: "PUT", body: JSON.stringify({ revision, tools }),
+    }),
+  listServicePresets: () => request<ServicePreset[]>("/integrations/agent-services/presets"),
+  listServiceProviders: () => request<ServiceProvider[]>("/integrations/agent-services/providers"),
+  addServiceProvider: (preset: string, resourceLimit: number) =>
+    request<ServiceProvider>("/integrations/agent-services/providers", { method: "POST", body: JSON.stringify({ preset, resource_limit: resourceLimit }) }),
+  setServiceProviderLimit: (connectionId: string, provider: string, resourceLimit: number) =>
+    request<ServiceProvider>(`/integrations/agent-services/providers/${encodeURIComponent(connectionId)}`, {
+      method: "PUT", body: JSON.stringify({ provider, resource_limit: resourceLimit }),
+    }),
+  clearServiceProvider: (connectionId: string) =>
+    request<void>(`/integrations/agent-services/providers/${encodeURIComponent(connectionId)}`, { method: "DELETE" }),
+  listServiceResources: () => request<ServiceResource[]>("/integrations/agent-services/resources"),
+  addServiceResource: (body: { connection_id: string; kind: ServiceKind; address: string; label: string; provider_resource_id?: string }) =>
+    request<ServiceResource>("/integrations/agent-services/resources", { method: "POST", body: JSON.stringify(body) }),
+  deleteServiceResource: (id: string) =>
+    request<void>(`/integrations/agent-services/resources/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  assignServiceResource: (id: string, agentIds: number[]) =>
+    request<ServiceResource>(`/integrations/agent-services/resources/${encodeURIComponent(id)}/agents`, {
+      method: "PUT", body: JSON.stringify({ agent_ids: agentIds }),
+    }),
+  listServiceAudit: (limit = 20, offset = 0, agentId?: number) =>
+    request<ServiceAudit[]>(`/integrations/agent-services/audit?limit=${limit}&offset=${offset}${agentId !== undefined ? `&agent_id=${agentId}` : ""}`),
+  lookUpServiceProvider: (connectionId: string) =>
+    request<ServiceCandidate[]>(`/integrations/agent-services/providers/${encodeURIComponent(connectionId)}/lookup`),
   getDesktopSettings: () => request<DesktopSettings>("/settings"),
   saveDesktopSetting: (key: string, value: unknown, expectedVersion: number) =>
     request<ApplicationSetting>(`/settings/${encodeURIComponent(key)}`, {
@@ -990,7 +1463,15 @@ export const api = {
 
   getThread: (threadId: number) => request<ThreadDetail>(`/threads/${threadId}`),
 
-  createThread: (agentId?: number | null, selection?: { provider?: string; model?: string | null }) =>
+  // Edit a past message and resend it in a new conversation that keeps the
+  // history before it. The original is not changed.
+  branchThread: (threadId: number, turnId: number, promptText: string) =>
+    request<Thread>(`/threads/${threadId}/branch`, {
+      method: "POST",
+      body: JSON.stringify({ turn_id: turnId, prompt_text: promptText }),
+    }),
+
+  createThread: (agentId?: number | null, selection?: { provider?: string; model?: string | null; effort?: string | null }) =>
     request<Thread>("/threads", {
       method: "POST",
       body: JSON.stringify({ ...(agentId != null ? { agent_id: agentId } : {}), ...selection }),
@@ -1011,6 +1492,22 @@ export const api = {
 
   // Ready-made agents (/templates): a bundled, read-only catalog.
   listTemplates: () => request<TemplateCatalog>("/templates"),
+  // Spending limits for paid tools. Owner only; changing the limits works in the desktop app (404 elsewhere).
+  getSpend: () => request<SpendOverview>("/spend-limits"),
+  saveSpendLimits: (limits: SpendLimitsChange) => request<SpendLimits>("/spend-limits", { method: "PUT", body: JSON.stringify(limits) }),
+  setWorkerPaidUse: (agentId: number, scheduledPaidUse: boolean) =>
+    request<WorkerSpend>(`/spend-limits/workers/${agentId}`, { method: "PUT", body: JSON.stringify({ scheduled_paid_use: scheduledPaidUse }) }),
+  hireTemplates: (templateIds: string[], provider?: string, model?: string | null) =>
+    request<HireReceipt>("/templates/hire", { method: "POST", body: JSON.stringify({ template_ids: templateIds, ...(provider ? { provider } : {}), ...(model ? { model } : {}) }) }),
+  suggestGoals: () => request<SuggestGoal[]>("/templates/suggest/goals"),
+  latestWorkerSuggestion: () => request<LatestSuggestion | null>("/templates/suggest/latest"),
+  suggestTemplates: (goals: string[], about: string, maxSetup: "express" | "guided") =>
+    request<{ suggestions: Suggestion[] }>("/templates/suggest", {
+      method: "POST",
+      body: JSON.stringify({ goals, about, max_setup: maxSetup }),
+    }),
+  undoHire: (agentIds: number[]) =>
+    request<{ removed: number[] }>("/templates/hire/undo", { method: "POST", body: JSON.stringify({ agent_ids: agentIds }) }),
 
   // A template's suggested skill, saved on the new agent after it exists. An older
   // backend with no skills library answers 404.
@@ -1070,6 +1567,27 @@ export const api = {
   saveMemorySettings: (change: Partial<MemorySettings>) =>
     request<MemorySettings>("/memory/settings", { method: "PUT", body: JSON.stringify(change) }),
 
+  businessProfile: () => request<BusinessProfile>("/business-profile"),
+
+  // `expectedHash` is the hash of the profile that was opened; a stale one is a 409 (code profile_changed).
+  saveBusinessProfile: (fields: Record<string, string>, expectedHash: string | null) =>
+    request<BusinessProfile>("/business-profile", {
+      method: "PUT",
+      body: JSON.stringify(expectedHash ? { fields, expected_hash: expectedHash } : { fields }),
+    }),
+
+  profileProposals: () => request<ProfileProposals>("/business-profile/proposals"),
+
+  // A stale one (the field changed since it was suggested) is a 409 with code proposal_stale; pass overwrite to apply it anyway.
+  acceptProfileProposal: (id: string, overwrite = false) =>
+    request<BusinessProfile>(`/business-profile/proposals/${encodeURIComponent(id)}/accept`, {
+      method: "POST",
+      body: JSON.stringify({ overwrite }),
+    }),
+
+  dismissProfileProposal: (id: string) =>
+    request<{ ok: boolean }>(`/business-profile/proposals/${encodeURIComponent(id)}/dismiss`, { method: "POST" }),
+
   aboutMe: () => request<AboutMe>("/memory/about-me"),
 
   // `expectedHash` is the hash of the text that was opened; a stale one is a 409 (code memory_changed).
@@ -1098,16 +1616,39 @@ export const api = {
 
   // A new agent from an agent file; it always starts on "Ask first".
   // 422 invalid_agent_file when the file is not one.
-  importAgent: (document: unknown, includeNotes = true) =>
+  importAgent: (document: unknown, includeNotes = true, includeSkills = false) =>
     request<Agent>("/agents/import", {
       method: "POST",
-      body: JSON.stringify({ document, include_notes: includeNotes }),
+      body: JSON.stringify({ document, include_notes: includeNotes, include_skills: includeSkills }),
     }),
+
+  previewAgentMigration: (file: File) =>
+    request<AgentMigrationFilePreview>("/agents/import/migration/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: file,
+    }),
+
+  previewOpenBotDatabase: (file: File) => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    return requestForm<OpenBotDatabasePreview>("/agents/import/openbot/preview", form);
+  },
 
   // --- Agent computers. An older backend answers 404 here: callers treat that
   // as "computers are not available" and keep working. ---
 
   computersHealth: () => request<ComputerHealth>("/computers/health"),
+  muapiCredentialStatus: () => request<{ configured: boolean }>("/computers/muapi-credentials"),
+  saveMuapiCredential: (apiKey: string) => request<{ configured: boolean }>("/computers/muapi-credentials", { method: "PUT", body: JSON.stringify({ api_key: apiKey }) }),
+  deleteMuapiCredential: () => request<void>("/computers/muapi-credentials", { method: "DELETE" }),
+  boatCredentialStatus: () => request<{ configured: boolean }>("/computers/boat-credentials"),
+  saveBoatCredential: (apiKey: string) => request<{ configured: boolean }>("/computers/boat-credentials", { method: "PUT", body: JSON.stringify({ api_key: apiKey }) }),
+  deleteBoatCredential: () => request<void>("/computers/boat-credentials", { method: "DELETE" }),
+  boxdCredentialStatus: () => request<{ configured: boolean }>("/computers/boxd-credentials"),
+  saveBoxdCredential: (apiKey: string) => request<{ configured: boolean }>("/computers/boxd-credentials", { method: "PUT", body: JSON.stringify({ api_key: apiKey }) }),
+  deleteBoxdCredential: () => request<void>("/computers/boxd-credentials", { method: "DELETE" }),
+  boatDesktopUrl: (id: number, leaseId: string) => request<{ url: string }>(`/computers/${id}/boat-desktop-url`, { method: "POST", body: JSON.stringify({ lease_id: leaseId }) }),
 
   getAgentComputer: (agentId: number) => request<Computer>(`/agents/${agentId}/computer`),
 
@@ -1117,8 +1658,12 @@ export const api = {
   releaseComputerControl: (id: number, leaseId: string) => request<ControlSnapshot>(`/computers/${id}/control`, { method: "POST", keepalive: true, body: JSON.stringify({ action: "release", lease_id: leaseId }) }),
   computerControlHeartbeat: (id: number, leaseId: string) => request<void>(`/computers/${id}/control/heartbeat`, { method: "POST", body: JSON.stringify({ lease_id: leaseId }) }),
   computerViewerTicket: (id: number, leaseId: string) => request<{ ticket: string }>(`/computers/${id}/viewer-ticket`, { method: "POST", body: JSON.stringify({ mode: "control", lease_id: leaseId }) }),
+  browserViewTicket: (agentId: number) => request<{ ticket: string; view_only: boolean }>(`/agents/${agentId}/browser/view`, { method: "POST" }),
+  takeBrowserControl: (agentId: number, leaseId?: string) => request<TakeControl>(`/agents/${agentId}/browser/control`, { method: "POST", body: JSON.stringify({ action: "take", ...(leaseId ? { lease_id: leaseId } : {}) }) }),
+  releaseBrowserControl: (agentId: number, leaseId: string) => request<ControlSnapshot>(`/agents/${agentId}/browser/control`, { method: "POST", keepalive: true, body: JSON.stringify({ action: "release", lease_id: leaseId }) }),
+  browserControlHeartbeat: (agentId: number, leaseId: string) => request<void>(`/agents/${agentId}/browser/control/heartbeat`, { method: "POST", body: JSON.stringify({ lease_id: leaseId }) }),
   computerScreenshot: (id: number) => requestBlobUrl(`/computers/${id}/screenshot`),
-  createAgentComputer: (agentId: number, settings: ComputerSettings & { kind?: ComputerKind; start?: boolean } = {}) =>
+  createAgentComputer: (agentId: number, settings: ComputerSettings & { provider?: "docker" | "muapi" | "boat" | "boxd"; kind?: ComputerKind; start?: boolean } = {}) =>
     request<Computer>(`/agents/${agentId}/computer`, { method: "POST", body: JSON.stringify(settings) }),
 
   getComputer: (computerId: number) => request<Computer>(`/computers/${computerId}`),
@@ -1141,6 +1686,9 @@ export const api = {
     request<SkillDoc>(`/agents/${agentId}/skills/${encodeURIComponent(name)}`),
   saveSkill: (agentId: number, name: string, body: SkillSave) =>
     request<SkillDoc>(`/agents/${agentId}/skills/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(body) }),
+  // Enabled skills whose trigger phrase appears in the text. Suggests only; nothing is picked or run.
+  suggestSkills: (agentId: number, text: string) =>
+    request<SkillSummary[]>(`/agents/${agentId}/skills/suggest`, { method: "POST", body: JSON.stringify({ text }) }),
   deleteSkill: (agentId: number, name: string) =>
     request<void>(`/agents/${agentId}/skills/${encodeURIComponent(name)}`, { method: "DELETE" }),
   learnSkill: (agentId: number, source: SkillLearnSource) =>
@@ -1168,6 +1716,13 @@ export const api = {
       }),
     }),
 
+  // Send text into the active turn for engines that support live steering.
+  steerThread: (threadId: number, text: string) =>
+    request<{ status: "steered"; turn_id: number }>(`/threads/${threadId}/steer`, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
+
   // Stop the running answer. 202 once Claude was told to stop; the end arrives as
   // a turn.cancelled event. 409 no_running_turn: it had already ended.
   // 409 turn_not_stoppable: it is running in another process.
@@ -1175,7 +1730,7 @@ export const api = {
     request<{ status: string; turn_id: number }>(`/threads/${threadId}/stop`, { method: "POST" }),
 
   // Rename and/or archive. 409 turn_running: stop the answer first (archive only).
-  updateThread: (threadId: number, change: { title?: string; archived?: boolean; model?: string | null }) =>
+  updateThread: (threadId: number, change: { title?: string; archived?: boolean; model?: string | null; effort?: string | null }) =>
     request<Thread>(`/threads/${threadId}`, { method: "PATCH", body: JSON.stringify(change) }),
 
   // Permanent: the conversation's messages, tool calls and approvals in this app's
@@ -1309,28 +1864,85 @@ export const api = {
   deleteRoutine: (id: number) => request<void>(`/routines/${id}`, { method: "DELETE" }),
   pauseRoutine: (id: number) => request<Routine>(`/routines/${id}/pause`, { method: "POST" }),
   resumeRoutine: (id: number) => request<Routine>(`/routines/${id}/resume`, { method: "POST" }),
+  listWaitingRoutineRuns: (agentId: number) => request<WaitingRoutineRun[]>(`/routines/waiting?agent_id=${agentId}`),
   runRoutineNow: (id: number) => request<RoutineRun>(`/routines/${id}/run`, { method: "POST" }),
   listRoutineRuns: (id: number, limit = 50) => request<RoutineRun[]>(`/routines/${id}/runs?limit=${limit}`),
+  listRoutineRunAppActions: (routineId: number, runId: number) =>
+    request<RoutineAppAction[]>(`/routines/${routineId}/runs/${runId}/app-actions`),
   previewSchedule: (kind: ScheduleKind, spec: Record<string, unknown>, timezone: string) =>
     request<SchedulePreview>("/routines/preview", {
       method: "POST",
       body: JSON.stringify({ schedule_kind: kind, schedule_spec: spec, timezone }),
     }),
+  listClaudeAccounts: () => request<ClaudeAccount[]>("/engines/claude/accounts"),
+  createClaudeAccount: (label: string) => request<ClaudeAccount>("/engines/claude/accounts", { method: "POST", body: JSON.stringify({ label }) }),
+  renameClaudeAccount: (id: string, label: string) => request<ClaudeAccount>(`/engines/claude/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ label }) }),
+  deleteClaudeAccount: (id: string) => request<void>(`/engines/claude/accounts/${id}`, { method: "DELETE" }),
+  startClaudeAccountLogin: (id: string) => request<{ id: string; phase: string; authorization_url?: string }>(`/engines/claude/accounts/${id}/login`, { method: "POST" }),
+  enableRoomWebhook: (id: number) => request<{ secret: string; path: string }>(`/rooms/${id}/webhook`, { method: "POST" }),
+  disableRoomWebhook: (id: number) => request<void>(`/rooms/${id}/webhook`, { method: "DELETE" }),
   enableRoutineWebhook: (id: number) => request<WebhookSecret>(`/routines/${id}/webhook`, { method: "POST" }),
   disableRoutineWebhook: (id: number) => request<Routine>(`/routines/${id}/webhook`, { method: "DELETE" }),
+  // --- Multi-step Workflows ---
+  listWorkflows: () => request<Workflow[]>("/workflows"),
+  getWorkflow: (id: number) => request<Workflow>(`/workflows/${id}`),
+  createWorkflow: (data: Partial<Workflow>) =>
+    request<Workflow>("/workflows", { method: "POST", body: JSON.stringify(data) }),
+  updateWorkflow: (id: number, data: Partial<Workflow>) =>
+    request<Workflow>(`/workflows/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteWorkflow: (id: number) => request<void>(`/workflows/${id}`, { method: "DELETE" }),
+  startWorkflowRun: (id: number, input: Record<string, unknown> = {}, background = false) =>
+    request<WorkflowRun>(`/workflows/${id}/runs`, {
+      method: "POST",
+      body: JSON.stringify({ input, background }),
+    }),
+  listWorkflowRuns: (id: number, limit = 50) =>
+    request<WorkflowRun[]>(`/workflows/${id}/runs?limit=${limit}`),
+  listAllWorkflowRuns: (limit = 50) =>
+    request<WorkflowRun[]>(`/workflows/runs/all?limit=${limit}`),
+  getWorkflowRun: (runId: number) => request<WorkflowRun>(`/workflows/runs/${runId}`),
+  approveWorkflowRun: (runId: number, decision: "approve" | "reject", notes?: string) =>
+    request<WorkflowRun>(`/workflows/runs/${runId}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ decision, notes }),
+    }),
+  cancelWorkflowRun: (runId: number) =>
+    request<WorkflowRun>(`/workflows/runs/${runId}/cancel`, { method: "POST" }),
+  runWorkflowStep: (workflowId: number, stepId: string, input: Record<string, unknown> = {}) =>
+    request<{ step_id: string; status: string; output: string }>(
+      `/workflows/${workflowId}/steps/${stepId}/run`,
+      { method: "POST", body: JSON.stringify({ input }) }
+    ),
+  triggerWorkflowWebhook: (id: number, payload: Record<string, unknown> = {}) =>
+    request<WorkflowRun>(`/workflows/${id}/trigger`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   listNotifications: (limit = 30) => request<AppNotification[]>(`/notifications?limit=${limit}`),
   unreadNotifications: () => request<{ unread: number }>("/notifications/unread-count"),
   readNotification: (id: number) => request<void>(`/notifications/${id}/read`, { method: "POST" }),
   readAllNotifications: () => request<{ unread: number }>("/notifications/read-all", { method: "POST" }),
+  getNotificationPreferences: () => request<NotificationPreferences>("/notifications/preferences"),
+  updateNotificationPreferences: (prefs: NotificationPreferences) =>
+    request<NotificationPreferences>("/notifications/preferences", { method: "PUT", body: JSON.stringify(prefs) }),
 
   // --- Everyday features (docs/EVERYDAY.md) ---
   searchConversations: (query: string, filter: SearchFilter = {}) =>
     request<SearchResponse>(`/search${searchQuery(query, filter)}`),
-  uploadAttachment: (threadId: number, file: File) => {
+  uploadAttachment: (threadId: number, file: File, consentProvider?: string, signal?: AbortSignal) => {
     const form = new FormData();
     form.append("file", file, file.name);
-    return requestForm<UploadedAttachment>(`/threads/${threadId}/attachments`, form);
+    if (consentProvider) form.append("consent_provider", consentProvider);
+    return requestForm<UploadedAttachment>(`/threads/${threadId}/attachments`, form, signal);
   },
+  audioCapabilities: () => request<{ provider: string; provider_label: string; available: boolean; retention: string }>("/threads/audio/capabilities"),
+  dictateAudio: (file: Blob | File, filename = "recording.webm", signal?: AbortSignal) => {
+    const form = new FormData();
+    form.append("file", file, filename);
+    return requestForm<{ text: string; duration_seconds: number; device: string }>("/threads/audio/dictate", form, signal);
+  },
+  importAudioUrl: (threadId: number, url: string, consentProvider: string, signal?: AbortSignal) => request<UploadedAttachment>(`/threads/${threadId}/attachments/audio-url`, { method: "POST", signal, body: JSON.stringify({ url, consent_provider: consentProvider }) }),
   // Object URLs for bytes behind the session (an <img> cannot send the CSRF or
   // launch headers some setups need). The caller revokes them.
   attachmentBlobUrl: (threadId: number, attachmentId: string) =>
@@ -1378,7 +1990,7 @@ export type SearchHit = {
 
 export type SearchResponse = { query: string; hits: SearchHit[] };
 
-export type UploadedAttachment = { id: string; name: string; mime: string; bytes: number; kind: "image" | "text" };
+export type UploadedAttachment = { id: string; name: string; mime: string; bytes: number; kind: "image" | "text" | "audio" };
 
 export type FileEntry = {
   name: string;
@@ -1453,10 +2065,11 @@ async function errorFrom(res: Response): Promise<ApiError> {
 }
 
 // A multipart POST: the browser sets the Content-Type with its boundary.
-async function requestForm<T>(path: string, body: FormData): Promise<T> {
+async function requestForm<T>(path: string, body: FormData, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     body,
+    signal,
     credentials: "include",
     headers: authHeaders("POST"),
   });
@@ -1468,6 +2081,28 @@ async function requestBlobUrl(path: string): Promise<string> {
   const res = await fetch(`${API_BASE}${path}`, { credentials: "include" });
   if (!res.ok) throw await errorFrom(res);
   return URL.createObjectURL(await res.blob());
+}
+
+// Read one reply aloud (BL-53). The server keeps the audio so the same reply can be played again for
+// free; the cost, whether the text was cut and whether it came from saved audio come back as headers.
+// The caller revokes the object URL.
+async function requestSpeech(body: { text: string; voice?: string }, signal?: AbortSignal): Promise<import("./speechReplies").SpokenReply> {
+  const res = await fetch(`${API_BASE}/speech/speak`, {
+    method: "POST",
+    credentials: "include",
+    signal,
+    headers: { "Content-Type": "application/json", ...authHeaders("POST") },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await errorFrom(res);
+  const quoted = res.headers.get("X-Speech-Cost-Usd");
+  const cost = quoted === null ? Number.NaN : Number(quoted);
+  return {
+    url: URL.createObjectURL(await res.blob()),
+    costUsd: Number.isFinite(cost) ? cost : null,
+    truncated: res.headers.get("X-Speech-Truncated") === "1",
+    cached: res.headers.get("X-Speech-Cached") === "1",
+  };
 }
 
 export { ApiError };

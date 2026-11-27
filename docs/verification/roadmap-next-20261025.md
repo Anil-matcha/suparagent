@@ -41,7 +41,7 @@ Real-engine routine cards/Undo, PostgreSQL concurrent Undo and packaged UI
 remain open. Calendar and Gmail are unavailable. No installed-app,
 upgrade/recovery, live-provider or release qualification is inferred.
 
-Baseline [CI at 36276bc](https://github.com/Anil-matcha/open-duet/actions/runs/40219723105)
+Baseline [CI at 36276bc](https://github.com/Anil-matcha/suparagent/actions/runs/40219723105)
 passed SQLite, PostgreSQL, desktop and process/server smoke. That includes
 the earlier webhook receipt implementation; it does not qualify this feature
 branch's added paths. No tag or public release was created for this branch.

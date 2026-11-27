@@ -15,7 +15,7 @@ from tests.services.test_antigravity_adapter import SESSION, FAKE
 async def google(api, monkeypatch, tmp_path):
     monkeypatch.setattr(runtime, "data_root", lambda: tmp_path / "google")
     monkeypatch.setattr(runtime, "installed", lambda: True)
-    monkeypatch.setenv("OPEN_DOTS_ENGINE_ENV", "FAKE_*")
+    monkeypatch.setenv("SUPARAGENT_ENGINE_ENV", "FAKE_*")
     (tmp_path / "plan.json").write_text(json.dumps({"load": True, "auth_write_token": True, "agent_info": {"name": "antigravity-acp", "version": runtime.VERSION}, "auth_methods": [{"id": "oauth-personal"}], "session": SESSION}))
     adapter = AntigravityAdapter()
     adapter.exit_grace_seconds = 0

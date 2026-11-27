@@ -2,9 +2,10 @@
 `codex` (tests/services/fake_codex_cli.py)."""
 
 import json
+from pathlib import Path
 import stat
 import sys
-from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import delete
@@ -56,9 +57,13 @@ class FakeCodex:
 def codex(monkeypatch, tmp_path):
     folder = tmp_path / "codex"
     folder.mkdir()
-    exe = tmp_path / "codex-bin"
-    exe.write_text(f"#!/bin/sh\nexec {sys.executable} {FAKE} \"$@\"\n")
-    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    if sys.platform == "win32":
+        exe = tmp_path / "codex-bin.cmd"
+        exe.write_text(f'@echo off\r\n"{sys.executable}" "{FAKE}" %*\r\n')
+    else:
+        exe = tmp_path / "codex-bin"
+        exe.write_text(f"#!/bin/sh\nexec {sys.executable} {FAKE} \"$@\"\n")
+        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("FAKE_CODEX_DIR", str(folder))
     monkeypatch.setattr(codex_adapter, "resolve_codex_executable", lambda: exe)
     workspace = tmp_path / "ws"
@@ -104,6 +109,46 @@ def test_policy_mapping():
     assert codex_policy("accept_edits", True).approval == "untrusted"
     assert codex_policy("plan", True) == codex_adapter.CodexPolicy("never", "read-only", "readOnly")
     assert codex_policy("ask", False).sandbox == "read-only"
+
+
+def _turn(mode, **launches):
+    fields = dict(approval_mode=mode, computer=None, team_launch=None, composio_launch=None, browser=None,
+                  community_launch=None, workspace=None)
+    ctx = SimpleNamespace(**{**fields, **launches})
+    return codex_adapter._CodexTurn(ctx=ctx, sink=None, gate=None, exe=None, codex_thread=None)
+
+
+def test_approve_for_me_keeps_attached_apps_on_the_app_gate():
+    # Codex's own reviewer would approve these calls itself and the app gate would refuse them (not_approved).
+    plain = _turn("approve_for_me")
+    assert plain.mode == "approve_for_me"
+    for launch in ("composio_launch", "team_launch", "browser", "community_launch"):
+        turn = _turn("approve_for_me", **{launch: SimpleNamespace()})
+        assert turn.mode == "ask" and turn.policy.reviewer == "user", launch
+
+
+async def test_codex_waits_for_the_exact_routine_connected_app_server(crt, sessions, codex, monkeypatch):
+    thread = await crt.create_thread(provider="codex")
+    adapter = crt.adapters["codex"]
+    run_turn = adapter.run_turn
+
+    async def with_routine_grant(ctx, sink, gate):
+        ctx.composio_launch = SimpleNamespace(command="composio-mcp", args=[], env={})
+        ctx.composio_apps = {"gmail": "read"}
+        ctx.composio_exact_tools = ["gmail_fetch_emails"]
+        return await run_turn(ctx, sink, gate)
+
+    monkeypatch.setattr(adapter, "run_turn", with_routine_grant)
+    await crt.send_turn(thread.id, "Search authorized Gmail.")
+    await finished(sessions, thread.id)
+
+    started = codex.received("thread/start")[0]["params"]
+    server = started["config"]["mcp_servers"]["suparagent_composio"]
+    assert server["enabled_tools"] == ["gmail_fetch_emails"]
+    assert server["required"] is True and server["startup_timeout_sec"] == 10
+    assert server["default_tools_approval_mode"] == "prompt"
+    assert "exactly these tools: gmail_fetch_emails" in started["developerInstructions"]
+    assert "call the matching tool before concluding that the app is unavailable" in started["developerInstructions"]
 
 
 async def test_a_chat_turn_then_a_resumed_one(crt, sessions, owner, codex):
@@ -321,13 +366,25 @@ async def test_probe_reports_signed_in_with_live_models(codex):
     assert probe.ready and probe.installed and probe.signed_in is True
     assert probe.version == "codex-cli 0.162.1"
     assert [(m.id, m.default) for m in probe.models] == [("gpt-fake", True), ("gpt-fake-mini", False)]
+    gpt_fake = probe.models[0]
+    assert gpt_fake.default_reasoning_effort == "medium"
+    assert gpt_fake.supported_reasoning_efforts == ("low", "medium", "high")
+    assert gpt_fake.reasoning_effort_configurable is True
+
+
+async def test_codex_turn_passes_reasoning_effort(crt, sessions, owner, codex):
+    thread = await crt.create_thread(provider="codex", effort="high")
+    await crt.send_turn(thread.id, "analyze this deeply")
+    await finished(sessions, thread.id)
+    turn = codex.received("turn/start")[0]["params"]
+    assert turn.get("effort") == "high" 
 
 
 async def test_probe_reports_signed_out(codex):
     codex.plan(login="out")
     probe = await CodexAdapter().probe()
     assert not probe.ready and probe.installed and probe.signed_in is False
-    assert "codex login" in probe.reason
+    assert "engine settings" in probe.reason and "terminal" not in probe.reason
     assert "example.com" not in json.dumps(probe.__dict__, default=str)
 
 
@@ -358,7 +415,7 @@ async def test_team_mcp_create_uses_one_use_gate_with_host_tools_off(crt, sessio
     async with sessions() as db:
         lead = await agent_store.create_agent(db, owner_id=owner, name='Coordinator', provider='codex')
         await service.set_lead(db, owner, lead.id)
-    codex.plan({'type': 'team', 'tool': 'create_agent', 'arguments': {'name': 'File reader', 'instructions': 'Summarize local files in concise bullets.'}})
+    codex.plan({'type': 'team', 'tool': 'create_agent', 'arguments': {'name': 'File reader', 'instructions': 'Summarize local files in concise bullets.', 'first_task': 'Summarize the README.'}})
     thread = await crt.create_thread(provider='codex', agent_id=lead.id)
     await crt.send_turn(thread.id, 'Create a file reader agent')
     await finished(sessions, thread.id)
@@ -367,13 +424,13 @@ async def test_team_mcp_create_uses_one_use_gate_with_host_tools_off(crt, sessio
     assert started['sandbox'] == 'read-only'  # team access never enables host writes
     assert started['approvalPolicy'] == 'untrusted'  # the CLI must be able to ask about MCP calls
     async with sessions() as db:
+        # The tool only prepares a card for review; the specialist exists after the person approves it.
         worker = await db.scalar(select(Agent).where(Agent.owner_id == owner, Agent.name == 'File reader'))
-        assert worker is not None and worker.approval_mode == 'ask'
-        approved = await db.scalar(select(Approval).where(Approval.turn_id == (await crt_turns(sessions, thread.id))[0], Approval.tool == 'mcp__team__create_agent'))
-        assert approved.status == 'allowed' and approved.consumed_at is not None
-        assert await db.scalar(select(TeamSetupRequest).where(TeamSetupRequest.owner_id == owner))
+        assert worker is None
+        request = await db.scalar(select(TeamSetupRequest).where(TeamSetupRequest.owner_id == owner))
+        assert request is not None and request.state == 'pending'
     events = await events_of(sessions, thread.id)
-    assert data_of(events, 'team.setup.applied')[0]['results'][0]['changes']
+    assert data_of(events, 'team.setup.proposed')
 
 
 @pytest.mark.parametrize('mode,origin', [('plan', 'person'), ('ask', 'outside'), ('ask', 'routine')])

@@ -10,7 +10,7 @@ from app.services.github_classifier import classify_bash_command
 
 class GitMutationClassificationTest(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="open-dots-git-classifier-")
+        self.temporary = tempfile.TemporaryDirectory(prefix="suparagent-git-classifier-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.git("init", "--quiet")

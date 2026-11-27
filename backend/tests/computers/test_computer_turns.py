@@ -229,12 +229,13 @@ async def test_an_agent_without_a_computer_runs_as_before(rt, sessions, cli, doc
     await rt.send_turn(thread.id, "hi")
     await finished(sessions, thread.id)
     args = cli.launches[-1]["args"]
-    # No computer, no host tools: the only thing mounted is the agent's read-only
-    # memory search, asked about like any tool (docs/MEMORY.md).
+    # No computer, no host tools: what is mounted is the agent's read-only memory search, asked about like any
+    # tool (docs/MEMORY.md), and the connected-apps server that only offers the request to connect an app
+    # (services/app_connection.py).
     assert docker.calls() == []
     assert args[args.index("--tools") + 1] == ""
     config = json.loads(args[args.index("--mcp-config") + 1])
-    assert list(config["mcpServers"]) == ["memory"]
+    assert list(config["mcpServers"]) == ["memory", "composio"]
 
 
 def test_build_args_with_a_computer(tmp_path):

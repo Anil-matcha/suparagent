@@ -1,5 +1,6 @@
 // Owner sign-in, pairing and devices (docs/AUTH.md).
 import { request, setCsrfToken } from "./api";
+import type { PairingScope } from "./access-label";
 import type { AuthStatus, Device, PairingCode, SessionInfo } from "./session";
 
 function remember(session: SessionInfo): SessionInfo {
@@ -14,6 +15,11 @@ export const auth = {
     remember(await request<SessionInfo>("/auth/setup", { method: "POST", body: JSON.stringify({ passphrase }) })),
   login: async (passphrase: string) =>
     remember(await request<SessionInfo>("/auth/login", { method: "POST", body: JSON.stringify({ passphrase }) })),
+  // Members of a shared workspace: join by invitation, then sign in with email and password.
+  acceptInvite: async (body: { token: string; email: string; display_name: string; password: string }) =>
+    remember(await request<SessionInfo>("/auth/invites/accept", { method: "POST", body: JSON.stringify(body) })),
+  memberLogin: async (email: string, password: string) =>
+    remember(await request<SessionInfo>("/auth/people/login", { method: "POST", body: JSON.stringify({ email, password }) })),
   logout: async () => {
     try {
       await request<void>("/auth/logout", { method: "POST" });
@@ -28,7 +34,7 @@ export const auth = {
     });
     return remember(result.session);
   },
-  createPairingCode: (scope: "admin" | "chat", label: string) =>
+  createPairingCode: (scope: PairingScope, label: string) =>
     request<PairingCode>("/auth/pairing-codes", { method: "POST", body: JSON.stringify({ scope, label }) }),
   devices: () => request<Device[]>("/auth/devices"),
   revokeDevice: (id: number) => request<void>(`/auth/devices/${id}`, { method: "DELETE" }),

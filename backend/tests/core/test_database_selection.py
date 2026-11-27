@@ -88,8 +88,8 @@ def test_unknown_backend_is_rejected():
         build(DATABASE_BACKEND="mysql")
 
 
-def test_default_sqlite_file_is_in_the_users_open_dots_folder():
-    assert build().SQLITE_FILE == Path.home() / ".open-dots" / "open-dots.db"
+def test_default_sqlite_file_is_in_the_users_suparagent_folder():
+    assert build().SQLITE_FILE == Path.home() / ".suparagent" / "suparagent.db"
 
 
 @pytest.mark.parametrize("name", ["with space", "unicode-é", "a#b%c"])

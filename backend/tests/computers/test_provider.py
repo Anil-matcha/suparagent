@@ -133,4 +133,4 @@ def test_the_mcp_launch_names_the_container_user_and_folders(provider, spec, tmp
 def test_the_installation_id_is_stable_and_private(tmp_path):
     first = load_instance_id(tmp_path / "computers")
     assert first == load_instance_id(tmp_path / "computers")
-    assert len(first) == 32 and docker_cli.container_name(first, 1).startswith("open-dots-computer-")
+    assert len(first) == 32 and docker_cli.container_name(first, 1).startswith("suparagent-computer-")

@@ -10,9 +10,10 @@ from tests.services.test_codex_adapter import FakeCodex, codex, crt  # noqa: F40
 from tests.services.thread_harness import cleanup, events_of, finished, owner, sessions  # noqa: F401
 
 
-def test_a_memory_call_is_recognised_only_for_the_two_tools_of_the_memory_server():
+def test_a_memory_call_is_recognised_only_for_the_tools_of_the_memory_server():
     ok = memory_bridge.is_memory_call
     assert ok(server="memory", tool="session_search") and ok(server="memory", tool="session_read")
+    assert ok(server="memory", tool="suggest_profile_change")
     assert not ok(server="memory", tool="delete_everything")
     assert not ok(server="other", tool="session_search")
     for title in ("session_search (memory MCP Server)", "mcp__memory__session_search", "memory/session_read", "memory_session_search"):
@@ -52,9 +53,9 @@ async def test_codex_gets_the_memory_server_for_the_thread_only(crt, sessions, o
     await finished(sessions, thread.id)
     params = codex.received("thread/start")[0]["params"]
     server = params["config"]["mcp_servers"]["memory"]
-    assert server["args"][-2] == "--mailbox" and "open-dots-memory-" in server["args"][-1]
-    assert server["enabled_tools"] == ["session_search", "session_read"]
-    assert server["default_tools_approval_mode"] == "approve"  # read-only: no card
+    assert server["args"][-2] == "--mailbox" and "suparagent-memory-" in server["args"][-1]
+    assert server["enabled_tools"] == ["session_search", "session_read", "suggest_profile_change"]
+    assert server["default_tools_approval_mode"] == "approve"  # the tools only read or leave a draft: no card
     assert params["developerInstructions"].startswith("Be brief.") and memory_bridge.TOOL_NOTE in params["developerInstructions"]
     # A second turn resumes the thread with the same server.
     await crt.send_turn(thread.id, "again")
@@ -70,8 +71,13 @@ async def test_codex_without_an_agent_or_with_notes_off_mounts_nothing(crt, sess
     thread = await crt.create_thread(provider="codex", agent_id=off.id)
     await crt.send_turn(thread.id, "hi")
     await finished(sessions, thread.id)
-    assert all("config" not in m["params"] for m in codex.received("thread/start"))
-    assert all("developerInstructions" not in m["params"] for m in codex.received("thread/start"))
+    for start in codex.received("thread/start"):
+        servers = (start["params"].get("config") or {}).get("mcp_servers", {})
+        assert "memory" not in servers  # the notes are off, or there is no agent
+        # The only thing an agent may still be given is the connected-apps server that offers just the request to
+        # connect an app (services/app_connection.py), with its note.
+        assert set(servers) <= {"suparagent_composio"}
+        assert "memory" not in start["params"].get("developerInstructions", "").lower()
 
 
 # --- ACP ------------------------------------------------------------------------------------

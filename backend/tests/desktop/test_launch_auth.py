@@ -69,20 +69,26 @@ def test_the_route_walk_sees_the_whole_application():
 
 
 def test_no_route_hides_from_the_walk():
-    """The walk reads the OpenAPI schema, which leaves out a route declared with
-    include_in_schema=False and every WebSocket route. The one WebSocket route
-    (the desktop viewer) is checked on its own below; a second one fails this
-    test, so the check is extended before it can be missed."""
+    """The OpenAPI walk leaves out schema-hidden HTTP routes and WebSockets.
+    Keep the expected viewer sockets explicit, and test below that each rejects
+    a connection without the desktop launch token."""
     sources = "\n".join(path.read_text(encoding="utf-8") for path in (BACKEND_DIR / "app").rglob("*.py"))
     assert "include_in_schema" not in sources
-    assert sources.count("@router.websocket(") == 1
+    websocket_paths = re.findall(r"""@router\.websocket\(\s*["']([^"']+)["']""", sources)
+    assert len(websocket_paths) == sources.count("@router.websocket(")
+    assert set(websocket_paths) == {
+        "/agents/{agent_id}/browser/viewer",
+        "/computers/{computer_id}/viewer",
+    }
 
 
-def test_the_desktop_viewer_socket_is_closed_without_the_token(desktop, client):
-    from starlette.websockets import WebSocketDisconnect
-
+@pytest.mark.parametrize(
+    "path",
+    ["/api/v1/agents/1/browser/viewer", "/api/v1/computers/1/viewer"],
+)
+def test_a_viewer_socket_is_closed_without_the_token(desktop, client, path):
     with pytest.raises(WebSocketDisconnect) as refused:
-        with client.websocket_connect("/api/v1/computers/1/viewer"):
+        with client.websocket_connect(path):
             pass
     assert refused.value.code == 1008
 
@@ -107,7 +113,13 @@ def test_a_path_that_does_not_exist_is_refused_the_same_way(desktop, client, pat
 
 
 @pytest.mark.parametrize("method, path", [("GET", "/api/v1/providers"), ("GET", "/api/v1/threads"), ("POST", "/api/v1/threads/1/stop")])
-def test_with_the_token_the_request_reaches_the_application(desktop, client, method, path):
+def test_with_the_token_the_request_reaches_the_application(desktop, client, method, path, monkeypatch):
+    # This test isolates launch authorization with a separately verified account.
+    from app.desktop import account
+    class VerifiedAccount:
+        async def require_account(self):
+            return {"email": "fixture@acme.dev", "tenantId": "fixture"}
+    monkeypatch.setattr(account, "get_manager", lambda: VerifiedAccount())
     response = client.request(method, path, headers=HEADERS)
     assert response.status_code != 401
     if path == "/api/v1/providers":
@@ -145,7 +157,7 @@ def test_a_browser_tab_gets_a_readable_page_and_the_apps_own_requests_get_json(d
     tab = client.get("/", headers={"accept": PAGE_ACCEPT})
     assert tab.status_code == 401
     assert tab.headers["content-type"].startswith("text/html")
-    assert "Open this from the Open Duet app" in tab.text
+    assert "Open this from the Suparagent app" in tab.text
     assert TOKEN not in tab.text
 
     for accept in ("application/json", "*/*", "text/event-stream"):

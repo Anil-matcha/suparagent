@@ -47,7 +47,8 @@ _counter = itertools.count()
 
 
 class Backend:
-    def __init__(self, tmp_path: Path, data_dir: Path | None = None, **message):
+    def __init__(self, tmp_path: Path, data_dir: Path | None = None, *, account_signed_in: bool = True, **message):
+        self.account_signed_in = account_signed_in
         self.tmp = tmp_path
         self.data_dir = data_dir or tmp_path / "data"
         self.ui_dir = tmp_path / "ui"
@@ -72,13 +73,27 @@ class Backend:
     def start(self, raw_line: bytes | None = None, close_stdin: bool = False) -> "Backend":
         (self.ui_dir).mkdir(exist_ok=True)
         if not (self.ui_dir / "index.html").exists():
-            (self.ui_dir / "index.html").write_text("<h1>open dots</h1>", encoding="utf-8")
+            (self.ui_dir / "index.html").write_text("<h1>suparagent</h1>", encoding="utf-8")
         work = self.tmp / "cwd"
         work.mkdir(exist_ok=True)
         (work / ".env").write_text("BOAT_API_KEY=from-dotenv\nDATABASE_BACKEND=postgres\n", encoding="utf-8")
         env = {**os.environ, **HOSTILE_ENV, "PYTHONUTF8": "1"}
+        command = [sys.executable, str(BACKEND_DIR / "desktop_main.py")]
+        if self.account_signed_in:
+            # Lifecycle tests use an already verified account without calling a live service.
+            # Signed-out launch and both credential boundaries have separate tests.
+            bootstrap = (
+                f"import sys, runpy; sys.path.insert(0, {str(BACKEND_DIR)!r})\n"
+                "from app.desktop import account\n"
+                "class VerifiedAccount:\n"
+                "    async def require_account(self): return {'email': 'fixture@acme.dev', 'tenantId': 'fixture'}\n"
+                "    async def status(self): return {'signed_in': True, 'email': 'fixture@acme.dev', 'profile_bound': True, 'account_required': True}\n"
+                "account.get_manager = lambda: VerifiedAccount()\n"
+                f"runpy.run_path({str(BACKEND_DIR / 'desktop_main.py')!r}, run_name='__main__')\n"
+            )
+            command = [sys.executable, "-c", bootstrap]
         self.process = subprocess.Popen(
-            [sys.executable, str(BACKEND_DIR / "desktop_main.py")],
+            command,
             cwd=work, env=env,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr_path.open("wb"),
         )
@@ -145,7 +160,7 @@ def launch(launches, tmp_path, **kwargs) -> Backend:
 
 def get(port: int, path: str, token: str | None = TOKEN, **headers) -> httpx.Response:
     if token is not None:
-        headers["x-open-dots-token"] = token
+        headers["x-suparagent-token"] = token
     return httpx.get(f"http://127.0.0.1:{port}{path}", headers=headers, timeout=60)
 
 
@@ -174,7 +189,7 @@ def test_a_first_launch_needs_no_env_and_serves_the_api_and_the_page_behind_the_
     # With it: the API, and the built page from the same address.
     assert get(port, "/api/v1/providers").status_code == 200
     page = get(port, "/")
-    assert (page.status_code, page.text) == (200, "<h1>open dots</h1>")
+    assert (page.status_code, page.text) == (200, "<h1>suparagent</h1>")
 
     # The profile, not the hostile environment, decided everything.
     status = get(port, "/api/v1/local/status").json()
@@ -190,7 +205,7 @@ def test_a_first_launch_needs_no_env_and_serves_the_api_and_the_page_behind_the_
     )
 
     # SQLite in the data folder, migrated to the newest revision, nothing elsewhere.
-    database = backend.data_dir / "open-dots.db"
+    database = backend.data_dir / "suparagent.db"
     assert {"thread", "turn", "event", "approval", "alembic_version"} <= tables(database)
 
     # The launcher closing its end of stdin is how it stops us.
@@ -230,7 +245,7 @@ def test_a_second_launch_keeps_the_data_and_makes_no_backup_when_nothing_is_pend
     first = launch(launches, tmp_path).start()
     first.ready()
     assert first.stop() == 0
-    database = first.data_dir / "open-dots.db"
+    database = first.data_dir / "suparagent.db"
     connection = sqlite3.connect(database)
     connection.execute("INSERT INTO user_credential (user_id, provider, file_path, ciphertext) VALUES (?,?,?,?)",
                        ("u", "github", "/x", Fernet(KEY.encode()).encrypt(b"secret").decode()))
@@ -249,7 +264,7 @@ def test_a_key_that_cannot_open_stored_credentials_stops_the_launch_and_changes_
     first = launch(launches, tmp_path).start()
     first.ready()
     assert first.stop() == 0
-    database = first.data_dir / "open-dots.db"
+    database = first.data_dir / "suparagent.db"
     ciphertext = Fernet(KEY.encode()).encrypt(b"secret").decode()
     connection = sqlite3.connect(database)
     connection.execute("INSERT INTO user_credential (user_id, provider, file_path, ciphertext) VALUES (?,?,?,?)",
@@ -276,7 +291,7 @@ def test_a_key_that_cannot_open_stored_credentials_stops_the_launch_and_changes_
 
 
 def test_a_database_with_a_migration_pending_is_copied_aside_first(launches, tmp_path):
-    database = tmp_path / "data" / "open-dots.db"
+    database = tmp_path / "data" / "suparagent.db"
     old = run_alembic(database, "upgrade", BASELINE_REVISION)
     assert old.returncode == 0, old.stderr
     ciphertext = Fernet(KEY.encode()).encrypt(b"secret").decode()
@@ -291,7 +306,7 @@ def test_a_database_with_a_migration_pending_is_copied_aside_first(launches, tmp
     backend.ready()
     assert backend.stop() == 0
 
-    copies = list((tmp_path / "data" / "backups").glob("open-dots-*.db"))
+    copies = list((tmp_path / "data" / "backups").glob("suparagent-*.db"))
     assert len(copies) == 1 and BASELINE_REVISION in copies[0].name
     old_copy = sqlite3.connect(copies[0])
     assert old_copy.execute("SELECT version_num FROM alembic_version").fetchone() == (BASELINE_REVISION,)
@@ -304,12 +319,12 @@ def test_a_database_with_a_migration_pending_is_copied_aside_first(launches, tmp
     again = launch(launches, tmp_path).start()
     again.ready()
     assert again.stop() == 0
-    assert len(list((tmp_path / "data" / "backups").glob("open-dots-*.db"))) == 1
+    assert len(list((tmp_path / "data" / "backups").glob("suparagent-*.db"))) == 1
 
 
 @pytest.mark.parametrize("content", ["garbage", "tables-without-a-version"])
 def test_a_file_the_app_did_not_make_is_refused_and_left_exactly_as_it_was(launches, tmp_path, content):
-    database = tmp_path / "data" / "open-dots.db"
+    database = tmp_path / "data" / "suparagent.db"
     database.parent.mkdir()
     if content == "garbage":
         database.write_bytes(b"this is not a database " * 40)
@@ -429,3 +444,15 @@ def test_a_second_backend_on_the_same_data_folder_is_refused_while_the_first_ser
     third = launch(launches, tmp_path).start()
     third.ready()
     assert third.stop() == 0
+
+
+def test_fresh_launch_requires_email_account_before_reading_local_workspace(launches, tmp_path):
+    backend = launch(launches, tmp_path, account_signed_in=False).start()
+    port = backend.ready()["port"]
+    assert get(port, "/api/v1/desktop-account/status").json()["signed_in"] is False
+    for path in ("/api/v1/threads", "/api/v1/agents", "/api/v1/local/status"):
+        result = get(port, path)
+        assert result.status_code == 401
+        assert result.json()["detail"]["error_code"] == "account_sign_in_required"
+    assert get(port, "/").status_code == 200
+    assert backend.stop() == 0

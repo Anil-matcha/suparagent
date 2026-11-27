@@ -1,0 +1,237 @@
+// The three calls pairing needs, against the server's /api/v1/auth routes (docs/AUTH.md):
+// redeem a code for a device token, end a session, and ask whether a token still works.
+
+import { normalizeServerUrl, responseAllowed } from './server-url';
+
+export type PairingErrorCode =
+  | 'insecure'
+  | 'invalid_code'
+  | 'locked_out'
+  | 'too_many_devices'
+  | 'untrusted_host'
+  | 'refused'
+  | 'not_a_server'
+  | 'unreachable'
+  | 'wrong_scope'
+  | 'server_error';
+
+export class PairingError extends Error {
+  readonly code: PairingErrorCode;
+  readonly retryAfter: number | null;
+
+  constructor(code: PairingErrorCode, retryAfter: number | null = null) {
+    super(code);
+    this.name = 'PairingError';
+    this.code = code;
+    this.retryAfter = retryAfter;
+  }
+}
+
+export type PairedSession = {
+  /** The normalized address the code was redeemed at; keep this one. */
+  server: string;
+  token: string;
+  sessionId: number | null;
+  scopes: string[];
+  label: string | null;
+};
+
+type FetchLike = typeof fetch;
+
+const TIMEOUT_MS = 15_000;
+
+async function send(fetchImpl: FetchLike, url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const response = await fetchImpl(url, { ...init, signal: controller.signal });
+    // A redirect from a local http:// server to plain HTTP elsewhere is not followed to a result.
+    if (!responseAllowed(response.url)) throw new Error('response came from an unsafe address');
+    return response;
+  } catch {
+    throw new PairingError('unreachable');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function retryAfter(response: Response): number | null {
+  const seconds = Number(response.headers.get('retry-after'));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null;
+}
+
+/** Ends the session the token belongs to. Best effort: the caller forgets the token either way. */
+export async function signOutOnServer(server: string, token: string, fetchImpl: FetchLike = fetch): Promise<boolean> {
+  try {
+    const response = await send(fetchImpl, `${server}/api/v1/auth/logout`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function pairDevice(args: {
+  server: string;
+  code: string;
+  label: string;
+  fetchImpl?: FetchLike;
+}): Promise<PairedSession> {
+  const fetchImpl = args.fetchImpl ?? fetch;
+  // Defence in depth: the screens validate too, but this is the call that sends the code.
+  const checked = normalizeServerUrl(args.server);
+  if (!checked.ok) throw new PairingError('insecure');
+  const server = checked.url;
+
+  const response = await send(fetchImpl, `${server}/api/v1/auth/pair`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ code: args.code, label: args.label }),
+  });
+
+  if (response.status === 401) throw new PairingError('invalid_code');
+  if (response.status === 409) throw new PairingError('too_many_devices');
+  if (response.status === 429) throw new PairingError('locked_out', retryAfter(response));
+  if (response.status === 421) throw new PairingError('untrusted_host');
+  if (response.status === 403) throw new PairingError('refused');
+  if (response.status >= 500) throw new PairingError('server_error');
+  if (!response.ok) throw new PairingError('not_a_server');
+
+  // Decode tolerantly: only the fields the app needs, unknown ones ignored.
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new PairingError('not_a_server');
+  }
+  const record = body as { token?: unknown; session?: { scopes?: unknown; session_id?: unknown; label?: unknown } } | null;
+  const token = record?.token;
+  const scopes = record?.session?.scopes;
+  if (typeof token !== 'string' || !token || !Array.isArray(scopes) || !scopes.every((s) => typeof s === 'string')) {
+    throw new PairingError('not_a_server');
+  }
+
+  // Pairing inherits the code's scopes. This app is a chat client: refuse anything with admin
+  // access, and end that session so a stray full-access token is not left alive on the server.
+  if (!scopes.includes('chat') || scopes.includes('admin')) {
+    await signOutOnServer(server, token, fetchImpl);
+    throw new PairingError('wrong_scope');
+  }
+
+  const sessionId = record?.session?.session_id;
+  const label = record?.session?.label;
+  return {
+    server,
+    token,
+    sessionId: typeof sessionId === 'number' ? sessionId : null,
+    scopes: scopes as string[],
+    label: typeof label === 'string' ? label : null,
+  };
+}
+
+export type SessionRead = { status: 'valid'; scopes: string[] | null } | { status: 'revoked' | 'unknown' };
+
+/** Asks the server about this token. 'revoked' only when it says the token is no longer valid; anything else is 'unknown'. */
+export async function readSession(server: string, token: string, fetchImpl: FetchLike = fetch): Promise<SessionRead> {
+  try {
+    const response = await send(fetchImpl, `${server}/api/v1/auth/session`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    });
+    if (response.status === 401) return { status: 'revoked' };
+    if (!response.ok) return { status: 'unknown' };
+    // The scopes are what the app shows and offers; a reply without them is still a valid session.
+    let scopes: string[] | null = null;
+    try {
+      const body = (await response.json()) as { scopes?: unknown } | null;
+      if (Array.isArray(body?.scopes) && body.scopes.every((scope) => typeof scope === 'string')) scopes = body.scopes as string[];
+    } catch {
+      scopes = null;
+    }
+    return { status: 'valid', scopes };
+  } catch {
+    return { status: 'unknown' };
+  }
+}
+
+export async function checkSession(server: string, token: string, fetchImpl: FetchLike = fetch): Promise<'valid' | 'revoked' | 'unknown'> {
+  return (await readSession(server, token, fetchImpl)).status;
+}
+
+export function describePairingError(error: PairingError): string {
+  switch (error.code) {
+    case 'insecure':
+      return 'This app connects over HTTPS, or over http:// only to an address on your own network.';
+    case 'invalid_code':
+      return 'That code is wrong, expired or already used. Create a new one in your server’s Settings → Devices.';
+    case 'locked_out':
+      return error.retryAfter
+        ? `Too many wrong codes from this network. Try again in ${error.retryAfter} seconds.`
+        : 'Too many wrong codes from this network. Try again in a few minutes.';
+    case 'too_many_devices':
+      return 'Your server has too many signed-in devices. Revoke one in Settings → Devices, then try again.';
+    case 'untrusted_host':
+      return 'Your server does not accept this address. Add the name to TRUSTED_HOSTS on the server (see the self-hosting guide).';
+    case 'refused':
+      return 'Your server refused the request. Check the address and any proxy in front of it.';
+    case 'not_a_server':
+      return 'That address answered, but it does not look like a Suparagent server.';
+    case 'wrong_scope':
+      return 'That code gives full access. The app only accepts a Chat only or Chat and files code. Create a new code with access set to one of those.';
+    case 'server_error':
+      return 'Your server hit an error. Try again in a moment.';
+    default:
+      return 'Could not reach the server. Check the address, your connection, and that the server has a trusted HTTPS certificate.';
+  }
+}
+
+export type ServerCheck = 'ok' | 'needs_setup' | 'unreachable' | 'untrusted_host' | 'refused' | 'not_a_server' | 'server_error';
+
+/**
+ * Asks an address's public status route whether it is a server this app can pair with, before any code is
+ * sent to it. Nothing is stored and no sign-in is needed.
+ */
+export async function checkServer(server: string, fetchImpl: FetchLike = fetch): Promise<ServerCheck> {
+  let response: Response;
+  try {
+    response = await send(fetchImpl, `${server}/api/v1/auth/status`, { method: 'GET', headers: { Accept: 'application/json' } });
+  } catch {
+    return 'unreachable';
+  }
+  if (response.status === 421) return 'untrusted_host';
+  if (response.status === 403) return 'refused';
+  if (response.status >= 500) return 'server_error';
+  if (!response.ok) return 'not_a_server';
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return 'not_a_server';
+  }
+  const status = body as { owner_configured?: unknown; desktop?: unknown } | null;
+  if (typeof status?.owner_configured !== 'boolean') return 'not_a_server';
+  // The desktop app has no owner account and still issues pairing codes, so only another server without one is flagged.
+  return status.owner_configured || status.desktop === true ? 'ok' : 'needs_setup';
+}
+
+/** What to tell the person about the result: good news, a heads-up, or a problem. */
+export function describeServerCheck(result: ServerCheck): { tone: 'good' | 'warn' | 'bad'; text: string } {
+  switch (result) {
+    case 'ok':
+      return { tone: 'good', text: 'Found your server.' };
+    case 'needs_setup':
+      return { tone: 'warn', text: 'Found your server, but it has no owner account yet, so it may have no pairing code to give you. Open it in a browser and finish setup first.' };
+    case 'unreachable':
+      return { tone: 'bad', text: 'Cannot reach this address. Check it, that the server is running, and that this phone can get to it (same network, a VPN, or a public HTTPS address).' };
+    case 'untrusted_host':
+      return { tone: 'bad', text: describePairingError(new PairingError('untrusted_host')) };
+    case 'refused':
+      return { tone: 'bad', text: describePairingError(new PairingError('refused')) };
+    case 'server_error':
+      return { tone: 'bad', text: describePairingError(new PairingError('server_error')) };
+    default:
+      return { tone: 'bad', text: describePairingError(new PairingError('not_a_server')) };
+  }
+}

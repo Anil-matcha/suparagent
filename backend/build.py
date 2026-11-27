@@ -2,7 +2,7 @@
 
 Run from the backend folder:  uv run --with pyinstaller python build.py
 
-Output: backend/dist/open-dots-backend/open-dots-backend[.exe] (the folder the
+Output: backend/dist/suparagent-backend/suparagent-backend[.exe] (the folder the
 desktop packaging copies into the app). The entry is desktop_main.py, the same
 script the source checkout runs.
 
@@ -18,7 +18,7 @@ from pathlib import Path
 import PyInstaller.__main__
 
 HERE = Path(__file__).resolve().parent
-NAME = "open-dots-backend"
+NAME = "suparagent-backend"
 
 # Imported by name at run time (servers, drivers, plugins), which a static scan misses.
 COLLECT_SUBMODULES = [
@@ -48,6 +48,9 @@ def main() -> int:
         "--specpath", str(HERE / "build"),
         # Read by app/desktop/database.py as <package root>/alembic.
         "--add-data", f"{HERE / 'alembic'}{';' if sys.platform == 'win32' else ':'}alembic",
+        # The bundled marketplace catalog remains available when offline or
+        # when the public catalog endpoint cannot be reached.
+        "--add-data", f"{HERE.parent / 'marketplace'}{';' if sys.platform == 'win32' else ':'}marketplace",
     ]
     for module in COLLECT_SUBMODULES:
         args += ["--collect-submodules", module]

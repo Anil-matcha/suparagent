@@ -29,6 +29,7 @@ from app.core import app_settings, engine_processes
 from app.core.engine_env import engine_environment
 from app.desktop import profile
 from app.services.approval_modes import cli_permission_mode
+from app.core import host_exec
 
 # Verified against Claude Code 2.1.232: init reported tools=[], mcp_servers=[],
 # skills=[], and a prompt asking to run a shell command wrote nothing.
@@ -157,9 +158,10 @@ class RunControl:
     def _attach(self, proc: subprocess.Popen, timeout_seconds: float, on_timeout) -> None:
         with self._lock:
             self._proc = proc
-            self._timeout_seconds = timeout_seconds
-            self._on_timeout = on_timeout
-            self._start_timer(timeout_seconds)
+            if timeout_seconds > 0:
+                self._timeout_seconds = timeout_seconds
+                self._on_timeout = on_timeout
+                self._start_timer(timeout_seconds)
             killed = self._killed
         if killed:  # kill() was called before the process existed
             _kill_tree(proc)
@@ -215,7 +217,7 @@ class RunControl:
         """Stop the clock (nested calls are counted). Waiting for a person is
         not Claude running too long; the wait has its own limit."""
         with self._lock:
-            if self._finished:
+            if self._finished or self._timer is None:
                 return
             self._pauses += 1
             if self._pauses == 1 and self._timer is not None:
@@ -224,7 +226,7 @@ class RunControl:
 
     def resume_deadline(self) -> None:
         with self._lock:
-            if self._finished or self._pauses == 0:
+            if self._finished or self._timer is None or self._pauses == 0:
                 return
             self._pauses -= 1
             if self._pauses == 0:
@@ -307,6 +309,21 @@ def _child_env(*, extra_names=(), extra_env=None) -> dict[str, str]:
     return engine_processes.mark(env)
 
 
+# Credentials a named Claude account must not inherit from the server's environment: they would
+# make every account the same login.
+_ACCOUNT_CREDENTIAL_NAMES = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
+
+
+def account_env(env: dict[str, str], config_dir: Path) -> dict[str, str]:
+    """`env` for one named Claude account: its own absolute config folder, and no shared login variables."""
+    folder = Path(config_dir)
+    if not folder.is_absolute():
+        raise ValueError("A Claude account folder must be absolute.")
+    out = {k: v for k, v in env.items() if k not in _ACCOUNT_CREDENTIAL_NAMES}
+    out["CLAUDE_CONFIG_DIR"] = str(folder)
+    return out
+
+
 def child_env(*, extra_names=(), extra_env=None) -> dict[str, str]:
     """The environment for any engine process this app starts: the names
     an engine needs (app/core/engine_env.py), not this process's whole
@@ -345,6 +362,7 @@ def run_blocking(
     sandbox: bool = False,
     sandbox_writable=(),
     sandbox_readonly=(),
+    config_dir: Path | None = None,
 ) -> RunOutput:
     """Run a process to completion with a time limit and an output cap,
     killing its whole process tree if either is exceeded.
@@ -366,7 +384,10 @@ def run_blocking(
     else:
         popen_kwargs["start_new_session"] = True
 
+    host_exec.ensure_allowed("an engine process")
     env = _child_env()
+    if config_dir is not None:
+        env = account_env(env, config_dir)
     if sandbox:
         from app.core import turn_sandbox
         turn_sandbox.self_check()
@@ -442,7 +463,7 @@ def run_blocking(
             state["truncated"] = True
             _kill_tree(proc)
 
-    timer = None if control is not None else threading.Timer(timeout_seconds, on_timeout)
+    timer = None if control is not None or timeout_seconds <= 0 else threading.Timer(timeout_seconds, on_timeout)
     stdout_reader = (
         threading.Thread(target=drain_lines, args=(proc.stdout,))
         if on_stdout_line is not None
@@ -456,7 +477,7 @@ def run_blocking(
     ]
     if control is not None:
         control._attach(proc, timeout_seconds, on_timeout)
-    else:
+    elif timer is not None:
         timer.start()
     for reader in readers:
         reader.start()
@@ -475,7 +496,7 @@ def run_blocking(
     finally:
         if control is not None:
             control._finish()
-        else:
+        elif timer is not None:
             timer.cancel()
         # A killed child's grandchildren could still hold the pipes open.
         for reader in readers:
@@ -617,7 +638,7 @@ def _status_blocking() -> CliStatus:
         status.error = "Could not determine whether Claude is signed in."
         return status
     if not status.signed_in:
-        status.error = "Claude is not signed in. Run `claude auth login` in a terminal first."
+        status.error = "Claude is not signed in. Open engine settings to sign in."
     return status
 
 
@@ -640,6 +661,7 @@ def _run_blocking(
     mcp_servers: dict | None = None,
     images: list[dict] | None = None,
     mcp_only: bool = False,
+    config_dir: Path | None = None,
 ) -> RunOutput:
     if workspace is not None:
         from app.services.workspaces import require_workspace
@@ -686,6 +708,7 @@ def _run_blocking(
         on_stdout_line=on_stdout_line,
         control=control,
         keep_stdin_open=tools if control is not None else None,
+        config_dir=config_dir,
     )
 
 
@@ -705,6 +728,7 @@ async def run_prompt(
     mcp_servers: dict | None = None,
     images: list[dict] | None = None,
     mcp_only: bool = False,
+    config_dir: Path | None = None,
 ) -> RunOutput:
     """Chat-only by default. Passing a `RunControl` runs with tools on: the CLI
     then asks over stdin/stdout before each tool call, and the caller answers
@@ -729,4 +753,5 @@ async def run_prompt(
         mcp_servers,
         images,
         mcp_only,
+        config_dir,
     )

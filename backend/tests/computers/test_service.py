@@ -6,7 +6,7 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import delete, select
 
-from app.computers.provider import ComputerError, DockerProvider
+from app.computers.provider import ComputerError, DockerProvider, Health
 from app.computers.service import ComputerService, ComputerUnavailable, _utcnow
 from app.db.models import Agent, Computer
 from tests.computers.harness import IMAGE, docker  # noqa: F401
@@ -194,6 +194,38 @@ async def test_a_removal_cut_short_is_finished_later(service, agent, workspace, 
     assert (await service.for_agent(agent.id)) is None
 
 
+async def test_upkeep_reloads_pending_cloud_removals_even_though_get_hides_them(service, agent, workspace, sessions):
+    class FinishedBoat:
+        key = "boat"
+
+        def __init__(self):
+            self.deleted = []
+
+        def health(self):
+            return Health("boat", True)
+
+        def delete(self, spec):
+            self.deleted.append(spec)
+            return None
+
+    boat = FinishedBoat()
+    service.providers["boat"] = boat
+    computer, _ = await service.create_for_agent(agent, workspace=workspace)
+    async with sessions() as db:
+        row = await db.get(Computer, computer.id)
+        row.provider = "boat"
+        row.state = "deleting"
+        row.provider_delete_id = "bdop_" + "a" * 32
+        await db.commit()
+
+    await service.upkeep()
+
+    assert len(boat.deleted) == 1
+    assert boat.deleted[0].provider_delete_id == "bdop_" + "a" * 32
+    async with sessions() as db:
+        assert await db.get(Computer, computer.id) is None
+
+
 async def test_deleting_keeps_the_workspace_files(service, agent, workspace, docker):  # noqa: F811
     from pathlib import Path
 
@@ -235,3 +267,37 @@ async def test_removing_the_agent_removes_its_computer(service, agent, workspace
     async with sessions() as db:
         assert (await db.execute(select(Computer).where(Computer.id == computer.id))).scalar_one_or_none() is None
     assert docker.state()["containers"] == {}
+
+
+class _KeyConfigured:
+    def configured(self) -> bool:
+        return True
+
+
+@pytest.fixture
+def muapi_ready(monkeypatch):
+    from app.computers import service as service_module
+    monkeypatch.setattr(service_module.profile, "active", lambda: True)
+    monkeypatch.setattr(service_module.muapi_credentials, "get_store", lambda: _KeyConfigured())
+
+
+@pytest.mark.parametrize("memory_mb,cpu_millis", [(None, 4000), (4096, 2000), (8192, 4000), (16384, 8000)])
+async def test_muapi_size_is_stored_as_memory_and_cpu(service, agent, muapi_ready, memory_mb, cpu_millis):  # noqa: F811
+    extra = {} if memory_mb is None else {"memory_mb": memory_mb}
+    computer, created = await service.create_for_agent(agent, workspace=None, provider="muapi", **extra)
+    assert created and computer.provider == "muapi" and computer.kind == "shell"
+    assert computer.memory_mb == (memory_mb or 8192) and computer.cpu_millis == cpu_millis
+
+
+async def test_muapi_rejects_unknown_size_and_desktop(service, agent, muapi_ready):  # noqa: F811
+    with pytest.raises(ValueError, match="4096, 8192 or 16384"):
+        await service.create_for_agent(agent, workspace=None, provider="muapi", memory_mb=5000)
+    with pytest.raises(ValueError, match="shell-only"):
+        await service.create_for_agent(agent, workspace=None, provider="muapi", kind="desktop")
+
+
+async def test_boat_still_refuses_resource_settings(service, agent, monkeypatch):  # noqa: F811
+    from app.computers import service as service_module
+    monkeypatch.setattr(service_module.profile, "active", lambda: True)
+    with pytest.raises(ValueError, match="managed by the provider"):
+        await service.create_for_agent(agent, workspace=None, provider="boat", memory_mb=4096)

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseInline, parseMarkdown, safeHref } from './markdown.ts';
+import { parseInline, parseMarkdown, safeHref, workspaceRelativePath } from './markdown.ts';
 
 const kinds = (blocks) => blocks.map((b) => b.type);
 
@@ -9,6 +9,12 @@ test('paragraphs, headings and rules', () => {
   assert.deepEqual(kinds(blocks), ['heading', 'paragraph', 'rule', 'heading']);
   assert.equal(blocks[0].level, 1);
   assert.equal(blocks[3].level, 3);
+});
+
+test('a heading drops only a closing # run that follows a space', () => {
+  const text = (source) => parseMarkdown(source)[0].children[0].text;
+  assert.equal(text('## Using C#'), 'Using C#');
+  assert.equal(text('# Title ##'), 'Title');
 });
 
 test('a fenced code block keeps its text and language, and may be unclosed while streaming', () => {
@@ -65,8 +71,27 @@ test('links: only http, https and mailto become clickable', () => {
   assert.equal(safeHref('data:text/html,hi'), null);
   assert.equal(safeHref('/relative'), null);
   assert.equal(safeHref('mailto:a@b.co'), 'mailto:a@b.co');
+  const wiki = parseInline('[Foo](https://en.wikipedia.org/wiki/Foo_(bar)) after');
+  assert.equal(wiki[0].href, 'https://en.wikipedia.org/wiki/Foo_(bar)');
+  assert.deepEqual(wiki[1], { type: 'text', text: ' after' });
   const bare = parseInline('see https://example.com/x.');
   assert.equal(bare[1].href, 'https://example.com/x');
+});
+
+test('absolute workspace file links preserve labels and paths with spaces', () => {
+  const [node] = parseInline('[Download your sample video (MP4)](</Users/ankur/My Workspace/output/sample-social-video.mp4>)');
+  assert.equal(node.type, 'workspace-file');
+  assert.equal(node.path, '/Users/ankur/My Workspace/output/sample-social-video.mp4');
+  assert.deepEqual(node.children, [{ type: 'text', text: 'Download your sample video (MP4)' }]);
+  assert.deepEqual(parseInline('[outside](relative/file.mp4)'), [{ type: 'text', text: 'outside' }]);
+});
+
+test('workspace file paths resolve only inside the pinned workspace', () => {
+  assert.equal(workspaceRelativePath('/Users/ankur/Workspace/output/a video.mp4', '/Users/ankur/Workspace'), 'output/a video.mp4');
+  assert.equal(workspaceRelativePath('/Users/ankur/Workspace-old/output/a.mp4', '/Users/ankur/Workspace'), null);
+  assert.equal(workspaceRelativePath('/Users/ankur/Workspace/../secret.txt', '/Users/ankur/Workspace'), null);
+  assert.equal(workspaceRelativePath('c:\\Users\\Ankur\\Workspace\\out\\clip.mp4', 'C:\\Users\\ankur\\Workspace\\'), 'out/clip.mp4');
+  assert.equal(workspaceRelativePath('/tmp/outside.mp4', null), null);
 });
 
 test('HTML in an answer stays plain text', () => {
@@ -78,4 +103,21 @@ test('HTML in an answer stays plain text', () => {
 test('re-parsing every prefix of a streamed answer never throws', () => {
   const full = '# Hi\n\n- a **b\n- c `d\n\n```ts\nlet x\n\n| a | b |\n|--|--|\n| [l](http://x';
   for (let n = 0; n <= full.length; n += 1) parseMarkdown(full.slice(0, n));
+});
+
+test('nested lists attach to the item above, and indented text still continues it', () => {
+  const [ul] = parseMarkdown('- a\n  - a1\n  - a2\n    deeper\n- b\n  more');
+  assert.equal(ul.type, 'list');
+  assert.equal(ul.items.length, 2);
+  assert.equal(ul.sub[0][0].type, 'list');
+  assert.equal(ul.sub[0][0].items.length, 2);
+  assert.equal(ul.sub[1].length, 0);
+  const [ol] = parseMarkdown('1. one\n    - x\n2. two');
+  assert.equal(ol.items.length, 2);
+  assert.equal(ol.sub[0][0].items.length, 1);
+});
+
+test('a table inside a half-written answer keeps its alignment row', () => {
+  const [t] = parseMarkdown('| a | b |\n|:-:|--:|\n| 1 | 2 |');
+  assert.deepEqual(t.align, ['center', 'right']);
 });

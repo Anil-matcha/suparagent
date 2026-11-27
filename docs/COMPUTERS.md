@@ -1,12 +1,19 @@
 # Agent computers
 
 An agent can have its own computer: an isolated machine where its turns run
-their commands and file edits instead of on the machine running Open Duet.
-Docker computers can be a shell or an isolated Linux desktop with screen
-tools, live viewing and takeover. The macOS desktop app also offers a separate,
-explicitly enabled [native desktop preview](NATIVE-DESKTOP.md) that acts on this
-Mac's apps. Docker stays the isolated default. Remote SSH computers remain
-unimplemented.
+their commands and file edits instead of on the machine running Suparagent.
+Local Docker computers can be a shell or an isolated Linux desktop with screen
+tools, live viewing and takeover. In the Desktop app, a person can also choose
+a Boat cloud computer. Cloud computers have internet access, use a separate
+  provider account and may incur charges; their files are not synced with the
+  local workspace. The Boat API key is encrypted in the local Desktop profile
+  and sent by its backend to Boat's API over HTTPS for authentication. It is
+  never sent to the agent or cloud computer. Cloud
+computers auto-archive one hour after creation or resume, and can be resumed by
+a later turn when auto-start is enabled. A [boxd](#boxd-cloud-computers) cloud
+computer is another cloud choice. The macOS desktop app also offers a
+separate, explicitly enabled [native desktop preview](NATIVE-DESKTOP.md) that
+acts on this Mac's apps. Remote SSH computers remain unimplemented.
 
 Desktop computers also expose structured `browser_*` tools for their own
 Chromium browser. See [the image setup](../desktop-image/README.md) and
@@ -46,7 +53,7 @@ One table, `computer` (migration `4b7e1d9c2a58`), at most one row per agent:
 | Column | Meaning |
 |---|---|
 | `agent_id` | The agent (unique). No foreign key, like `thread.agent_id`: a row outlives its agent until its machine is removed. |
-| `provider` | `docker` for isolated agent computers. The native macOS desktop preview is a separate, opt-in app path; SSH computers are not implemented. |
+| `provider` | `docker` for a local isolated computer, or `boat` or `boxd` for a Desktop cloud computer. The native macOS desktop preview is a separate, opt-in app path; SSH computers are not implemented. |
 | `image`, `image_id` | The image reference (a digest pins it) and the content id it resolved to when the machine was made. |
 | `cpu_millis`, `memory_mb`, `pids_limit` | Limits. CPU is stored in thousandths so the column is an integer on every database. |
 | `network` | `none` (no network at all, the default) or `default` (Docker's bridge: internet out, nothing in). |
@@ -54,12 +61,12 @@ One table, `computer` (migration `4b7e1d9c2a58`), at most one row per agent:
 | `auto_start` | A turn may start a stopped computer, or make a missing one from an image that is already here. Default on. |
 | `state` | `missing`, `creating`, `running`, `stopped`, `error`, `deleting`: the last state the app saw. |
 | `workspace_path` | The folder mounted at `/workspace` when the machine was made. |
-| `container_id`, `last_error`, `last_used_at` | What the provider last reported. |
+| `container_id`, `last_error`, `last_used_at` | What the provider last reported. `provider_generation` gives each newly created provider resource its own idempotency identity. `provider_delete_id` tracks an accepted cloud deletion; if Boat no longer has that operation record, the app checks the sandbox and either finishes removal or requests a new deletion operation. |
 
 On SQLite the id is `AUTOINCREMENT`: the container name is derived from it and
 must never be handed to a different computer.
 
-The machine's own name is `open-dots-computer-<installation>-<id>`, where
+The local Docker machine's own name is `suparagent-computer-<installation>-<id>`, where
 `<installation>` is the start of a random id kept in `computers/instance-id`
 in the data folder, so two installations sharing one Docker never touch each
 other's machines.
@@ -100,8 +107,11 @@ any state --remove--> deleting --(machine removed)--> (row gone)
 - **Removal is journalled.** Removing a computer first marks the row
   `deleting`, then removes the machine, then the row. If Docker is not
   answering, the row stays `deleting` (hidden from every list) and the upkeep
-  job finishes the removal when Docker comes back. Removing an agent removes
-  its computer the same way. Removal never touches the workspace folder.
+  job finishes the removal when Docker comes back. Boat deletion is asynchronous:
+  the app tracks the provider's deletion operation; if that operation expires,
+  it checks whether the sandbox still exists before clearing the row or asking
+  Boat to delete it again. Removing an agent removes its computer the same way.
+  Removal never touches the workspace folder.
 - **Orphans.** The first time the upkeep job finds Docker answering (at startup
   or later), it removes machines this installation made that no row knows of
   (for example after restoring an older database).
@@ -120,9 +130,9 @@ any state --remove--> deleting --(machine removed)--> (row gone)
 - a 512 MB `tmpfs` at `/tmp`, with `HOME=/tmp/home`;
 - one bind mount: the workspace folder at `/workspace`, also the working
   directory;
-- labels that record ownership (`dev.open-dots.computer`, `…computer.id`,
-  `dev.open-dots.instance`) and a fingerprint of the settings that need a
-  recreate (`dev.open-dots.config`);
+- labels that record ownership (`dev.suparagent.computer`, `…computer.id`,
+  `dev.suparagent.instance`) and a fingerprint of the settings that need a
+  recreate (`dev.suparagent.config`);
 - the command `sleep infinity`: every tool call is a `docker exec`.
 
 A command runs as `docker exec -u <user> -w /workspace <name> timeout -k 5 <N>
@@ -152,8 +162,8 @@ FROM docker.io/library/python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c10
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 ```
 
-`docker build -t open-dots-computer:git .` and set the image to
-`open-dots-computer:git`.
+`docker build -t suparagent-computer:git .` and set the image to
+`suparagent-computer:git`.
 
 ## How a turn reaches the computer
 
@@ -236,13 +246,63 @@ Agents carry `computer_id` and a `computer` summary; conversations carry the
 ## The page
 
 The Agents panel has a **Computer** button per agent: give it a computer
-(choosing no network or internet), then see its state, image (and whether it is
+(choosing Local or Cloud in Desktop, and no network or internet for Local), then see its state, image (and whether it is
 pinned), limits, mounted folder, idle stop and the last command with its
 output; download the image, start, stop, recreate, change limits, network,
 image and auto start, or remove it. A conversation whose agent has a computer
 shows a **Computer** chip in the header that opens the same view. Cards and
 tool steps of computer calls carry a "computer" badge. Against a backend
 without computers the button explains that and nothing else changes.
+
+The Cloud option is available only in the local Desktop profile. Its key is
+write-only from the UI and remains encrypted on this device. The local backend
+sends it to Boat's API over HTTPS for authentication; the key is not included in
+agent turns or sent to the cloud computer. Commands and files go to the cloud
+computer. Screenshots can be returned to the selected engine when the agent
+requests them. No local workspace is mounted into or synced with the cloud
+machine. The live desktop view uses a secret provider URL. Suparagent clears it
+from the view when control is handed back, but Boat does not expose a URL
+revocation endpoint. Remove all cloud computers before resetting or deleting
+the Desktop profile. Boat deletion is accepted asynchronously; Suparagent keeps
+the local computer record and blocks profile reset until Boat reports deletion
+complete. The resources may incur charges until removed or archived.
+
+### boxd cloud computers
+
+[boxd](https://boxd.sh/?ref=suparagent) runs full Linux microVMs (KVM) with a
+persistent disk that start in about a second, and can be hibernated,
+snapshotted and forked. In the Desktop app, **Cloud · boxd** makes each agent
+computer one boxd machine (`backend/app/computers/boxd_provider.py`).
+
+Setup:
+
+1. Install the backend with the optional boxd SDK: `uv sync --extra boxd` in
+   `backend/`. Without it the choice reports that the SDK is missing.
+2. Create an API key in the [boxd console](https://boxd.sh/?ref=suparagent) and
+   save it under **Cloud · boxd** when giving an agent a computer. It is stored
+   like the Boat key (`boxd-api-key.enc` in the Desktop profile, encrypted,
+   write-only) and used only by the local backend to call the boxd API.
+
+How it maps:
+
+| Suparagent | boxd |
+|---|---|
+| create | `machines.create` with the computer's name and labels `suparagent/instance`, `suparagent/computer`, `suparagent/generation`. A create cut short is resumed by name; a machine with that name made by anyone else is refused. |
+| start | wake a hibernated machine or start a stopped one, wait until it answers, then make `/home/boxd/workspace` (and the display of a desktop computer). |
+| stop (idle stop too) | `machines.hibernate`: memory and disk are kept, so open apps survive, and the next start wakes it in about a second. |
+| recreate, remove | `machines.delete`, which is synchronous. A machine whose labels do not match is never deleted. |
+| `exec` | `machines.exec` as user `boxd` (passwordless sudo) under `timeout`, in `/home/boxd/workspace` (shown to the agent as `/workspace`). |
+| `read_file`, `write_file`, `list_files` | the boxd file API, limited to the workspace and `/tmp` like Boat. |
+| screen tools | a 1280x800 Xvfb display `:99` started on demand, driven with `xdotool`, captured with ImageMagick `import`. |
+
+The machine runs the boxd default image (Ubuntu 24.04) at the org's default
+size, with internet access; resource, image and network settings are not
+offered for it. Its desktop is not the machine's own boxd console Desktop view
+(display `:100`, which resizes to whoever watches it), so the panel shows it
+as screenshots and there is
+no take-control view. Remove boxd computers before resetting the Desktop
+profile, as with Boat. Machines keep running (and billing) until stopped,
+hibernated or removed; boxd's own idle auto-hibernate setting still applies.
 
 ## Testing
 
@@ -252,7 +312,7 @@ without computers the button explains that and nothing else changes.
   Claude CLI calling the real MCP server) are tested end to end.
 - `tests/computers/test_real_docker.py` runs against a real daemon when
   `docker info` answers within 10 seconds and the image is already present; it
-  never downloads one (`OPEN_DOTS_TEST_IMAGE` picks another local image).
+  never downloads one (`SUPARAGENT_TEST_IMAGE` picks another local image).
 
 ## Not yet
 
@@ -277,3 +337,9 @@ without computers the button explains that and nothing else changes.
   MCP server, which another provider adapter could mount the same way once it
   can switch off its own host tools (Codex does: see [ENGINES.md](ENGINES.md#codex)).
   The native Mac desktop stays Claude-only.
+- Boat cloud computers in the local Desktop app are source-only until the
+  provider lifecycle, migrations, agent approval path, Desktop package and a
+  real Boat account are qualified. The cloud option is not exposed by the
+  hosted web backend. Deletion operations are polled until provider completion.
+  The frontend production build passed, but no backend behavior test, live Boat
+  check, or packaged-app check was run for this implementation.

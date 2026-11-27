@@ -1,11 +1,14 @@
 """Google account engine using the official Antigravity ACP runtime."""
 
 import asyncio
+import dataclasses
 import http.client
 import json
+import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -14,13 +17,13 @@ from uuid import uuid4
 
 from app.services import antigravity_runtime as runtime
 from app.services import local_claude_runner
-from app.services.acp_adapter import AcpAdapter, InvalidConfig, _initialize_params
+from app.services.acp_adapter import AcpAdapter, InvalidConfig, _initialize_params, normalize_effort
 from app.services.engine_registry import check_model_id
 from app.services.provider_adapter import EngineProbe, ModelOption, TurnOutcome
 from app.services.stdio_rpc import StdioRpc
 
 AUTH_PREFIX = "Open the following link to authenticate the ACP server: "
-BROWSER_MARKER = "__OPEN_DOTS_GOOGLE_AUTH__"
+BROWSER_MARKER = "__SUPARAGENT_GOOGLE_AUTH__"
 AUTH_SECONDS = 300
 STARTUP_SECONDS = 90
 
@@ -57,11 +60,12 @@ def profile_env(directory: Path, binary_dir: Path):
         if upper.startswith(("GOOGLE_", "GEMINI_", "GCLOUD_", "CLOUDSDK_", "AGY_", "ANTIGRAVITY_")) or upper in {"BROWSER", "ELECTRON_RUN_AS_NODE"}:
             env.pop(name)
     helper = f"import sys;sys.stderr.write({BROWSER_MARKER!r}+sys.argv[-1]+'\\n')"
-    if any(c in sys.executable for c in ("\n", "\r", "%s", ":")):
+    if any(c in sys.executable for c in ("\n", "\r", "%s", os.pathsep)):
         raise InvalidConfig("The Python runtime path cannot safely launch Google sign-in.")
+    browser_cmd = subprocess.list2cmdline([sys.executable, "-c", helper, "--", "%s"]) if sys.platform == "win32" else shlex.join([sys.executable, "-c", helper, "--", "%s"])
     env.update(GEMINI_HOME=str(directory), AGY_ACP_FORCE_FILE_STORAGE="1",
-               ANTIGRAVITY_HARNESS_PATH=str(binary_dir / "localharness_external"),
-               BROWSER=shlex.join([sys.executable, "-c", helper, "--", "%s"]), PYTHONUNBUFFERED="1")
+               ANTIGRAVITY_HARNESS_PATH=str(binary_dir / runtime.harness_binary()),
+               BROWSER=browser_cmd, PYTHONUNBUFFERED="1")
     return env
 
 
@@ -100,13 +104,38 @@ def callback_url(raw, redirect, state):
 
 def option(session, name):
     options = session.get("configOptions")
-    return next((o for o in options if isinstance(o, dict) and o.get("id") == name), {}) if isinstance(options, list) else {}
+    if not isinstance(options, list):
+        return {}
+    return next((o for o in options if isinstance(o, dict) and (o.get("id") == name or o.get("category") == name)), {})
 
 
 def catalog(session):
     model = option(session, "model")
+    thought = option(session, "thinking_level") or option(session, "thought_level")
+
+    global_efforts = []
+    default_effort = None
+    if thought and thought.get("type") == "select":
+        choices = thought.get("options", [])
+        wire_efforts = [normalize_effort(c.get("value", "")) for c in choices if isinstance(c, dict)]
+        global_efforts = [e for e in ("low", "medium", "high", "xhigh", "max") if e in wire_efforts]
+        curr = normalize_effort(thought.get("currentValue", ""))
+        default_effort = curr if curr in global_efforts else (global_efforts[0] if global_efforts else None)
+
+    models_meta = {}
+    models_block = session.get("models")
+    if isinstance(models_block, dict):
+        avail = models_block.get("availableModels")
+        if isinstance(avail, list):
+            for item in avail:
+                if isinstance(item, dict) and isinstance(item.get("modelId"), str):
+                    mid = item["modelId"].strip()
+                    meta = item.get("_meta") if isinstance(item.get("_meta"), dict) else {}
+                    models_meta[mid] = meta
+
     values = []
     def visit(items, depth=0):
+        nonlocal default_effort
         if not isinstance(items, list) or depth > 8:
             return
         for item in items[:600]:
@@ -124,7 +153,47 @@ def catalog(session):
                 continue
             if identifier not in {m.id for m in values} and len(values) < 600:
                 label = item.get("name")
-                values.append(ModelOption(identifier, label[:200] if isinstance(label, str) and label else identifier, identifier == model.get("currentValue")))
+                meta = models_meta.get(identifier, {})
+                lower_id = identifier.lower()
+                lower_label = (label or "").lower()
+                if meta.get("supportsReasoningEffort") is False:
+                    model_efforts = ()
+                    configurable = False
+                elif isinstance(meta.get("reasoningEfforts"), list):
+                    me_list = [normalize_effort(e.get("value", "")) for e in meta["reasoningEfforts"] if isinstance(e, dict)]
+                    model_efforts = tuple(e for e in ("low", "medium", "high", "xhigh", "max") if e in me_list)
+                    configurable = len(model_efforts) > 1
+                elif "(medium)" in lower_label:
+                    model_efforts = ("medium",)
+                    configurable = False
+                elif "(thinking)" in lower_label:
+                    model_efforts = ("high",)
+                    configurable = False
+                elif global_efforts:
+                    model_efforts = tuple(global_efforts)
+                    configurable = len(model_efforts) > 1
+                elif lower_id == "gemini-4-hydrogen" or "hydrogen" in lower_id:
+                    model_efforts = ("low", "medium", "high", "xhigh")
+                    configurable = True
+                    if not default_effort:
+                        default_effort = "high"
+                elif lower_id.startswith("gemini-") or "gemini" in lower_label:
+                    model_efforts = ("low", "medium", "high")
+                    configurable = True
+                else:
+                    model_efforts = ()
+                    configurable = False
+
+                model_default = default_effort if (default_effort and default_effort in model_efforts) else (model_efforts[0] if model_efforts else None)
+
+                values.append(ModelOption(
+                    id=identifier,
+                    label=label[:200] if isinstance(label, str) and label else identifier,
+                    default=(identifier == model.get("currentValue")),
+                    default_reasoning_effort=model_default,
+                    supported_reasoning_efforts=model_efforts,
+                    reasoning_effort_configurable=configurable,
+                ))
     visit(model.get("options"))
     return values
 
@@ -135,6 +204,7 @@ class AntigravityAdapter(AcpAdapter):
     preset = True
     custom_models = False
     resume_method = "session/resume"
+    auto_recover_session = True
     redact_diagnostics = True
     exit_grace_seconds = 5
     config_fields = [{"name": "model", "label": "Default model", "advanced": True}]
@@ -153,8 +223,39 @@ class AntigravityAdapter(AcpAdapter):
     def models(self):
         try:
             data = json.loads((profile_dir(self.config or {}) / "models.json").read_text())
-            return [ModelOption(**m) for m in data]
-        except (OSError, ValueError, TypeError):
+            result = []
+            for m in data:
+                efforts = m.get("supported_reasoning_efforts")
+                configurable = m.get("reasoning_effort_configurable")
+                default_effort = m.get("default_reasoning_effort")
+                if efforts is None:
+                    lower_id = m.get("id", "").lower()
+                    lower_label = m.get("label", "").lower()
+                    if "(medium)" in lower_label:
+                        efforts = ("medium",)
+                        configurable = False
+                        default_effort = default_effort or "medium"
+                    elif "(thinking)" in lower_label:
+                        efforts = ("high",)
+                        configurable = False
+                        default_effort = default_effort or "high"
+                    elif lower_id.startswith("gemini-") or "gemini" in lower_label:
+                        efforts = ("low", "medium", "high")
+                        configurable = True
+                        default_effort = default_effort or "high"
+                    else:
+                        efforts = ()
+                        configurable = False
+                result.append(ModelOption(
+                    id=m["id"],
+                    label=m["label"],
+                    default=bool(m.get("default")),
+                    default_reasoning_effort=default_effort,
+                    supported_reasoning_efforts=tuple(efforts),
+                    reasoning_effort_configurable=bool(configurable),
+                ))
+            return result
+        except (OSError, ValueError, TypeError, KeyError):
             return []
 
     def validate_config(self, payload, current):
@@ -170,7 +271,7 @@ class AntigravityAdapter(AcpAdapter):
         return {"model": (config or {}).get("model"), "connected": authenticated(config or {})}
 
     def program(self, config):
-        return [str(runtime.runtime_dir() / "agy_acp_server.par")] if runtime.installed() else None
+        return [str(runtime.runtime_dir() / runtime.server_binary())] if runtime.installed() else None
 
     def mode_args(self, ctx, config):
         return ["--uid="] if sys.platform == "linux" else []
@@ -199,20 +300,44 @@ class AntigravityAdapter(AcpAdapter):
         if option(result or {}, "mode").get("currentValue") != "default":
             raise InvalidConfig("Antigravity did not confirm tool approval mode.")
 
-    async def select_model(self, call, session_id, session, model):
+    async def select_model(self, call, session_id, session, model, effort=None):
         offered = catalog(session)
         current = option(session, "model").get("currentValue")
         if not model:
             if current not in {m.id for m in offered}:
                 raise InvalidConfig("Antigravity did not return its current model.")
-            return current
-        if model not in {m.id for m in offered}:
-            raise InvalidConfig("The account did not offer this model.")
-        if model != current:
-            result = await call("session/set_config_option", {"sessionId": session_id, "configId": "model", "value": model}, handle_incoming=True)
-            if option(result or {}, "model").get("currentValue") != model:
+            selected_model = current
+        else:
+            if model not in {m.id for m in offered}:
+                raise InvalidConfig("The account did not offer this model.")
+            selected_model = model
+        if selected_model != current:
+            result = await call("session/set_config_option", {"sessionId": session_id, "configId": "model", "value": selected_model}, handle_incoming=True)
+            if option(result or {}, "model").get("currentValue") != selected_model:
                 raise InvalidConfig("The engine did not confirm this model.")
-        return model
+            session = result or session
+
+        if effort:
+            thought_opt = option(session, "thinking_level") or option(session, "thought_level") or option(session, "effort")
+            if thought_opt and thought_opt.get("type") == "select":
+                current_effort = thought_opt.get("currentValue")
+                options = thought_opt.get("options", [])
+                wire_map = {normalize_effort(o.get("value", "")): o.get("value") for o in options if isinstance(o, dict)}
+                for o in options:
+                    if isinstance(o, dict) and o.get("value"):
+                        val = str(o["value"]).lower()
+                        wire_map[val] = o["value"]
+                        if o.get("name"):
+                            wire_map[str(o["name"]).lower()] = o["value"]
+                target_wire = wire_map.get(effort.lower())
+                if target_wire and target_wire != current_effort:
+                    cfg_id = thought_opt.get("id") or "thinking_level"
+                    try:
+                        await call("session/set_config_option", {"sessionId": session_id, "configId": cfg_id, "value": target_wire}, handle_incoming=True)
+                    except Exception:
+                        pass
+
+        return selected_model
 
     async def probe(self, *, handshake=True):
         try:
@@ -234,7 +359,9 @@ class AntigravityAdapter(AcpAdapter):
             return TurnOutcome("failed", error=self.signed_out_message(), error_code="engine_signed_out")
         state = ctx.provider_state or {}
         if ctx.resume and state.get("antigravity_profile") != config.get("profile"):
-            return TurnOutcome("failed", error="The connected Google account changed. Start a new session.", error_code="session_resume_failed")
+            # The connected Google account changed. Reset stale provider session and start
+            # a fresh session under the active account with replayed conversation history.
+            ctx = dataclasses.replace(ctx, provider_state={"antigravity_profile": config.get("profile")})
         async with self.lock:
             if not authenticated(config):
                 return TurnOutcome("failed", error=self.signed_out_message(), error_code="engine_signed_out")
@@ -251,7 +378,7 @@ class AntigravityAdapter(AcpAdapter):
         directory = profile_dir(config)
         binary = binary_dir or runtime.runtime_dir()
         env = profile_env(directory, binary)
-        rpc = await StdioRpc.spawn([str(binary / "agy_acp_server.par"), *self.mode_args(None, {})],
+        rpc = await StdioRpc.spawn([str(binary / runtime.server_binary()), *self.mode_args(None, {})],
                                    cwd=str(directory), env=env, max_bytes=2_000_000, diagnostic=self._diagnostic)
         try:
             initialized = await rpc.request("initialize", _initialize_params(), timeout=STARTUP_SECONDS)
@@ -280,27 +407,71 @@ class AntigravityAdapter(AcpAdapter):
             models = catalog(session)
             if not models:
                 raise InvalidConfig("Antigravity did not offer any models to this account.")
+
+            # Dynamically survey real thinking level options from ACP session for each model
+            sid = session.get("sessionId")
+            if sid:
+                surveyed = []
+                for m in models:
+                    efforts = list(m.supported_reasoning_efforts)
+                    def_effort = m.default_reasoning_effort
+                    try:
+                        res = await asyncio.wait_for(
+                            rpc.request("session/set_config_option", {"sessionId": sid, "configId": "model", "value": m.id}),
+                            timeout=6.0,
+                        )
+                        for opt in (res or {}).get("configOptions", []):
+                            if opt.get("id") in ("thinking_level", "thought_level", "effort") or opt.get("category") == "thought_level":
+                                vals = [o.get("value") for o in opt.get("options", []) if isinstance(o, dict) and o.get("value")]
+                                if vals:
+                                    efforts = vals
+                                    cur = opt.get("currentValue")
+                                    if cur in vals:
+                                        def_effort = cur
+                    except Exception:
+                        pass
+                    surveyed.append(dataclasses.replace(
+                        m,
+                        supported_reasoning_efforts=tuple(efforts),
+                        default_reasoning_effort=def_effort,
+                        reasoning_effort_configurable=len(efforts) > 1,
+                    ))
+                models = surveyed
+
             path = profile_dir(config) / "models.json"
-            path.write_text(json.dumps([{"id": m.id, "label": m.label, "default": m.default} for m in models]))
+            payload = [
+                {
+                    "id": m.id,
+                    "label": m.label,
+                    "default": m.default,
+                    "default_reasoning_effort": m.default_reasoning_effort,
+                    "supported_reasoning_efforts": list(m.supported_reasoning_efforts),
+                    "reasoning_effort_configurable": m.reasoning_effort_configurable,
+                }
+                for m in models
+            ]
+            path.write_text(json.dumps(payload))
             path.chmod(0o600)
         finally:
             await rpc.close(grace_seconds=self.exit_grace_seconds)
 
     async def validate_runtime(self, binary):
-        with tempfile.TemporaryDirectory(prefix=".verify-", dir=runtime.data_root()) as temporary:
+        with tempfile.TemporaryDirectory(prefix=".verify-", dir=runtime.data_root(), ignore_cleanup_errors=True) as temporary:
             # The validator must never authenticate or touch a connected profile.
-            rpc = await StdioRpc.spawn([str(binary / "agy_acp_server.par"), *self.mode_args(None, {})],
+            rpc = await StdioRpc.spawn([str(binary / runtime.server_binary()), *self.mode_args(None, {})],
                 cwd=temporary, env=profile_env(Path(temporary), binary), max_bytes=2_000_000, diagnostic=lambda line: None)
             try:
                 initialized = await rpc.request("initialize", _initialize_params(), timeout=STARTUP_SECONDS)
                 self.validate_initialize(initialized)
             finally:
                 await rpc.close(grace_seconds=self.exit_grace_seconds)
+                if sys.platform == "win32":
+                    await asyncio.sleep(0.5)
 
     def start_operation(self, kind, work):
         if self.lock.locked() or (self.task and not self.task.done()):
             raise InvalidConfig("Antigravity is busy. Stop the conversation or wait for setup to finish.")
-        self.operation = {"id": uuid4().hex, "kind": kind, "phase": "running", "authorization_url": None, "error": None}
+        self.operation = {"id": uuid4().hex, "kind": kind, "phase": "running", "authorization_url": None, "error": None, "progress": None, "detail": None}
         self.auth_request = None
         async def run():
             async with self.lock:

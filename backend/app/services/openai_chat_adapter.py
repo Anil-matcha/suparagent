@@ -49,7 +49,7 @@ NOT_CONFIGURED = "Set the endpoint's address (and key, if it needs one) in Setti
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_HOST = "openrouter.ai"
 # OpenRouter's optional app attribution (its public app rankings).
-OPENROUTER_ATTRIBUTION = {"HTTP-Referer": "https://github.com/Anil-matcha/open-duet", "X-Title": "Open Duet"}
+OPENROUTER_ATTRIBUTION = {"HTTP-Referer": "https://github.com/Anil-matcha/suparagent", "X-Title": "Suparagent"}
 
 
 class InvalidConfig(ValueError):
@@ -225,9 +225,33 @@ class OpenAIChatAdapter:
                 data = None
             for item in (data if isinstance(data, list) else [])[:self.max_models]:
                 if isinstance(item, dict) and isinstance(item.get("id"), str):
-                    models.append(ModelOption(item["id"], item["id"], item["id"] == default))
+                    mid = item["id"]
+                    is_reasoning = any(p in mid.lower() for p in ("o1", "o3-mini", "o3", "o4", "r1"))
+                    efforts = ("low", "medium", "high") if is_reasoning else ()
+                    models.append(
+                        ModelOption(
+                            mid,
+                            mid,
+                            mid == default,
+                            default_reasoning_effort="medium" if is_reasoning else None,
+                            supported_reasoning_efforts=efforts,
+                            reasoning_effort_configurable=bool(efforts),
+                        )
+                    )
         if default and default not in {m.id for m in models}:
-            models.insert(0, ModelOption(default, default, True))
+            is_def_reasoning = any(p in default.lower() for p in ("o1", "o3-mini", "o3", "o4", "r1"))
+            def_efforts = ("low", "medium", "high") if is_def_reasoning else ()
+            models.insert(
+                0,
+                ModelOption(
+                    default,
+                    default,
+                    True,
+                    default_reasoning_effort="medium" if is_def_reasoning else None,
+                    supported_reasoning_efforts=def_efforts,
+                    reasoning_effort_configurable=bool(def_efforts),
+                ),
+            )
         return EngineProbe(
             installed=True, ready=True, signed_in=True if config.get("api_key") else None, models=models or None
         )
@@ -302,7 +326,10 @@ class OpenAIChatAdapter:
 
         async def stream() -> None:
             body = {"model": model, "messages": messages, "stream": True, "stream_options": {"include_usage": True}}
-            timeout = httpx.Timeout(app_settings.get("LOCAL_TASK_TIMEOUT_SECONDS"), connect=CONNECT_TIMEOUT_SECONDS)
+            if ctx.effort:
+                body["reasoning_effort"] = ctx.effort.lower()
+            task_timeout = app_settings.get("LOCAL_TASK_TIMEOUT_SECONDS")
+            timeout = httpx.Timeout(task_timeout or None, connect=CONNECT_TIMEOUT_SECONDS)
             async with self._client(timeout) as client:
                 async with client.stream(
                     "POST", f"{base}/chat/completions", headers=self._headers(config), json=body
@@ -420,7 +447,7 @@ class OpenRouterAdapter(OpenAIChatAdapter):
     required, and models are OpenRouter ids such as `openai/gpt-4o-mini` or
     `meta-llama/llama-3.3-70b-instruct:free`. Requests to openrouter.ai
     itself also carry OpenRouter's optional app-attribution headers, which tell
-    OpenRouter this account's traffic comes from Open Duet; another address (a
+    OpenRouter this account's traffic comes from Suparagent; another address (a
     proxy) never gets them."""
 
     key = "openrouter"
@@ -493,9 +520,34 @@ class OpenRouterAdapter(OpenAIChatAdapter):
         default = config.get("model")
         if not default and key_data.get("is_free_tier") is True:
             default = next((model for model, free, _ in entries if free), None)
-        models = [ModelOption(model, model + (" (free)" if free else ""), model == default) for model, free, _ in entries]
+        models = []
+        for model, free, _ in entries:
+            is_reasoning = any(p in model.lower() for p in ("o1", "o3-mini", "o3", "o4", "r1"))
+            efforts = ("low", "medium", "high") if is_reasoning else ()
+            models.append(
+                ModelOption(
+                    model,
+                    model + (" (free)" if free else ""),
+                    model == default,
+                    default_reasoning_effort="medium" if is_reasoning else None,
+                    supported_reasoning_efforts=efforts,
+                    reasoning_effort_configurable=bool(efforts),
+                )
+            )
         if default and default not in {m.id for m in models}:
-            models.insert(0, ModelOption(default, default, True))
+            is_def_reasoning = any(p in default.lower() for p in ("o1", "o3-mini", "o3", "o4", "r1"))
+            def_efforts = ("low", "medium", "high") if is_def_reasoning else ()
+            models.insert(
+                0,
+                ModelOption(
+                    default,
+                    default,
+                    True,
+                    default_reasoning_effort="medium" if is_def_reasoning else None,
+                    supported_reasoning_efforts=def_efforts,
+                    reasoning_effort_configurable=bool(def_efforts),
+                ),
+            )
         return EngineProbe(installed=True, ready=True, signed_in=True, models=models or None)
 
     async def run_turn(self, ctx: TurnContext, sink, gate) -> TurnOutcome:

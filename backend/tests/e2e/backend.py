@@ -63,7 +63,7 @@ class Backend:
                  database: Path | None = None) -> None:
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
-        self.database = database or root / "data" / "open-dots.db"
+        self.database = database or root / "data" / "suparagent.db"
         self.plan = root / "cli" / "plan.json"
         self.plan.parent.mkdir(parents=True, exist_ok=True)
         self.port = free_port()
@@ -120,7 +120,7 @@ class Backend:
             # The server allow-lists child-process env vars. Expose the fake
             # CLI's FAKE_* configuration to subprocesses in E2E runs, just as
             # tests that run the adapters in-process do in conftest.py.
-            "OPEN_DOTS_ENGINE_ENV": "FAKE_*",
+            "SUPARAGENT_ENGINE_ENV": "FAKE_*",
             "LOCAL_WORKSPACE_ROOT": str(self.root / "work"),
             "DECISION_LOG_DIR": str(self.root / "decisions"),
             "ATTACHMENTS_DIR": str(self.root / "attachments"),

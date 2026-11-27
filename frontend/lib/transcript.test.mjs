@@ -25,6 +25,17 @@ test('routine receipts fold retries into one actionable result card', () => {
   assert.equal(t.items[0].requestId, 'receipt');
 });
 
+test('skill receipts fold retries into one card and ignore malformed events', () => {
+  reset();
+  const data = { request_id: 'sk', action: 'update', skill: { name: 'brief', description: 'Second', warnings: ['x'], before: { description: 'First' } }, undo_note: 'Undo restores.' };
+  const t = run([ev('skill.change.applied', data), ev('skill.change.applied', data), ev('skill.change.applied', { request_id: 'bad' })]);
+  assert.equal(t.items.length, 1);
+  assert.equal(t.items[0].kind, 'skill_change');
+  assert.equal(t.items[0].name, 'brief');
+  assert.equal(t.items[0].previousDescription, 'First');
+  assert.deepEqual(t.items[0].warnings, ['x']);
+});
+
 test('a plain turn reads in order and ends with nothing running', () => {
   reset();
   const t = run([
@@ -374,4 +385,26 @@ test('a retried setup receipt keeps one card and its field-level changes', () =>
   const state = run([ev('team.setup.applied',payload),ev('team.setup.applied',payload)]);
   assert.equal(state.items.length,1);
   assert.deepEqual(state.items[0].rows[0].changes,[{field:'instructions',before:'Old brief',after:'Product Hunt launches'}]);
+});
+
+test('a turn from a named member keeps who sent it; others carry no name', () => {
+  reset();
+  const named = run([ev('turn.started', { prompt_text: 'hi', person: { id: 7, label: 'Sam' } })]);
+  assert.equal(named.items[0].person, 'Sam');
+  const plain = run([ev('turn.started', { prompt_text: 'hi' })]);
+  assert.equal('person' in plain.items[0], false);
+  const blank = run([ev('turn.started', { prompt_text: 'hi', person: { id: 7, label: '  ' } })]);
+  assert.equal('person' in blank.items[0], false);
+});
+
+test('an approval answered by a member keeps who answered it', () => {
+  reset();
+  const asked = ev('approval.requested', { approval_id: 'a1', tool: 'Bash', kind: 'command', summary: 'ls', input: {} });
+  const named = run([asked, ev('approval.resolved', { approval_id: 'a1', status: 'allowed', person: { id: 3, label: 'Sam' } })]);
+  assert.equal(named.items[0].status, 'allowed');
+  assert.equal(named.items[0].resolvedPerson, 'Sam');
+  reset();
+  const plain = run([ev('approval.requested', { approval_id: 'a2', tool: 'Bash', kind: 'command', summary: 'ls', input: {} }),
+    ev('approval.resolved', { approval_id: 'a2', status: 'denied' })]);
+  assert.equal('resolvedPerson' in plain.items[0], false);
 });

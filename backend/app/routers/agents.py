@@ -8,15 +8,28 @@ Errors a client acts on carry a machine-readable code:
 `{"detail": {"error_code": "...", "message": "..."}}`.
 """
 
+import logging
+import os
+import shutil
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 
+from app import agent_shares
+from app.auth.middleware import principal_of
+from app.core.config import settings
+from app.db.transactions import begin_write
 from app.schemas.agent import (
+    OpenBotDatabasePreviewResponse,
     AgentCreateRequest,
     AgentExportResponse,
     AgentImportRequest,
+    AgentMigrationPreviewResponse,
     AgentMemoryResponse,
     AgentMemoryWriteRequest,
     AgentResponse,
@@ -29,7 +42,8 @@ from app.schemas.agent import (
     TopicListResponse,
     TopicWriteRequest,
 )
-from app.services import agent_memory, agent_package, agent_skills, memory_entries, memory_journal, memory_log, memory_proposals, memory_topics
+from app.services import agent_history, agent_memory, agent_package, agent_skills, memory_entries, memory_journal, memory_log, memory_proposals, memory_topics, openbot_database_import
+from app.services import agent_migration_archive
 from app.services import agent_store as store
 from app.services.agent_removal import remove_agent
 from app.services.local_access_policy import require_local_access
@@ -42,6 +56,7 @@ router = APIRouter(
     tags=["Agents"],
     dependencies=[Depends(require_local_access)],
 )
+logger = logging.getLogger(__name__)
 
 
 def get_runtime() -> ThreadRuntime:
@@ -67,6 +82,55 @@ async def _with_computers(rt: ThreadRuntime, agents: list) -> list[AgentResponse
 
 def _error(status_code: int, code: str, message: str) -> HTTPException:
     return HTTPException(status_code=status_code, detail={"error_code": code, "message": message})
+
+
+def _restricted(request: Request) -> bool:
+    """A paired device without admin access (a `manage` phone). Loopback, desktop and signed-in
+    owner requests, and a server with no principal, are not restricted."""
+    principal = principal_of(request.scope)
+    return principal is not None and not principal.is_admin
+
+
+def _admin_only(field: str) -> HTTPException:
+    return _error(403, "field_requires_admin", f"{field} can only be changed from the web app.")
+
+
+def _guard_create(request: Request, payload: AgentCreateRequest) -> None:
+    """What a `manage` device may not set on a new agent: a folder of its choosing, the lead role,
+    or approvals that loosen. An agent made here asks first or only plans."""
+    if not _restricted(request):
+        return
+    if payload.workspace_path is not None:
+        raise _admin_only("workspace_path")
+    if payload.claude_account is not None:
+        raise _admin_only("claude_account")
+    if payload.make_lead:
+        raise _admin_only("make_lead")
+    if payload.approval_mode == "accept_edits":
+        raise _admin_only("approval_mode accept_edits")
+
+
+def _guard_update(request: Request, payload: AgentUpdateRequest, agent) -> None:
+    """The same for an edit. Leaving "accept_edits" alone, or moving to "ask" or "plan", is fine."""
+    if not _restricted(request):
+        return
+    for field in ("workspace_path", "connector_scopes", "connector_account_scopes", "connector_shares", "claude_account"):
+        if field in payload.model_fields_set:
+            raise _admin_only(field)
+    if payload.make_lead is not None:
+        raise _admin_only("make_lead")
+    if payload.approval_mode == "accept_edits" and agent.approval_mode != "accept_edits":
+        raise _admin_only("approval_mode accept_edits")
+
+
+def _check_claude_account(account_id: str | None) -> None:
+    """Only a named Claude account that exists, or null for the default account."""
+    if account_id is None:
+        return
+    from app.services import claude_accounts
+
+    if not claude_accounts.exists(account_id):
+        raise _error(422, "account_not_found", "That Claude account does not exist.")
 
 
 def _check_workspace(path: str | None) -> str | None:
@@ -97,33 +161,105 @@ def _start_notes(agent_id: int, notes: str | None) -> None:
 def _start_imported_skills(agent_id: int, items: list[dict]) -> None:
     """An imported agent is new: it starts with exactly the file's skills, all
     turned off until the person reviews and turns them on. Text only."""
-    agent_skills.remove_all(agent_id)
     for item in items:
-        try:
-            agent_skills.write_skill(
-                agent_id, item["name"], item["description"], item["body"], enabled=False, source="imported"
-            )
-        except agent_skills.SkillError:
-            continue
+        agent_skills.write_skill(
+            agent_id, item["name"], item["description"], item["body"], enabled=False, source="imported"
+        )
 
 
 def _start_imported_notes(agent_id: int, parsed: dict | None) -> None:
     """An imported agent is new, so no notes of its own can be overwritten: it
     starts with exactly the file's notes and topic notes. Each file written is
     a journal row by `import`, so it can be undone."""
-    _start_notes(agent_id, parsed["notes"] if parsed else None)
     if not parsed:
         return
     if parsed["notes"] and parsed["notes"].strip():
-        memory_journal.record(
+        agent_memory.write_memory(agent_id, parsed["notes"])
+        row = memory_journal.record(
             agent_id, agent_memory.MEMORY_FILE, actor="import", before=None, after=agent_memory.read_memory(agent_id).text
         )
+        if row is None:
+            raise OSError("The imported notes could not be journaled.")
     for name, text in parsed["topics"].items():
-        try:
-            doc, _, _ = memory_topics.write_topic(agent_id, name, text)
-        except (agent_memory.MemoryTooLarge, memory_topics.InvalidTopicName, memory_topics.TooManyTopics):
-            continue
-        memory_journal.record(agent_id, memory_journal.note_path(name), actor="import", before=None, after=doc.text)
+        doc, _, _ = memory_topics.write_topic(agent_id, name, text)
+        row = memory_journal.record(agent_id, memory_journal.note_path(name), actor="import", before=None, after=doc.text)
+        if row is None:
+            raise OSError("The imported topic note could not be journaled.")
+
+
+def _reserve_import_path(path: Path, *, directory: bool) -> tuple[Path, tuple[int, int]]:
+    """Claim a fresh path; never inherit or clear an earlier agent's files."""
+    if any(parent.is_symlink() for parent in path.parents):
+        raise OSError("The agent folder has a linked parent.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if directory:
+        path.mkdir(mode=0o700, exist_ok=False)
+    else:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(fd)
+    identity = path.stat(follow_symlinks=False)
+    return path, (identity.st_dev, identity.st_ino)
+
+
+def _cleanup_import_path(reserved: tuple[Path, tuple[int, int]]) -> None:
+    """Only remove the path this import exclusively created, if unchanged."""
+    path, identity = reserved
+    try:
+        if any(parent.is_symlink() for parent in path.parents) or path.is_symlink():
+            logger.error("Could not safely clean up a failed agent import.")
+            return
+        current = path.stat(follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != identity:
+            logger.error("The failed import folder was replaced; leaving it untouched.")
+            return
+        if stat.S_ISDIR(current.st_mode):
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.exception("Could not clean up a failed agent import.")
+
+
+async def _import_package(rt: ThreadRuntime, parsed: dict, payload: AgentImportRequest):
+    """Publish the row only after optional files succeed; rollback on any failure."""
+    reserved: list[tuple[Path, tuple[int, int]]] = []
+    commit_started = False
+    try:
+        async with rt.session() as db:
+            await begin_write(db)
+            name = await store.free_name(db, rt.owner_id, parsed["name"])
+            now = datetime.now(UTC)
+            agent = store.Agent(
+                owner_id=rt.owner_id,
+                name=name,
+                title=parsed["title"],
+                description=parsed["description"],
+                instructions=parsed["instructions"],
+                approval_mode="ask",
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(agent)
+            await db.flush()
+            reserved.append(_reserve_import_path(agent_memory.agent_home(agent.id), directory=True))
+            if payload.include_notes and (parsed["notes"] or parsed["topics"]):
+                reserved.append(_reserve_import_path(memory_journal.journal_path(agent.id), directory=False))
+            _start_imported_notes(agent.id, parsed if payload.include_notes else None)
+            _start_imported_skills(agent.id, parsed["skills"] if payload.include_skills else [])
+            commit_started = True
+            await db.commit()
+        return agent
+    except BaseException as exc:
+        if commit_started and not isinstance(exc, IntegrityError):
+            # A disconnected/cancelled commit can have succeeded remotely.
+            # Preserve its files rather than deleting data from a live agent.
+            logger.exception("Agent import commit status is uncertain; preserving imported files.")
+        else:
+            for path in reversed(reserved):
+                _cleanup_import_path(path)
+        raise
 
 
 def _check_engine(rt: ThreadRuntime, provider: str, model: str | None) -> None:
@@ -157,8 +293,105 @@ def _check_fallback(rt: ThreadRuntime, provider: str, fallback: str | None, mode
     _check_engine(rt, fallback, model)
 
 
+async def _check_connector_scopes(rt: ThreadRuntime, scopes: dict | None, provider: str, existing: dict | None = None) -> dict | None:
+    """The connected apps an agent may use, checked and put in order; None when
+    there are none. The levels are read, read and label (only for an app with label tools: Gmail), and read and change; an app is one with curated tools or one
+    Composio lists (asked with the owner's key, for apps not already allowed, so a made-up
+    name fails closed), and never a shell, code or Composio itself. The agent's engine must be
+    able to mount them (409 `engine_without_connected_apps`)."""
+    from app import composio_generic, composio_tools
+    from app.services import composio_bridge, composio_service
+
+    if not scopes:
+        return None
+    bad = _error(422, "invalid_connector_scopes", "Connected apps can be allowed for reading, or for reading and changing, and only for apps Composio lists.")
+    for app, level in scopes.items():
+        if level not in composio_tools.LEVELS or not composio_generic.valid_app(app) or composio_generic.blocked_app(app):
+            raise bad
+        if app in composio_tools.apps():
+            if (level == "write" and not composio_tools.has_write_tools(app)) or (level == "labels" and not composio_tools.has_label_tools(app)):
+                raise bad
+        elif level == "labels":
+            raise bad  # an app Composio merely lists has no label tools
+        elif app not in (existing or {}):
+            try:
+                async with rt.session() as db:
+                    known = await composio_service.known_app(db, rt.owner_id, composio_bridge.make_client, app)
+            except composio_service.UserError as exc:
+                raise _error(502, exc.code, exc.message) from None
+            if not known:
+                raise bad
+    try:
+        mounts = rt.engines.capabilities(provider).connected_apps
+    except Exception:  # noqa: BLE001  (an unknown engine is reported by its own check)
+        mounts = False
+    if not mounts:
+        raise _error(409, "engine_without_connected_apps", "This engine cannot use connected apps yet.")
+    return dict(sorted(scopes.items()))
+
+
+async def _check_connector_account_scopes(rt: ThreadRuntime, account_scopes: dict | None,
+                                          app_scopes: dict | None) -> dict[str, list[str]]:
+    """Validate exact account IDs against this owner's active Composio links.
+
+    Account IDs are the authority; aliases are mutable labels and are never
+    accepted as grants. An empty map denies all accounts.
+    """
+    from app.services import composio_bridge, composio_service
+
+    if not account_scopes:
+        return {}
+    bad = _error(422, "invalid_connector_account_scopes",
+                 "Choose active connected account IDs for apps this agent is allowed to use.")
+    levels = app_scopes if isinstance(app_scopes, dict) else {}
+    requested: dict[str, list[str]] = {}
+    for app, ids in account_scopes.items():
+        if not isinstance(app, str) or app not in levels or not isinstance(ids, list) or len(ids) > composio_service.MAX_ACCOUNTS_PER_APP:
+            raise bad
+        if len(set(ids)) != len(ids):
+            raise bad
+        if any(not isinstance(account_id, str) or not account_id.strip() or len(account_id) > 300 for account_id in ids):
+            raise bad
+        if ids:
+            requested[app] = sorted(ids)
+    if not requested:
+        return {}
+    try:
+        async with rt.session() as db:
+            accounts = await composio_service.accounts(db, rt.owner_id, composio_bridge.make_client)
+    except composio_service.UserError as exc:
+        raise _error(exc.status, exc.code, exc.message) from None
+    active = {(account.toolkit, account.id) for account in accounts if account.status == "ACTIVE"}
+    if any((app, account_id) not in active for app, ids in requested.items() for account_id in ids):
+        raise bad
+    return dict(sorted(requested.items()))
+
+
+def _settle_connector_shares(agent, changes: dict, seeds: dict | None = None) -> dict:
+    """The changes with the stored `connector_shares` in place of a submitted one, checked against the
+    app levels and accounts the agent will have afterwards; or, when only those change, with the shares
+    of accounts that are no longer allowed dropped. 422 `invalid_connector_shares` for a bad submission."""
+    if "connector_shares" not in changes and "connector_scopes" not in changes and "connector_account_scopes" not in changes:
+        return changes
+    levels = changes.get("connector_scopes", agent.connector_scopes)
+    accounts = changes.get("connector_account_scopes", agent.connector_account_scopes)
+    current = agent.connector_shares if isinstance(agent.connector_shares, dict) else {}
+    if "connector_shares" in changes:
+        submitted = {
+            app: {account_id: (entry.model_dump() if hasattr(entry, "model_dump") else entry) for account_id, entry in by_account.items()}
+            for app, by_account in (changes["connector_shares"] or {}).items()
+        }
+        why = agent_shares.check(submitted, levels, accounts)
+        if why is not None:
+            raise _error(422, "invalid_connector_shares", why)
+        return {**changes, "connector_shares": agent_shares.merge(submitted, current, seeds)}
+    kept = agent_shares.clean(current, levels, accounts)
+    return {**changes, "connector_shares": kept} if kept != current else changes
+
+
 @router.post("", response_model=AgentResponse, status_code=201)
-async def create_agent(payload: AgentCreateRequest, rt: ThreadRuntime = Depends(get_runtime)):
+async def create_agent(payload: AgentCreateRequest, request: Request, rt: ThreadRuntime = Depends(get_runtime)):
+    _guard_create(request, payload)
     if payload.make_lead:
         from app.services.engine_registry import capabilities_of
         adapter = rt.adapters.get(payload.provider)
@@ -166,6 +399,7 @@ async def create_agent(payload: AgentCreateRequest, rt: ThreadRuntime = Depends(
             raise _error(409, 'lead_engine', 'A lead needs an engine with team tools (Claude or Codex).')
     _check_engine(rt, payload.provider, payload.model)
     _check_fallback(rt, payload.provider, payload.fallback_provider, payload.fallback_model)
+    _check_claude_account(payload.claude_account)
     workspace = _check_workspace(payload.workspace_path)
     try:
         async with rt.session() as db:
@@ -178,6 +412,7 @@ async def create_agent(payload: AgentCreateRequest, rt: ThreadRuntime = Depends(
                 instructions=payload.instructions,
                 provider=payload.provider,
                 model=payload.model,
+                effort=payload.effort,
                 workspace_path=workspace,
                 approval_mode=payload.approval_mode,
                 pinned=payload.pinned,
@@ -188,6 +423,7 @@ async def create_agent(payload: AgentCreateRequest, rt: ThreadRuntime = Depends(
                 use_helper=payload.use_helper,
                 fallback_provider=payload.fallback_provider,
                 fallback_model=payload.fallback_model,
+                claude_account=payload.claude_account,
                 make_lead=payload.make_lead,
             )
     except store.AgentNameTaken:
@@ -211,7 +447,7 @@ async def get_agent(agent_id: int, rt: ThreadRuntime = Depends(get_runtime)):
 
 @router.patch("/{agent_id}", response_model=AgentResponse)
 async def update_agent(
-    agent_id: int, payload: AgentUpdateRequest, rt: ThreadRuntime = Depends(get_runtime)
+    agent_id: int, payload: AgentUpdateRequest, request: Request, rt: ThreadRuntime = Depends(get_runtime)
 ):
     """Edit an agent. Conversations already started from it use the new
     model and approval mode from their next message. New instructions and
@@ -222,7 +458,15 @@ async def update_agent(
     started on another engine than the agent's new one keeps its engine and
     uses that engine's default model. An agent with a computer can only move
     to an engine that can use one (409 `engine_without_computers`)."""
+    return await _apply_update(agent_id, payload, request, rt)
+
+
+async def _apply_update(
+    agent_id: int, payload: AgentUpdateRequest, request: Request, rt: ThreadRuntime,
+    *, revision_source: str = "edit", restored_from: int | None = None, share_seeds: dict | None = None,
+):
     agent = await _agent_or_404(rt, agent_id)
+    _guard_update(request, payload, agent)
     changes = {
         field: getattr(payload, field)
         for field in (
@@ -232,6 +476,7 @@ async def update_agent(
             "instructions",
             "provider",
             "model",
+            "effort",
             "workspace_path",
             "approval_mode",
             "pinned",
@@ -242,15 +487,39 @@ async def update_agent(
             "use_helper",
             "fallback_provider",
             "fallback_model",
+            "claude_account",
+            "connector_scopes",
+            "connector_account_scopes",
+            "connector_shares",
         )
         if field in payload.model_fields_set
     }
+    if "claude_account" in changes:
+        _check_claude_account(changes["claude_account"])
+    account_scopes_submitted = "connector_account_scopes" in changes
+    if "connector_scopes" in changes:
+        changes["connector_scopes"] = await _check_connector_scopes(
+            rt, changes["connector_scopes"], changes.get("provider", agent.provider), agent.connector_scopes)
+        if "connector_account_scopes" not in changes:
+            current_accounts = agent.connector_account_scopes if isinstance(agent.connector_account_scopes, dict) else {}
+            changes["connector_account_scopes"] = {
+                app: ids for app, ids in current_accounts.items()
+                if app in (changes["connector_scopes"] or {}) and isinstance(ids, list)
+            }
+    elif agent.connector_scopes and changes.get("provider", agent.provider) != agent.provider:
+        await _check_connector_scopes(rt, agent.connector_scopes, changes["provider"], agent.connector_scopes)
+    if account_scopes_submitted:
+        changes["connector_account_scopes"] = await _check_connector_account_scopes(
+            rt, changes["connector_account_scopes"], changes.get("connector_scopes", agent.connector_scopes))
+    changes = _settle_connector_shares(agent, changes, share_seeds)
     if "fallback_provider" in changes and changes["fallback_provider"] != agent.fallback_provider:
         changes.setdefault("fallback_model", None)  # the old fallback's model means nothing to the new one
     provider = changes.get("provider", agent.provider)
     if "provider" in changes and changes["provider"] != agent.provider:
         if "model" not in changes:
             changes["model"] = None  # the old engine's model means nothing to the new one
+        if "effort" not in changes:
+            changes["effort"] = None  # reasoning effort is specific to the old engine/model
         try:
             caps = rt.engines.capabilities(provider)
         except Exception:  # noqa: BLE001  (an unknown engine is reported just below)
@@ -262,6 +531,8 @@ async def update_agent(
                 "This agent has a computer, and that engine cannot run its tools in one. "
                 "Remove the computer first, or keep an engine that supports computers.",
             )
+    elif "model" in changes and changes["model"] != agent.model and "effort" not in changes:
+        changes["effort"] = None  # a saved effort belongs to the previous model
     from app.team.service import team_for
     async with rt.session() as db:
         current_team = await team_for(db, rt.owner_id)
@@ -282,8 +553,17 @@ async def update_agent(
     try:
         async with rt.session() as db:
             agent = await store.update_agent(
-                db, agent_id, archived=payload.archived, make_lead=payload.make_lead, **changes
+                db, agent_id, archived=payload.archived, make_lead=payload.make_lead,
+                revision_source=revision_source, restored_from=restored_from, **changes
             )
+        if "connector_scopes" in changes or "connector_account_scopes" in changes or "connector_shares" in changes or payload.archived:
+            # What an agent has already run once (generic connected-app actions) is not carried over to new access.
+            from app.services import composio_actions
+            async with rt.session() as db:
+                await composio_actions.forget(db, rt.owner_id, agent_id=agent_id)
+                # A routine woken by new mail that can no longer read that mail stops being woken (BL-177); its schedule goes on.
+                from app.services import app_events, composio_bridge
+                await app_events.on_access_changed(db, agent_id, lambda key: composio_bridge.make_client(key))
         return (await _with_computers(rt, [agent]))[0]
     except store.AgentNotFound:
         raise HTTPException(status_code=404, detail="Agent not found") from None
@@ -291,13 +571,88 @@ async def update_agent(
         raise _error(409, "agent_name_taken", "An agent with this name already exists.") from None
 
 
-@router.post("/{agent_id}/duplicate", response_model=AgentResponse, status_code=201)
-async def duplicate_agent(agent_id: int, rt: ThreadRuntime = Depends(get_runtime)):
-    """Copy an agent's settings under a new name. Conversations are not copied."""
+class AgentRevisionOut(BaseModel):
+    number: int
+    source: str
+    actor: str
+    changed_fields: list[str]
+    redacted: list[str]
+    restored_from: int | None = None
+    created_at: datetime
+
+
+class AgentRevisionDetail(AgentRevisionOut):
+    snapshot: dict
+
+
+class RestoreRevisionRequest(BaseModel):
+    # The newest revision number the person was looking at; a different one means the profile changed since.
+    expected_revision: int | None = None
+
+
+@router.get("/{agent_id}/revisions", response_model=list[AgentRevisionOut])
+async def list_revisions(agent_id: int, rt: ThreadRuntime = Depends(get_runtime)):
+    """Stored versions of this agent's profile, newest first (the last 20). Owner only: a paired
+    device has no route here."""
+    await _agent_or_404(rt, agent_id)
+    async with rt.session() as db:
+        return await agent_history.list_revisions(db, agent_id)
+
+
+@router.get("/{agent_id}/revisions/{number}", response_model=AgentRevisionDetail)
+async def read_revision(agent_id: int, number: int, rt: ThreadRuntime = Depends(get_runtime)):
     await _agent_or_404(rt, agent_id)
     try:
         async with rt.session() as db:
-            return await store.duplicate_agent(db, agent_id)
+            row = await agent_history.get_revision(db, agent_id, number)
+    except agent_history.RevisionNotFound:
+        raise _error(404, "revision_not_found", "That version no longer exists.") from None
+    return AgentRevisionDetail(
+        number=row.number, source=row.source, actor=row.actor, changed_fields=row.changed_fields, redacted=row.redacted,
+        restored_from=row.restored_from, created_at=row.created_at, snapshot=agent_history.public_snapshot(row.snapshot))
+
+
+@router.post("/{agent_id}/revisions/{number}/restore", response_model=AgentResponse)
+async def restore_revision(
+    agent_id: int, number: int, request: Request, payload: RestoreRevisionRequest | None = None,
+    rt: ThreadRuntime = Depends(get_runtime),
+):
+    """Set the profile back to a stored version. It goes through the same checks as an edit, is stored
+    as a new version (the old ones stay), and leaves alone any field whose stored text was redacted.
+    409 `revision_conflict` when `expected_revision` is no longer the newest."""
+    if _restricted(request):
+        raise _error(403, "restore_requires_admin", "Restoring a version can only be done from the web app.")
+    agent = await _agent_or_404(rt, agent_id)
+    try:
+        async with rt.session() as db:
+            revision = await agent_history.get_revision(db, agent_id, number)
+            newest = await agent_history.latest_number(db, agent_id)
+    except agent_history.RevisionNotFound:
+        raise _error(404, "revision_not_found", "That version no longer exists.") from None
+    if payload is not None and payload.expected_revision is not None and payload.expected_revision != newest:
+        raise _error(409, "revision_conflict", "This agent was changed since you opened its history. Reload and try again.")
+    fields = agent_history.restorable(revision, agent)
+    if not fields:
+        return (await _with_computers(rt, [agent]))[0]
+    # The stored seed is not part of an update request; it goes alongside so the restored share is the same sample.
+    seeds = agent_shares.seeds_of(fields.get("connector_shares"))
+    if "connector_shares" in fields:
+        fields["connector_shares"] = agent_shares.public(fields["connector_shares"])
+    try:
+        update = AgentUpdateRequest(**fields)
+    except ValueError:
+        raise _error(422, "revision_invalid", "That version can no longer be applied.") from None
+    return await _apply_update(agent_id, update, request, rt, revision_source="restore", restored_from=number, share_seeds=seeds)
+
+
+@router.post("/{agent_id}/duplicate", response_model=AgentResponse, status_code=201)
+async def duplicate_agent(agent_id: int, request: Request, rt: ThreadRuntime = Depends(get_runtime)):
+    """Copy an agent's settings under a new name. Conversations are not copied. A `manage` device
+    gets a copy that is never looser than the source: its own folder, and "ask" for "accept_edits"."""
+    await _agent_or_404(rt, agent_id)
+    try:
+        async with rt.session() as db:
+            return await store.duplicate_agent(db, agent_id, safe=_restricted(request))
     except store.AgentNotFound:
         raise HTTPException(status_code=404, detail="Agent not found") from None
     except store.AgentNameTaken:
@@ -693,20 +1048,42 @@ async def import_agent(payload: AgentImportRequest, rt: ThreadRuntime = Depends(
     except agent_package.PackageError as exc:
         raise _error(422, "invalid_agent_file", str(exc)) from None
     try:
-        async with rt.session() as db:
-            name = await store.free_name(db, rt.owner_id, parsed["name"])
-            agent = await store.create_agent(
-                db,
-                owner_id=rt.owner_id,
-                name=name,
-                title=parsed["title"],
-                description=parsed["description"],
-                instructions=parsed["instructions"],
-                approval_mode="ask",
-            )
-    except store.AgentNameTaken:
+        return await _import_package(rt, parsed, payload)
+    except (store.AgentNameTaken, IntegrityError):
         raise _error(409, "agent_name_taken", "Try again: that name was just taken.") from None
-    _start_imported_notes(agent.id, parsed if payload.include_notes else None)
-    _start_imported_skills(agent.id, parsed["skills"] if payload.include_skills else [])
-    return agent
+    except FileExistsError:
+        raise _error(409, "agent_import_folder_exists", "The new agent folder already exists; no existing files were changed.") from None
+    except (OSError, agent_skills.SkillError, agent_memory.MemoryTooLarge, memory_topics.InvalidTopicName, memory_topics.TooManyTopics):
+        raise _error(500, "agent_import_failed", "The agent could not be imported. Refresh the agent list before trying again.") from None
+
+
+@router.post("/import/migration/preview", response_model=AgentMigrationPreviewResponse)
+async def preview_migration_archive(request: Request):
+    """Preview JSON or a one-manifest ZIP from raw request bytes, without saving it."""
+    if settings.HOST_EXECUTION_DISABLED:
+        raise _error(403, "migration_import_unavailable", "Agent migration is available only in the local Suparagent app.")
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > agent_migration_archive.MAX_SOURCE_BYTES:
+            raise _error(413, "migration_file_too_large", "The migration file is larger than 10 MB.")
+        data.extend(chunk)
+    try:
+        return await run_in_threadpool(agent_migration_archive.preview_archive, bytes(data))
+    except agent_migration_archive.MigrationArchiveError as exc:
+        raise _error(422, "invalid_migration_archive", str(exc)) from None
+
+
+@router.post("/import/openbot/preview", response_model=OpenBotDatabasePreviewResponse)
+async def preview_openbot_database(file: UploadFile = File(...)):
+    """Read the local OpenBot database and return normalized agent fields for review."""
+    if settings.HOST_EXECUTION_DISABLED:
+        raise _error(403, "openbot_import_unavailable", "OpenBot migration is available only in the local Suparagent app.")
+    try:
+        data = await file.read(openbot_database_import.MAX_SOURCE_DATABASE_BYTES + 1)
+    finally:
+        await file.close()
+    try:
+        return await run_in_threadpool(openbot_database_import.preview_database, data)
+    except openbot_database_import.OpenBotDatabaseImportError as exc:
+        raise _error(422, "invalid_openbot_database", str(exc)) from None
 
