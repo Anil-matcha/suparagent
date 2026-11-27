@@ -29,6 +29,7 @@ SIGN_IN_ADVICE = {
     "cursor": "Save a Cursor API key in Settings → Engines, or run `cursor-agent login` as the account running the server.",
     "opencode": "Run `opencode auth login` as the account running the server, or save its key in Settings → Engines.",
     "openrouter": "Save an OpenRouter API key in Settings → Engines.",
+    "muapi": "Save a MuAPI key in Settings → Integrations.",
     "claude": "Sign in as the account that runs the server: `claude auth login` (it prints a link; open it in any browser and paste the code back).",
     "codex": "Sign in as the account that runs the server: `codex login --device-auth` (it shows a code to enter on the provider's page).",
 }

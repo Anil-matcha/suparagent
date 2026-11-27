@@ -144,6 +144,16 @@ async def _serving(app: FastAPI):
         # Local routines: due occurrences, starts, approvals, run limits, endings.
         asyncio.create_task(run_every(settings.ROUTINE_POLL_SECONDS, per_tenant(routines.tick))),
     ]
+    # The Slack channel, when one is connected (app/channels/slack/service.py).
+    # Starting it only schedules its own check; it never stops the app starting.
+    from app.channels.slack.service import get_service as get_slack_service
+
+    slack_service = get_slack_service()
+    try:
+        await slack_service.start()
+    except Exception:  # noqa: BLE001
+        logger.exception("the slack channel could not be started")
+
     event_stream_task = None
     if profile.active():
         from app.services import event_stream
@@ -157,6 +167,8 @@ async def _serving(app: FastAPI):
     for job in jobs:
         job.cancel()
     await asyncio.gather(*jobs, return_exceptions=True)
+    # The chat channel, before the runtime: no new turn may start from Slack while we stop.
+    await slack_service.stop()
     # Kill this process's provider processes (and their MCP servers, which
     # share their process group) and interrupt its own turns now, rather than
     # leaving them for the lease to expire.

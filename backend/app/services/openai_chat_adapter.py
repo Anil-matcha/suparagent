@@ -558,3 +558,131 @@ class OpenRouterAdapter(OpenAIChatAdapter):
             probe = await self._probe_config(config)
             ctx.model = next((model.id for model in probe.models or [] if model.default), None)
         return await super().run_turn(ctx, sink, gate)
+
+
+MUAPI_CHAT_BASE_URL = "https://api.muapi.ai/v1"
+MUAPI_MODELS_URL = "https://api.muapi.ai/openai/v1/models"
+MUAPI_HOST = "api.muapi.ai"
+MUAPI_CREDENTIAL = "integration:muapi:data-api"
+# The default is `sol`, not `luna`: on 2026-11-25 luna sometimes (about 2 runs in 10)
+# ended a long answer with made-up interactive-card code even with the note below;
+# sol and terra showed none in 7 runs each. Luna stays in the list.
+MUAPI_FIRST_MODEL = "gpt-5-6-sol"
+# MuAPI's gpt models sometimes end a long answer with made-up interactive-card
+# code (`<radio-group>`, `{#each}`, `GenUI.issueNewTurn`) that shows as raw text.
+# Found on 2026-11-25 with gpt-5-6-luna; this line stopped it in 3 of 3 runs.
+MUAPI_PLAIN_TEXT_NOTE = (
+    "Reply in plain Markdown text only. Never output HTML, JSX, Svelte or other template or widget code, "
+    "interactive forms, buttons or components."
+)
+
+
+class MuapiChatAdapter(OpenAIChatAdapter):
+    """MuAPI (https://muapi.ai) chat models as a preset of the OpenAI-compatible
+    engine. MuAPI splits its routes: the model list is under `/openai/v1` and
+    chat is under `/v1`, so the generic engine cannot be pointed at one
+    address. The key is the one saved under Settings → Integrations, read when
+    a turn or probe starts and never copied into this engine's own saved
+    configuration. It is sent only to api.muapi.ai. Chat only, like the other
+    OpenAI-compatible engines. MuAPI's `gpt-` models are listed first; the many
+    community models it also lists follow, marked as such."""
+
+    preset = True
+    config_fields = [
+        {"name": "model", "label": "Default model", "placeholder": MUAPI_FIRST_MODEL},
+    ]
+    setup = {
+        "credential": "none",
+        "notes": ["Uses the MuAPI key saved under Settings → Integrations. Chat only.",
+                  "Requests go to MuAPI and are billed by MuAPI. Check its data policy before sending private content."],
+    }
+    key = "muapi"
+    label = "MuAPI"
+    max_models = 200
+    not_configured = "Save your MuAPI key in Settings → Integrations."
+
+    @staticmethod
+    async def complete_config(db, owner_id: str, config: dict | None) -> dict:
+        """The saved configuration with the Integrations key added, and the
+        fixed address. Returned fresh each time; nothing here is saved."""
+        from app.services import user_credential_service
+
+        completed = {k: v for k, v in (config or {}).items() if k != "api_key"}
+        completed["base_url"] = MUAPI_CHAT_BASE_URL
+        try:
+            found = await user_credential_service.get_decrypted(db, owner_id, MUAPI_CREDENTIAL)
+            value = json.loads(found[0]) if found else None
+        except Exception:  # noqa: BLE001  (a damaged credential reads as no key)
+            value = None
+        if isinstance(value, str) and value:
+            completed["api_key"] = value
+        return completed
+
+    def validate_config(self, payload: dict, current: dict | None) -> dict:
+        # Only the default model (and context budget) is saved; the address is
+        # fixed and the key always comes from Integrations.
+        saved = super().validate_config(
+            {"base_url": MUAPI_CHAT_BASE_URL, "model": payload.get("model"),
+             "context_tokens": payload.get("context_tokens")}, None)
+        saved.pop("api_key", None)
+        return saved
+
+    def public_config(self, config: dict | None) -> dict | None:
+        config = config or {}
+        public = {"base_url": MUAPI_CHAT_BASE_URL, "model": config.get("model"),
+                  "has_api_key": bool(config.get("api_key"))}
+        if config.get("context_tokens"):
+            public["context_tokens"] = config["context_tokens"]
+        return public
+
+    def _headers(self, config: dict) -> dict:
+        headers = {"Accept": "application/json"}
+        if config.get("api_key") and urlsplit(config.get("base_url") or "").hostname == MUAPI_HOST:
+            headers["Authorization"] = f"Bearer {config['api_key']}"
+            headers["x-api-key"] = config["api_key"]
+        return headers
+
+    async def status(self) -> ProviderStatus:
+        probe = await self.probe()
+        return ProviderStatus(ready=probe.ready, error=probe.reason, installed=probe.installed, signed_in=probe.signed_in)
+
+    async def probe(self) -> EngineProbe:
+        config = self.config or {}
+        if not config.get("api_key"):
+            return EngineProbe(installed=False, ready=False, reason=self.not_configured)
+        default = config.get("model")
+        try:
+            async with self._client(httpx.Timeout(PROBE_TIMEOUT_SECONDS)) as client:
+                response = await client.get(MUAPI_MODELS_URL, headers=self._headers(config))
+        except httpx.HTTPError as exc:
+            return EngineProbe(installed=True, ready=False, reason=f"MuAPI did not answer ({exc.__class__.__name__}).")
+        if response.status_code in (401, 403):
+            return EngineProbe(installed=True, ready=False, signed_in=False,
+                               reason="MuAPI refused the key. Save a valid key in Settings → Integrations.")
+        if response.status_code != 200:
+            return EngineProbe(installed=True, ready=False,
+                               reason=f"MuAPI's model list answered {response.status_code}. Try again later.")
+        try:
+            data = response.json().get("data")
+        except (ValueError, AttributeError):
+            data = None
+        ids = [item["id"] for item in (data if isinstance(data, list) else [])
+               if isinstance(item, dict) and isinstance(item.get("id"), str)]
+        ids.sort(key=lambda mid: (not mid.startswith("gpt-"), mid))
+        ids = ids[:self.max_models]
+        if not default:
+            default = MUAPI_FIRST_MODEL if MUAPI_FIRST_MODEL in ids else next((m for m in ids if m.startswith("gpt-")), None)
+        models = [ModelOption(mid, mid if mid.startswith("gpt-") else f"{mid} (community)", mid == default) for mid in ids]
+        if default and default not in ids:
+            models.insert(0, ModelOption(default, default, True))
+        return EngineProbe(installed=True, ready=True, signed_in=True, models=models or None)
+
+    async def run_turn(self, ctx: TurnContext, sink, gate) -> TurnOutcome:
+        config = ctx.engine_config or self.config or {}
+        if not config.get("api_key"):
+            return TurnOutcome("failed", error=self.not_configured, error_code="engine_not_configured")
+        if not ctx.model and not config.get("model"):
+            probe = await self.probe()
+            ctx.model = next((model.id for model in probe.models or [] if model.default), None)
+        ctx.instructions = "\n\n".join(part for part in (ctx.instructions, MUAPI_PLAIN_TEXT_NOTE) if part)
+        return await super().run_turn(ctx, sink, gate)

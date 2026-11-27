@@ -561,7 +561,13 @@ class ThreadRuntime:
     async def engine_config(self, engine_id: str) -> dict | None:
         """The engine's saved configuration for this owner, or None."""
         async with self.session() as db:
-            return await engine_config.load(db, self.owner_id, engine_id)
+            config = await engine_config.load(db, self.owner_id, engine_id)
+            # A preset whose key lives elsewhere (MuAPI: Settings → Integrations)
+            # completes the configuration for this read only; nothing is saved.
+            complete = getattr(self.adapters.get(engine_id), "complete_config", None)
+            if complete is not None:
+                config = await complete(db, self.owner_id, config)
+            return config
 
     async def prepare_adapter(self, engine_id: str, adapter) -> dict | None:
         """Give an engine that needs a saved configuration its current one

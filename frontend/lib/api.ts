@@ -1,3 +1,4 @@
+import type { SlackLinkCode, SlackStatus } from "./slack";
 import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview, SkillLearnSource } from "./skills";
 import type { SpendLimits, SpendLimitsChange, SpendOverview, WorkerSpend } from "./spend";
 import type { HireReceipt, LatestSuggestion, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
@@ -1302,6 +1303,14 @@ export const api = {
     request<{ tool_names: string[] }>(`/integrations/muapi/agents/${agentId}/grants`, {
       method: "PUT", body: JSON.stringify({ tools }),
     }),
+  // The Slack channel. Both tokens are write-only: no route ever returns one.
+  getSlackIntegration: () => request<SlackStatus>("/integrations/slack"),
+  saveSlackIntegration: (botToken: string, appToken: string) =>
+    request<SlackStatus>("/integrations/slack/credentials", { method: "PUT", body: JSON.stringify({ bot_token: botToken, app_token: appToken }) }),
+  createSlackLinkCode: () => request<SlackLinkCode>("/integrations/slack/link-code", { method: "POST" }),
+  setSlackAgent: (agentId: number) =>
+    request<SlackStatus>("/integrations/slack/agent", { method: "PUT", body: JSON.stringify({ agent_id: agentId }) }),
+  deleteSlackIntegration: () => request<void>("/integrations/slack", { method: "DELETE" }),
   // Owner-added custom MCP servers. Secrets are write-only: no route ever returns one.
   listCustomMcp: () => request<CustomMcpConnection[]>("/integrations/custom-mcp/connections"),
   createCustomMcp: (draft: CustomMcpDraft) =>
