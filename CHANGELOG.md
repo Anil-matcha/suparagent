@@ -28,6 +28,7 @@ Desktop 0.8.9: a new model picker in the chat composer with real engine usage li
 
 ### Changed
 
+- boxd computers are now created as isolated machines, with no in-VM boxd CLI, connected integrations or private network. Recreate any boxd computer made before this change.
 - MuAPI lookups are easier for an agent to use: a task that fails on MuAPI's side now returns its status and error text instead of a generic rejection, empty strings and empty lists are dropped from a lookup's input before it is sent (MuAPI refuses them), and inspecting a lookup lists each field's allowed values (for example the four web research modes), which the depth limit used to hide.
 - Templates know which connections this workspace has: `GET /templates` now lists each role's `missing` connections, and a role that needs only Muapi can be added before Muapi is connected (it shows "Needs Muapi · Connect"). No bundled role needs Muapi yet. Tested with backend and frontend unit tests; no real Muapi connector, browser or packaged app was run.
 - Give team setup a versioned review card: the person can revise, approve or decline the specialist plan, and nothing changes before approval. Approval rechecks current team state and records its result and Undo data with the transcript event. The applied card opens each new specialist with an editable, unsent first-task draft. No automated, live-provider or packaged-release verification is claimed for this source change.

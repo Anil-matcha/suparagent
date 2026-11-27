@@ -220,7 +220,9 @@ class BoxdProvider:
             # The machine is gone (removed in the boxd console, or by a
             # delete-after timer): make a new one under the same identity.
         name = self.machine_name(spec)
-        options: dict = {"labels": self._labels(spec)}
+        # Agents run untrusted code here, so the machine gets no in-VM boxd CLI,
+        # connected integrations or private network.
+        options: dict = {"labels": self._labels(spec), "isolated": True}
         if self.delete_after:
             options["delete_after"] = self.delete_after
         try:
