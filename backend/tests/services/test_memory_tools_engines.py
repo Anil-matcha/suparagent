@@ -76,7 +76,7 @@ async def test_codex_without_an_agent_or_with_notes_off_mounts_nothing(crt, sess
         assert "memory" not in servers  # the notes are off, or there is no agent
         # The only thing an agent may still be given is the connected-apps server that offers just the request to
         # connect an app (services/app_connection.py), with its note.
-        assert set(servers) <= {"suparagent_composio"}
+        assert set(servers) <= {"suparagent_composio", "pages"}
         assert "memory" not in start["params"].get("developerInstructions", "").lower()
 
 
@@ -88,7 +88,8 @@ async def test_an_acp_agent_gets_the_memory_server_and_the_note(art, sessions, o
     thread = await art.create_thread(provider="acp", agent_id=agent.id)
     await art.send_turn(thread.id, "hi")
     await finished(sessions, thread.id)
-    (server,) = acp.received("session/new")[0]["params"]["mcpServers"]
+    server, pages = acp.received("session/new")[0]["params"]["mcpServers"]
+    assert pages["name"] == "pages"
     assert server["name"] == "memory" and server["args"][-2] == "--mailbox"
     assert all(set(e) == {"name", "value"} for e in server["env"])
     assert memory_bridge.TOOL_NOTE in acp.prompts()[0]
@@ -99,7 +100,7 @@ async def test_an_acp_agent_without_notes_gets_no_server(art, sessions, owner, a
     thread = await art.create_thread(provider="acp", agent_id=agent.id)
     await art.send_turn(thread.id, "hi")
     await finished(sessions, thread.id)
-    assert acp.received("session/new")[0]["params"]["mcpServers"] == []
+    assert [s["name"] for s in acp.received("session/new")[0]["params"]["mcpServers"]] == ["pages"]  # only the page tools
     assert memory_bridge.TOOL_NOTE not in acp.prompts()[0]
 
 

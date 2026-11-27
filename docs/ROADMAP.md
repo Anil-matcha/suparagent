@@ -81,7 +81,9 @@ metadata-only routing logs. Keep tool approval rules unchanged.
 GitHub, Gmail and Calendar are available through your own Composio key: connect
 them in Settings, then allow each app per Claude or Codex agent. Bounded reads
 and one-use approvals for changes are described in
-[connected apps](CONNECTED_APPS.md). Next: other apps such as Slack and Notion,
+[connected apps](CONNECTED_APPS.md). Chatting with an agent from a Slack direct
+message is built ([Slack](CONNECTED_APPS.md#slack-settings--integrations)); Slack as
+a tool an agent can use is not. Next: other apps such as Notion and Slack tools,
 each with a fixed, reviewed tool list checked against the live app; custom MCP
 authentication; and app-event triggers, which also need a way to receive
 events. Keep idempotency, revocation (check it at the provider), clear data

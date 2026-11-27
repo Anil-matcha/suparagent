@@ -32,6 +32,7 @@ from app.db.models.agent_service import (
     AgentServiceAssignment, AgentServiceAudit, AgentServiceProvider, AgentServiceResource,
 )
 from app.db.models.workflow import Workflow, WorkflowRun
+from app.db.models.saved_app import SavedApp
 
 __all__ = [
     "WorkBoard", "WorkColumn", "WorkItem", "WorkItemRun", "WorkItemEvent",
@@ -72,6 +73,7 @@ __all__ = [
     "RoutineAppAction",
     "ShadowPrediction",
     "ShadowFeedback",
+    "SavedApp",
     "WorkerLabel",
     "WorkerLabelAction",
     "AppEventTrigger",

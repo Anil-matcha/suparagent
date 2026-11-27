@@ -10,7 +10,7 @@
 // Everything that can be tested without Electron is in src/. This file only
 // connects those pieces to Electron.
 
-const { app, BrowserWindow, WebContentsView, Menu, Tray, dialog, nativeImage, safeStorage, session, ipcMain, shell, systemPreferences, clipboard, Notification, net } = require("electron");
+const { app, BrowserWindow, WebContentsView, Menu, Tray, dialog, nativeImage, safeStorage, session, ipcMain, shell, systemPreferences, clipboard, Notification, net, screen } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -22,6 +22,11 @@ const { attachTokenTo, lockDown, sameOrigin } = require("./src/origin");
 const { registerExternalLinks } = require("./src/external-links");
 const { SCHEME: DEEP_LINK_SCHEME, deepLinkFromArgv, createDeepLinkHandler } = require("./src/deep-link");
 const { registerPathPicker } = require("./src/path-picker");
+const { createAppWindows } = require("./src/app-windows");
+const { createLauncher } = require("./src/app-install/launchers");
+const { createInstaller } = require("./src/app-install/installer");
+const { registerAppInstall } = require("./src/app-install/ipc");
+const { registerOpenExternal } = require("./src/open-external");
 const { registerDesktopPermissions } = require("./src/desktop-permissions");
 const { registerGoogleSignIn } = require("./src/google-sign-in");
 const { registerEngineSignIn } = require("./src/engine-sign-in");
@@ -84,6 +89,8 @@ let remoteManager = null;
 let nativeControl = null;
 let updater = null;
 let tray = null;
+let launchToken = null; // given to every window onto the backend, never to a page
+let appWindows = null; // saved apps in their own windows; none of them is the main window
 
 // Stops what this launch started, once: this app's own connections first (the
 // backend waits for its connected clients, and idle keep-alive sockets held here
@@ -97,6 +104,7 @@ function stopEverything() {
       /* already destroyed */
     }
     tray = null;
+    appWindows?.closeAll();
     await nativeControl?.close();
     try {
       await session.defaultSession?.closeAllConnections?.();
@@ -201,6 +209,30 @@ function claudePathFromEnvironment() {
   return given;
 }
 
+// Saved apps as launchers on this computer. Windows and Linux launchers run the installed executable, so they
+// are only offered from an installed app; macOS launchers go through the app's bundle id.
+function createAppInstaller(userData) {
+  let launcher = null;
+  try {
+    const { execFile } = require("node:child_process");
+    launcher = createLauncher({
+      platform: process.platform,
+      fs,
+      homedir: require("node:os").homedir(),
+      env: process.env,
+      shell,
+      exec: (file, args) => new Promise((resolve, reject) => {
+        execFile(file, args, { timeout: 30_000 }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
+      }),
+      execPath: app.isPackaged ? process.env.APPIMAGE || process.execPath : null,
+      userData,
+    });
+  } catch {
+    launcher = null;
+  }
+  return createInstaller({ fs, userData, launcher });
+}
+
 async function main() {
   const userData = chooseUserData();
   // Same stored identity as the data folder above; the window title says Suparagent.
@@ -216,7 +248,24 @@ async function main() {
     return;
   }
   // suparagent://chat?thread=<id> opens one chat or room (BL-118). Links that arrive before the app is up wait for it.
+  appWindows = createAppWindows({
+    BrowserWindow,
+    screen,
+    fs,
+    userData,
+    preloadPath: path.join(__dirname, "preload.js"),
+    getOrigin: () => backendOrigin,
+    getToken: () => launchToken,
+    iconPath: hasIcon ? iconPath : undefined,
+    onWebContents: (contents, win) => registerExternalLinks(contents, {
+      Menu,
+      clipboard,
+      openExternal: (url) => shell.openExternal(url),
+      getWindow: () => win,
+    }),
+  });
   const deepLinks = createDeepLinkHandler({
+    openAppWindow: (id) => appWindows.open(id),
     navigate: (pagePath) => (window && backendOrigin ? window.loadURL(`${backendOrigin}${pagePath}`) : undefined),
     focus: showWindow,
   });
@@ -260,6 +309,8 @@ async function main() {
   const nativeConnection = await nativeControl.listen();
   registerDesktopPermissions({ ipcMain, systemPreferences, openExternal: url => shell.openExternal(url), getWindow: () => window, getOrigin: () => backendOrigin });
   registerPathPicker({ ipcMain, dialog, getWindow: () => window, getOrigin: () => backendOrigin });
+  registerOpenExternal({ ipcMain, openExternal: (url) => shell.openExternal(url), getWindow: () => window, getOrigin: () => backendOrigin });
+  registerAppInstall({ ipcMain, installer: createAppInstaller(userData), getWindow: () => window, getOrigin: () => backendOrigin });
   registerEngineSignIn({ ipcMain, openExternal: url => shell.openExternal(url), getWindow: () => window, getOrigin: () => backendOrigin });
   registerGoogleSignIn({ ipcMain, openExternal: (url) => shell.openExternal(url), getWindow: () => window, getOrigin: () => backendOrigin });
   registerHostedWorkspace({ ipcMain, getController: () => workspaceController, getWindow: () => window, getOrigin: () => backendOrigin });
@@ -402,6 +453,7 @@ async function main() {
 
   if (!window) return; // closed while the backend was starting
   backendOrigin = started.origin;
+  launchToken = token;
   attachTokenTo(window.webContents.session, started.origin, token);
   lockDown(window.webContents, started.origin, window.webContents.session);
   registerExternalLinks(window.webContents, {

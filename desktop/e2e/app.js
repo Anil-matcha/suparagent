@@ -55,8 +55,8 @@ function backendPid(dataDir) {
 
 // `viaScript` starts it the way `npm run start` / `npm run dev` do (through
 // scripts/launch.js, which checks what is needed and starts Electron itself);
-// otherwise Electron is started directly.
-async function launchApp({ dataDir, env = {}, mode = "start", viaScript = false, entry = paths.desktop } = {}) {
+// otherwise Electron is started directly. `execArgs` go to Electron before the app (for example `-r <module>` to preload one).
+async function launchApp({ dataDir, env = {}, mode = "start", viaScript = false, entry = paths.desktop, execArgs = [] } = {}) {
   const binary = findElectronBinary(paths.desktop);
   if (!binary) throw new Error("Electron is not installed. Run: npm run setup");
   const debugPort = await freePort();
@@ -69,7 +69,7 @@ async function launchApp({ dataDir, env = {}, mode = "start", viaScript = false,
         stdio: ["ignore", "pipe", "pipe"],
         detached: process.platform !== "win32",
       })
-    : spawn(binary, [entry, `--mode=${mode}`, flag], {
+    : spawn(binary, [...execArgs, entry, `--mode=${mode}`, flag], {
         env: environment,
         stdio: ["ignore", "pipe", "pipe"],
         detached: process.platform !== "win32",

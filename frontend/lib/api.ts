@@ -1,3 +1,4 @@
+import type { SlackLinkCode, SlackStatus } from "./slack";
 import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview, SkillLearnSource } from "./skills";
 import type { SpendLimits, SpendLimitsChange, SpendOverview, WorkerSpend } from "./spend";
 import type { HireReceipt, LatestSuggestion, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
@@ -27,11 +28,15 @@ class ApiError extends Error {
   // The backend's machine-readable cause when it gives one (for example
   // "turn_running"); null otherwise.
   code: string | null;
+  // The error's own object when it has extra fields (for example summary and confirmation on a page's needs_approval);
+  // null otherwise.
+  detail: Record<string, unknown> | null;
 
-  constructor(status: number, message: string, code: string | null = null) {
+  constructor(status: number, message: string, code: string | null = null, detail: Record<string, unknown> | null = null) {
     super(message);
     this.status = status;
     this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -169,14 +174,16 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
     let code: string | null = null;
+    let extra: Record<string, unknown> | null = null;
     try {
       const body = await res.json();
+      if (body?.detail && typeof body.detail === "object" && !Array.isArray(body.detail)) extra = body.detail;
       detail = formatErrorDetail(body?.detail, detail);
       if (typeof body?.detail?.error_code === "string") code = body.detail.error_code;
     } catch {
       // response body wasn't JSON — fall back to statusText
     }
-    const error = new ApiError(res.status, detail, code);
+    const error = new ApiError(res.status, detail, code, extra);
     if (res.status === 401 && isSignedOutError(error)) onSignedOut?.();
     throw error;
   }
@@ -1350,6 +1357,14 @@ export const api = {
     request<{ tool_names: string[] }>(`/integrations/muapi/agents/${agentId}/grants`, {
       method: "PUT", body: JSON.stringify({ tools }),
     }),
+  // The Slack channel. Both tokens are write-only: no route ever returns one.
+  getSlackIntegration: () => request<SlackStatus>("/integrations/slack"),
+  saveSlackIntegration: (botToken: string, appToken: string) =>
+    request<SlackStatus>("/integrations/slack/credentials", { method: "PUT", body: JSON.stringify({ bot_token: botToken, app_token: appToken }) }),
+  createSlackLinkCode: () => request<SlackLinkCode>("/integrations/slack/link-code", { method: "POST" }),
+  setSlackAgent: (agentId: number) =>
+    request<SlackStatus>("/integrations/slack/agent", { method: "PUT", body: JSON.stringify({ agent_id: agentId }) }),
+  deleteSlackIntegration: () => request<void>("/integrations/slack", { method: "DELETE" }),
   // Owner-added custom MCP servers. Secrets are write-only: no route ever returns one.
   listCustomMcp: () => request<CustomMcpConnection[]>("/integrations/custom-mcp/connections"),
   createCustomMcp: (draft: CustomMcpDraft) =>

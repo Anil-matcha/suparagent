@@ -52,7 +52,7 @@ from app.computers.policy import COMPUTER_TOOL_PREFIX
 from app.core import app_settings
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.services import cli_probe, composio_bridge, community_mcp_bridge, local_claude_runner, memory_bridge
+from app.services import cli_probe, composio_bridge, community_mcp_bridge, local_claude_runner, memory_bridge, pages_bridge
 from app.services.local_approval_broker import MAX_REVIEWABLE_INPUT_CHARS
 from app.services.local_claude_stream import summarize_tool
 from app.services.provider_adapter import (
@@ -467,7 +467,7 @@ class _CodexTurn:
                 max_bytes=self.max_text * RAW_STREAM_SIZE_FACTOR,
                 sandbox=True,
                 sandbox_writable=turn_sandbox.mailbox_mounts((
-                    self.ctx.team_launch, self.ctx.memory_launch, self.ctx.composio_launch, self.ctx.community_launch,
+                    self.ctx.team_launch, self.ctx.memory_launch, self.ctx.pages_launch, self.ctx.composio_launch, self.ctx.community_launch,
                 )),
                 sandbox_readonly=[Path(image["path"]) for image in (self.ctx.images or [])],
             )
@@ -566,6 +566,13 @@ class _CodexTurn:
                 "enabled_tools": list(memory_bridge.TOOLS), "default_tools_approval_mode": "approve",
             }})
             instructions = f"{instructions}\n\n{memory_bridge.TOOL_NOTE}" if instructions else memory_bridge.TOOL_NOTE
+        pages = self.ctx.pages_launch
+        if pages is not None:
+            common.setdefault("config", {}).setdefault("mcp_servers", {})[pages_bridge.SERVER] = {
+                "command": pages.command, "args": list(pages.args), "env": dict(pages.env),
+                "enabled_tools": list(pages_bridge.TOOLS), "default_tools_approval_mode": "approve",
+            }
+            instructions = f"{instructions}\n\n{pages_bridge.TOOL_NOTE}" if instructions else pages_bridge.TOOL_NOTE
         if self.ctx.browser is not None:
             # The browser tools only, beside Codex's own tools; every call is asked about.
             browser_launch = self.ctx.browser.launch

@@ -16,6 +16,7 @@ UI do not know which engine they are talking to.
 | `acp` | ACP agent | acp | any agent CLI that speaks the Agent Client Protocol, from a saved command |
 | `openai_compat` | OpenAI-compatible | api | `POST {base_url}/chat/completions`, streamed (Ollama, LM Studio, vLLM, hosted APIs) |
 | `openrouter` | OpenRouter | api | the OpenAI-compatible engine preset for `https://openrouter.ai/api/v1` |
+| `muapi` | MuAPI | api | the OpenAI-compatible engine preset for MuAPI's chat models; uses the key saved under Settings → Integrations |
 
 ## Choose and configure an engine
 
@@ -44,6 +45,7 @@ model and optional API key. Configuration is encrypted at rest. A blank key
 keeps the saved key for the same URL; changing the URL drops it unless you
 enter a key again. **Forget settings** deletes the configuration and credential.
 For OpenRouter, save an API key. The address is fixed to OpenRouter over HTTPS; configure a proxy with the generic OpenAI-compatible engine.
+For MuAPI, save the MuAPI key under **Settings → Integrations**; the engine needs no key of its own and its only setting is an optional default model.
 
 In **Agents → Model and approvals**, choose a reasoning effort for that agent's
 selected model when the model supports it. New conversations from the agent use
@@ -354,6 +356,46 @@ differences:
 Tested against a mock endpoint only; no turn has been run against the real
 OpenRouter service yet.
 
+## MuAPI
+
+A preset of the OpenAI-compatible engine (`MuapiChatAdapter` in
+`backend/app/services/openai_chat_adapter.py`), registered as its own engine
+`muapi`. Everything under the OpenAI-compatible engine applies, with these
+differences:
+
+- **The key comes from Settings → Integrations.** The engine has no key field.
+  The key saved there for MuAPI is read each time a turn or a status check
+  starts (`ThreadRuntime.engine_config`) and is never copied into the engine's
+  own saved configuration (`engine:muapi` holds at most a default model). It is
+  sent only to `api.muapi.ai`. Disconnecting MuAPI under Integrations makes the
+  engine report "Save your MuAPI key in Settings → Integrations".
+- **Two routes.** MuAPI lists chat models at `https://api.muapi.ai/openai/v1/models`
+  but chats at `https://api.muapi.ai/v1/chat/completions`, which the generic
+  engine (one base address for both) cannot do. The address is fixed; there is
+  no proxy option.
+- **Models.** The list shows MuAPI's `gpt-` models first (`gpt-5-6-sol`,
+  `gpt-5-6-terra`, `gpt-5-6-luna` on 2026-11-25) and then the community models it
+  also lists, labelled "(community)". With no model chosen the default is
+  `gpt-5-6-sol`. Luna stays in the list but is not the default: in testing it
+  sometimes (about 2 runs in 10) ended a long answer with made-up
+  interactive-card code (`<radio-group>`, `{#each}`) that shows as raw text.
+  Every MuAPI turn adds a line to the system prompt asking for plain Markdown
+  only; it lowered the rate but did not remove it for Luna. Sol and Terra showed
+  none in 7 runs each, which is a small sample.
+- **Not tracked.** MuAPI's chat route returns token counts but no cost. A
+  MuAPI chat shows tokens ("1.5k in · 793 out") and "cost not reported", is
+  **not recorded in any spend ledger and does not count toward spending limits**,
+  and is billed by MuAPI to the account that owns the key. The app has no
+  per-token price for these models, so it does not estimate one.
+- Chat only, like any OpenAI-compatible endpoint: no tools, approvals, images or
+  computers.
+
+Tested with a mock endpoint (model order, the key and host rules, a refused or
+failed model list, a full turn through the runtime) and, on 2026-11-25, against
+real MuAPI: the model list loaded (22 models), short and long chats returned
+answers in the Windows dev app. Not checked: the amount charged, tool-style use,
+macOS, Linux, the packaged installers, and a server install.
+
 ## Limits and the fallback engine
 
 When an engine refuses a turn for a usage limit, a rate limit or a lack of
@@ -431,7 +473,7 @@ Gemini CLI (`gemini`) and Cursor (`cursor`) use the same ACP transport, approval
 - **Cursor:** install from [Cursor's CLI documentation](https://cursor.com/docs/cli), then `cursor-agent login` or save a key. Starts with `cursor-agent acp`, without automatic approval flags. Credentials suppress ACP browser authentication. Status and model discovery use bounded CLI commands. A selected model must be offered by the session and accepted by `session/set_model`; refusal ends the turn before the prompt. Cursor's `cursor/ask_question` extension is answered as unsupported, so it cannot hang waiting for a question card.
 - **OpenCode (experimental):** install `npm install -g opencode-ai` and run `opencode auth login`. Discovery uses `opencode models` without creating a session. A model must be offered by the session's configuration and confirmed by `session/set_config_option`. Additional saved provider-key maps are not implemented. OpenCode strips ambient foreign API keys and configuration overrides, pins project configuration off, and supplies `OPENCODE_PERMISSION` asking for every tool (edit/bash denied in plan mode, all tools denied when tools are off). This override has **not** been proven against hostile real CLI configuration; OpenCode is disabled by default.
 
-`SUPARAGENT_PRESET_ENGINES` selects enabled presets by comma-separated ID. Unset enables `gemini,cursor,openrouter,antigravity`. An empty value disables all presets; add `opencode` to also enable experimental OpenCode. Include `antigravity` when setting an explicit list to show Google account setup. Custom ACP and OpenAI-compatible engines are always registered. Preset CLIs are not supported on Windows yet.
+`SUPARAGENT_PRESET_ENGINES` selects enabled presets by comma-separated ID. Unset enables `gemini,cursor,openrouter,muapi,antigravity`. An empty value disables all presets; add `opencode` to also enable experimental OpenCode. Include `antigravity` when setting an explicit list to show Google account setup. Custom ACP and OpenAI-compatible engines are always registered. Preset CLIs are not supported on Windows yet.
 
 For ask and accept-edits modes, Gemini always uses `--approval-mode default`, Cursor receives no automatic approval flag, and OpenCode receives ask rules. Every permission request uses the existing approval gate; accept-edits only auto-allows edits whose listed locations all lie inside the workspace. Plan mode and tools-off refuse permission requests. A vendor's own configuration can allow tools without sending a request, especially Cursor allow rules; these presets do not provide a filesystem sandbox. Review CLI configuration before enabling tools.
 
@@ -445,5 +487,6 @@ For ask and accept-edits modes, Gemini always uses `--approval-mode default`, Cu
 | Cursor | Synthetic status/models discovery, credential isolation, model selection/refusal, generic ACP lifecycle regression tests | Real CLI/account, exact live model IDs, question behavior, permission bypass from user configuration |
 | OpenCode | Synthetic model discovery without sessions, model confirmation, pinned environment controls | Real CLI/account, permission overrides against hostile configuration, real resume; remains opt-in |
 | OpenRouter | Mock HTTP authentication, catalog, streaming and fallback tests | Real account and credits/limit behavior |
+| MuAPI (2026-11-25) | Mock HTTP model list, key and host rules, a runtime turn; real model list and chats in the Windows dev app | Charged amount (not tracked), installed app, macOS, Linux, server install |
 
 No real-account compatibility, Windows compatibility, optional Docker package build or approval bypass resistance is claimed by these checks. Real CLI runs must record version, redacted responses and permission behavior before changing this table or default-enabling OpenCode.

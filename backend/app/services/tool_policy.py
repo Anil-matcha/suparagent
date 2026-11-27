@@ -150,6 +150,9 @@ def automatic(tool, mode, run, arguments):
     scope = getattr(run, "tool_scope", None)
     if scope is not None and not tool_scope_svc.tool_allowed(scope, qualify_tool_name(tool, arguments)):
         return "denied", "tool_scope_denied"
+    if tool.startswith('mcp__pages__'):
+        # Only renders a sandboxed page in the chat (pages_bridge.py); never in a draft-only run (refused above).
+        return ('allowed', 'pages_show') if tool in ('mcp__pages__show_page', 'mcp__pages__update_page') else ('denied', 'unknown_pages_tool')
     if tool.startswith('mcp__memory__'):
         # Read-only search of the agent's own history (memory_bridge.py).
         return ('allowed', 'memory_read') if tool in ('mcp__memory__session_search', 'mcp__memory__session_read') else ('denied', 'unknown_memory_tool')

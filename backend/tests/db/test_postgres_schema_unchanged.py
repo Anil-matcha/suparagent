@@ -44,6 +44,7 @@ SHADOW_TABLES = {"shadow_prediction"}
 WORKER_LABEL_TABLES = {"worker_label", "worker_label_action"}
 APP_EVENT_TABLES = {"app_event_trigger", "app_event_receipt", "app_event_day"}
 SHADOW_FEEDBACK_TABLES = {"shadow_feedback"}
+SAVED_APP_TABLES = {"saved_app"}
 
 
 def postgres_ddl(table_names: set[str]) -> str:
@@ -106,6 +107,7 @@ def test_every_table_is_covered_by_one_of_the_snapshots():
         | WORKER_LABEL_TABLES
         | APP_EVENT_TABLES
         | SHADOW_FEEDBACK_TABLES
+        | SAVED_APP_TABLES
     )
     assert covered_tables == set(Base.metadata.tables)
     assert not original_tables() & F04_TABLES
@@ -207,3 +209,7 @@ def test_app_event_tables_compile_to_their_reviewed_postgres_schema():
 
 def test_shadow_feedback_table_compiles_to_its_reviewed_postgres_schema():
     assert postgres_ddl(SHADOW_FEEDBACK_TABLES) == snapshot_text(HERE / "postgres_schema_shadow_feedback.sql")
+
+
+def test_saved_app_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(SAVED_APP_TABLES) == snapshot_text(HERE / "postgres_schema_saved_apps.sql")

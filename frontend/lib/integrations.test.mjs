@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { INTEGRATIONS, INTEGRATION_BLOCK_ANCHORS, capabilityIds, spendingCapabilityIds } from "./integrations.ts";
+import { INTEGRATIONS, INTEGRATION_BLOCK_ANCHORS, capabilityIds, integrationAnchors, spendingCapabilityIds } from "./integrations.ts";
+
+const TOOLS = INTEGRATIONS.filter((item) => item.kind === "tools");
+const CHANNELS = INTEGRATIONS.filter((item) => item.kind === "channel");
 import { SETTINGS_REGISTRY } from "./settings-registry.ts";
 
 const backendFile = fileURLToPath(new URL("../../backend/app/services/muapi_data_api.py", import.meta.url));
@@ -10,9 +13,9 @@ const backendFile = fileURLToPath(new URL("../../backend/app/services/muapi_data
 test("every integration has a unique id, anchor and capability list", () => {
   const ids = INTEGRATIONS.map((item) => item.id);
   assert.equal(new Set(ids).size, ids.length);
-  const anchors = INTEGRATIONS.map((item) => item.anchorId);
+  const anchors = INTEGRATIONS.flatMap(integrationAnchors);
   assert.equal(new Set(anchors).size, anchors.length);
-  for (const item of INTEGRATIONS) {
+  for (const item of TOOLS) {
     assert.ok(item.capabilities.length > 0, `${item.id} has no capabilities`);
     assert.equal(new Set(capabilityIds(item)).size, item.capabilities.length, `${item.id} repeats a capability`);
   }
@@ -20,9 +23,11 @@ test("every integration has a unique id, anchor and capability list", () => {
 
 test("every integration anchor is reachable from Settings search", () => {
   for (const item of INTEGRATIONS) {
-    const entry = SETTINGS_REGISTRY.find((candidate) => candidate.anchorId === item.anchorId);
-    assert.ok(entry, `${item.id}: no Settings search entry for ${item.anchorId}`);
-    assert.equal(entry.page, "integrations");
+    for (const anchor of integrationAnchors(item)) {
+      const entry = SETTINGS_REGISTRY.find((candidate) => candidate.anchorId === anchor);
+      assert.ok(entry, `${item.id}: no Settings search entry for ${anchor}`);
+      assert.equal(entry.page, "integrations");
+    }
   }
 });
 
@@ -41,14 +46,23 @@ test("only the capped paid calls are marked as spending", () => {
 });
 
 test("the connection texts name the integration", () => {
-  for (const item of INTEGRATIONS) {
+  for (const item of TOOLS) {
     assert.ok(item.secret.helpUrl.startsWith("https://"));
     assert.ok(item.access.emptyMessage.includes(item.name));
   }
+  for (const item of CHANNELS) {
+    assert.ok(item.helpUrl.startsWith("https://"));
+    assert.ok(item.description.includes("only works while this app is running"), `${item.id} says when it works`);
+  }
+});
+
+test("Slack is the one channel and the page draws it with its own panel", () => {
+  assert.deepEqual(CHANNELS.map((item) => item.id), ["slack"]);
+  assert.deepEqual(TOOLS.map((item) => item.id), ["muapi"]);
 });
 
 test("every extra card a manifest lists is known, anchored and reachable from Settings search", () => {
-  for (const item of INTEGRATIONS) {
+  for (const item of TOOLS) {
     for (const block of item.blocks) {
       const anchor = INTEGRATION_BLOCK_ANCHORS[block];
       assert.ok(anchor, `${item.id}: unknown block ${block}`);

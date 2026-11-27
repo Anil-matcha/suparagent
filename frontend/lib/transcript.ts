@@ -59,8 +59,17 @@ function teamSetupPlan(value: unknown): TeamSetupPlan | null {
   return { ...(typeof plan.summary === "string" ? { summary: plan.summary } : {}), operations };
 }
 
+// One revision of a bot page (an agent's self-contained HTML shown in the chat).
+export type PageRevision = { rev: number; title: string; html: string; height: number; frameless: boolean; uses: string[] };
+export type PageItem = { kind: "page"; key: string; turnId: number | null; pageId: string; versions: PageRevision[] } & PageRevision;
+export const PAGE_HEIGHT_MIN = 80;
+export const PAGE_HEIGHT_MAX = 720;
+export const PAGE_HEIGHT_DEFAULT = 360;
+export const PAGE_VERSIONS_KEPT = 10;
+
 export type TranscriptItem =
   | TeamJobItem
+  | PageItem
   | NeedsYouItem
   | { kind: "team_notice"; key: string; turnId: number | null; tone: "incident" | "escalation" | "refused" | "retried"; text: string; threadId: number | null }
   | { kind: "team_setup"; key: string; turnId: number | null; requestId: string; state: "pending" | "rejected" | "applied"; version?: number; plan?: TeamSetupPlan; undoAvailable: boolean; rows: { action: string; agentId: number; name: string; firstTask?: string; changes?: { field: string; before: unknown; after: unknown }[] }[] }
@@ -533,6 +542,23 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
         timeZone: typeof data.time_zone === "string" ? data.time_zone : undefined,
         sources: data.sources && typeof data.sources === "object" ? data.sources as Record<string, string> : undefined,
       };
+      return { ...base, items: previous ? state.items.map((entry) => (entry === previous ? item : entry)) : [...state.items, item] };
+    }
+
+    // A page an agent shows inline. A later revision of the same page replaces it where it stands and
+    // the last few revisions are kept so the card can step back.
+    case "page.shown": {
+      if (typeof data.page_id !== "string" || !data.page_id || typeof data.html !== "string") return base;
+      const rev = typeof data.rev === "number" && Number.isFinite(data.rev) ? data.rev : 1;
+      const previous = state.items.find((entry): entry is PageItem => entry.kind === "page" && entry.pageId === data.page_id);
+      if (previous && previous.rev >= rev) return base;
+      const height = typeof data.height === "number" && Number.isFinite(data.height) ? Math.min(PAGE_HEIGHT_MAX, Math.max(PAGE_HEIGHT_MIN, Math.round(data.height))) : PAGE_HEIGHT_DEFAULT;
+      const revision: PageRevision = {
+        rev, title: text(data.title) || "Page", html: data.html, height, frameless: data.frameless === true,
+        uses: Array.isArray(data.uses) ? data.uses.filter((u: unknown): u is string => typeof u === "string") : [],
+      };
+      const versions = [...(previous?.versions ?? []), revision].slice(-PAGE_VERSIONS_KEPT);
+      const item: PageItem = { ...revision, kind: "page", key: previous?.key ?? key, turnId: previous?.turnId ?? id, pageId: data.page_id, versions };
       return { ...base, items: previous ? state.items.map((entry) => (entry === previous ? item : entry)) : [...state.items, item] };
     }
 

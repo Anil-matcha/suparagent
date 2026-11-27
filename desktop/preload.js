@@ -35,6 +35,12 @@ contextBridge.exposeInMainWorld("suparagent", {
   nativeControl: (request) => ipcRenderer.invoke("suparagent:native-control", request),
   hostedWorkspace: (action) => ipcRenderer.invoke("suparagent:hosted-workspace", action),
   environments: (payload) => ipcRenderer.invoke("suparagent:environments", payload),
+  appInstall: {
+    install: (request) => ipcRenderer.invoke("suparagent:app-install:install", request),
+    uninstall: (id) => ipcRenderer.invoke("suparagent:app-install:uninstall", id),
+    list: () => ipcRenderer.invoke("suparagent:app-install:list"),
+  },
+  openExternalLink: (url) => ipcRenderer.invoke("suparagent:open-external", url),
   copyText: (text) => ipcRenderer.invoke("suparagent:copy-text", text),
   showNotification: (payload) => ipcRenderer.invoke("suparagent:show-notification", payload),
   onNotificationClicked: (listener) => {

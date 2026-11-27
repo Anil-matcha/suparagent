@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { INTEGRATIONS } from "./integrations.ts";
+import { INTEGRATIONS, integrationAnchors } from "./integrations.ts";
 import { SETTINGS_PAGES } from "./settings-nav.ts";
 import {
   rankSettings,
@@ -21,6 +21,7 @@ const pageMarkupFiles = [
   "../components/settings/AccountSettings.tsx",
   "../components/settings/IntegrationsSettings.tsx",
   "../components/settings/integrations/blocks.tsx",
+  "../components/settings/integrations/SlackPanel.tsx",
 ];
 
 const renderedPageMarkup = pageMarkupFiles.map((file) => readFileSync(new URL(file, import.meta.url), "utf8"));
@@ -30,7 +31,12 @@ const literalIds = renderedPageMarkup.flatMap((source) =>
 // The Integrations page draws one block per manifest and gives it the manifest's anchor. Count those
 // anchors only while the panel still renders them, so removing the attribute fails this test.
 const integrationPanel = readFileSync(new URL("../components/settings/integrations/IntegrationPanel.tsx", import.meta.url), "utf8");
-const manifestAnchors = integrationPanel.includes("id={manifest.anchorId}") ? INTEGRATIONS.map((item) => item.anchorId) : [];
+const slackPanel = readFileSync(new URL("../components/settings/integrations/SlackPanel.tsx", import.meta.url), "utf8");
+const manifestAnchors = [
+  ...(integrationPanel.includes("id={manifest.anchorId}") ? INTEGRATIONS.filter((item) => item.kind === "tools").flatMap(integrationAnchors) : []),
+  ...(slackPanel.includes("id={manifest.anchorId}") && slackPanel.includes("id={manifest.chatAnchorId}")
+    ? INTEGRATIONS.filter((item) => item.kind === "channel").flatMap(integrationAnchors) : []),
+];
 const idsInMarkup = [...literalIds, ...manifestAnchors];
 const settingIdsInMarkup = idsInMarkup.filter((id) => id.startsWith("setting-"));
 

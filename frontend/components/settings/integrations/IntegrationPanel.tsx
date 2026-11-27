@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError, type Agent } from "@/lib/api";
-import { capabilityIds, spendingCapabilityIds, type IntegrationManifest } from "@/lib/integrations";
+import { capabilityIds, spendingCapabilityIds, type ToolIntegrationManifest } from "@/lib/integrations";
 import { SettingsCard } from "../SettingsCard";
 import { INTEGRATION_APIS } from "./adapters";
 import { INTEGRATION_BLOCKS } from "./blocks";
@@ -23,7 +23,7 @@ export function IntegrationPanel({
   scheduled,
   onScheduledChange,
 }: {
-  manifest: IntegrationManifest;
+  manifest: ToolIntegrationManifest;
   agents: Agent[];
   scheduled: Record<number, boolean>;
   onScheduledChange: (agentId: number, value: boolean) => void;
