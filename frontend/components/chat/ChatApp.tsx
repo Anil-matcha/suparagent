@@ -29,6 +29,7 @@ import { ApprovalsPanel } from "@/components/approvals/ApprovalsPanel";
 import type { Remembered } from "./items";
 import { Composer } from "./Composer";
 import { Conversation } from "./Conversation";
+import { ForkPanel } from "./ForkPanel";
 import { WaitingRoutineQuestions } from "./WaitingRoutineQuestions";
 import { NeedsYouCard } from "./NeedsYouCard";
 import { ChatHeader } from "./ChatHeader";
@@ -165,6 +166,7 @@ export function ChatApp() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const sidebarInline = useMediaQuery(SIDEBAR_INLINE);
   const inspectorInline = useMediaQuery(SIDEBAR_AND_PANEL_FIT);
+  const forkInline = useMediaQuery("(min-width: 960px)");
   // The right-hand inspector page, kept in the address (?panel=usage) so a reload reopens it.
   const panel = parsePanel(params.get("panel"));
   const setPanel = (next: Panel | null) => router.replace(chatHref(params.toString(), next));
@@ -248,6 +250,7 @@ export function ChatApp() {
   const [attached, setAttached] = useState<File[]>([]);
   const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
   const [citations, setCitations] = useState<CitationAttachment[]>([]);
+  const [forkThreadId, setForkThreadId] = useState<number | null>(null);
   const audioAbort = useRef<AbortController | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
   const [audioConsent, setAudioConsent] = useState(false);
@@ -255,7 +258,12 @@ export function ChatApp() {
   useEffect(() => {
     setReplyTo(null);
     setCitations([]);
+    setForkThreadId(null);
   }, [threadId]);
+
+  useEffect(() => {
+    if (panel) setForkThreadId(null);
+  }, [panel]);
   const [audioCapability, setAudioCapability] = useState<{ provider_label: string; available: boolean; retention: string } | null>(null);
   useEffect(() => { if (fullAccess) api.audioCapabilities().then(setAudioCapability).catch(() => setAudioCapability(null)); }, [fullAccess]);
   const [attachNotice, setAttachNotice] = useState<string | null>(null);
@@ -862,11 +870,25 @@ export function ChatApp() {
     try {
       const branch = await api.branchThread(threadId, turnId, text);
       setListTick((n) => n + 1);
-      router.push(`/chat?thread=${branch.id}`);
+      setPanel(null);
+      setForkThreadId(branch.id);
       return true;
     } catch (err) {
       toast(`${t("branch.failed")}${err instanceof Error && err.message ? `: ${err.message}` : ""}`, "danger");
       return false;
+    }
+  };
+
+  // Fork from any completed turn into a side-by-side branch panel without leaving the main thread.
+  const forkSideBySide = async (turnId: number, opts: { inclusive: boolean }) => {
+    if (threadId === null) return;
+    try {
+      const branch = await api.branchThread(threadId, turnId, null, { inclusive: opts.inclusive });
+      setListTick((n) => n + 1);
+      setPanel(null);
+      setForkThreadId(branch.id);
+    } catch (err) {
+      toast(`${t("branch.failed")}${err instanceof Error && err.message ? `: ${err.message}` : ""}`, "danger");
     }
   };
 
@@ -1432,6 +1454,7 @@ export function ChatApp() {
               undoneRules={undoneRules}
               onUndo={undoRule}
               onBranch={roomId === null && ready && transcript.runningTurnId === null && !sending ? branchFromMessage : undefined}
+              onFork={roomId === null && ready && !sending ? forkSideBySide : undefined}
               onReply={(target) => {
                 setReplyTo(target);
                 setFocusComposer(true);
@@ -1561,6 +1584,20 @@ export function ChatApp() {
           </>}
         </main>
       </div>
+      {forkThreadId !== null && (
+        <ForkPanel
+          threadId={forkThreadId}
+          inline={forkInline}
+          agents={agents}
+          engines={engines}
+          onClose={() => setForkThreadId(null)}
+          onOpenFullThread={(id) => {
+            setForkThreadId(null);
+            router.push(`/chat?thread=${id}`);
+          }}
+          onListChanged={() => setListTick((n) => n + 1)}
+        />
+      )}
       {panel === "usage" && (
         <Inspector title="Usage" inline={inspectorInline} onClose={() => setPanel(null)}>
           <UsageView />

@@ -1513,10 +1513,19 @@ export const api = {
 
   // Edit a past message and resend it in a new conversation that keeps the
   // history before it. The original is not changed.
-  branchThread: (threadId: number, turnId: number, promptText: string) =>
+  branchThread: (
+    threadId: number,
+    turnId: number,
+    promptText?: string | null,
+    options?: { inclusive?: boolean },
+  ) =>
     request<Thread>(`/threads/${threadId}/branch`, {
       method: "POST",
-      body: JSON.stringify({ turn_id: turnId, prompt_text: promptText }),
+      body: JSON.stringify({
+        turn_id: turnId,
+        ...(promptText !== undefined && promptText !== null ? { prompt_text: promptText } : {}),
+        ...(options?.inclusive ? { inclusive: true } : {}),
+      }),
     }),
 
   createThread: (agentId?: number | null, selection?: { provider?: string; model?: string | null; effort?: string | null }) =>

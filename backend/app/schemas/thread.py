@@ -128,16 +128,18 @@ class TurnCreateRequest(BaseModel):
 
 
 class ThreadBranchRequest(BaseModel):
-    """Branch from one past message: `turn_id` is the turn whose message is
-    being edited, `prompt_text` the edited message to send in the new branch."""
+    """Branch from one past message: `turn_id` is the turn to branch from,
+    `prompt_text` is an optional edited/new message to send immediately, and
+    `inclusive` keeps `turn_id` itself in the copied history."""
 
     turn_id: int
-    prompt_text: str = Field(min_length=1, max_length=100_000)
+    prompt_text: str | None = Field(default=None, max_length=100_000)
+    inclusive: bool = False
 
     @field_validator("prompt_text")
     @classmethod
-    def _not_blank(cls, value: str) -> str:
-        if not value.strip():
+    def _not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
             raise ValueError("prompt_text must not be blank")
         return value
 

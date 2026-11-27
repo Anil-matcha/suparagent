@@ -21,7 +21,7 @@ import { Markdown } from "./Markdown";
 import { SpeakButton } from "./SpeakButton";
 import { copyToClipboard } from "@/lib/clipboard";
 import { MessageAttachments } from "./Attachments";
-import { canBranchFrom } from "@/lib/branch-link";
+import { canBranchFrom, canForkFrom } from "@/lib/branch-link";
 import { formatDateDivider, formatMessageTime } from "@/lib/relative-time";
 export { formatDateDivider, formatMessageTime };
 
@@ -104,6 +104,7 @@ export function UserMessage({
   item,
   threadId = null,
   onBranch,
+  onFork,
   onReply,
   onCite,
   onNavigateSource,
@@ -112,6 +113,7 @@ export function UserMessage({
   threadId?: number | null;
   // Edit this message and resend it in a new branch; resolves false on failure.
   onBranch?: (turnId: number, text: string) => Promise<boolean>;
+  onFork?: () => void;
   onReply?: () => void;
   onCite?: (citation: CitationAttachment) => void;
   onNavigateSource?: (itemKey: string, citation?: CitationAttachment) => boolean;
@@ -123,6 +125,7 @@ export function UserMessage({
   const [draft, setDraft] = useState(parsed.display || item.text);
   const [busy, setBusy] = useState(false);
   const canBranch = onBranch !== undefined && canBranchFrom(item);
+  const canFork = onFork !== undefined && canForkFrom(item);
   if (editing && canBranch) {
     const submit = async () => {
       if (!draft.trim() || busy) return;
@@ -187,7 +190,7 @@ export function UserMessage({
             </button>
           )}
           {(parsed.display || item.text) && <CopyButton text={parsed.display || item.text} />}
-          {(canBranch || onCite) && (
+          {(canBranch || canFork || onCite) && (
             <Menu
               align="end"
               trigger={
@@ -201,6 +204,7 @@ export function UserMessage({
                 </button>
               }
             >
+              {canFork && <MenuItem onSelect={onFork}>Branch side by side</MenuItem>}
               {onCite && <MenuItem onSelect={citeSnippet}>Cite quote</MenuItem>}
               {canBranch && <MenuItem onSelect={() => { setDraft(parsed.display || item.text); setEditing(true); }}>{t("branch.edit")}</MenuItem>}
             </Menu>
@@ -254,6 +258,7 @@ export function AssistantMessage({
   reaction = null,
   onReact,
   onReply,
+  onFork,
   onCite,
   disabled = false,
   threadId = null,
@@ -267,6 +272,7 @@ export function AssistantMessage({
   reaction?: ReactionKind | null;
   onReact?: (reaction: ReactionKind) => void;
   onReply?: () => void;
+  onFork?: () => void;
   onCite?: (citation: CitationAttachment) => void;
   disabled?: boolean;
   threadId?: number | null;
@@ -306,6 +312,17 @@ export function AssistantMessage({
                 className="inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-muted transition-colors hover:bg-hover hover:text-ink touch:size-9"
               >
                 <Reply size={14} aria-hidden="true" />
+              </button>
+            )}
+            {onFork && (
+              <button
+                type="button"
+                onClick={onFork}
+                aria-label="Branch side by side"
+                title="Branch side by side"
+                className="inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-muted transition-colors hover:bg-hover hover:text-ink touch:size-9"
+              >
+                <GitBranch size={14} aria-hidden="true" />
               </button>
             )}
             {onReact && (
@@ -370,7 +387,7 @@ export function AssistantMessage({
             )}
             <CopyButton text={text} />
             <SpeakButton text={text} />
-            {(onReply || onCite) && (
+            {(onReply || onFork || onCite) && (
               <Menu
                 align="start"
                 trigger={
@@ -385,6 +402,7 @@ export function AssistantMessage({
                 }
               >
                 {onReply && <MenuItem onSelect={onReply}>Reply</MenuItem>}
+                {onFork && <MenuItem onSelect={onFork}>Branch side by side</MenuItem>}
                 {onCite && itemKey && <MenuItem onSelect={citeWhole}>Cite quote</MenuItem>}
               </Menu>
             )}

@@ -258,6 +258,31 @@ async def test_a_past_message_can_be_edited_into_a_branch(api, cli):
     assert missing.status_code == 404
 
 
+async def test_branch_inclusive_without_prompt_creates_ready_side_branch(api, cli):
+    thread = await create(api)
+    cli.script({"type": "chat", "text": "one"}, {"type": "chat", "text": "two"}, {"type": "chat", "text": "three"})
+    for n, prompt in enumerate(("first", "second"), start=1):
+        assert (await api.post(f"/api/v1/threads/{thread['id']}/turns", json={"prompt_text": prompt})).status_code == 202
+        await wait_for_terminals(api, thread["id"], n)
+    second = (await api.get(f"/api/v1/threads/{thread['id']}")).json()["turns"][1]["id"]
+
+    branched = await api.post(
+        f"/api/v1/threads/{thread['id']}/branch",
+        json={"turn_id": second, "inclusive": True},
+    )
+    assert branched.status_code == 201, branched.text
+    branch = branched.json()
+    assert branch["branched_from_thread_id"] == thread["id"]
+    detail = (await api.get(f"/api/v1/threads/{branch['id']}")).json()
+    assert [t["prompt_text"] for t in detail["turns"]] == ["first", "second"]
+
+    sent = await api.post(f"/api/v1/threads/{branch['id']}/turns", json={"prompt_text": "branch follow-up"})
+    assert sent.status_code == 202
+    await wait_for_terminals(api, branch["id"], 3)
+    prompts = [t["prompt_text"] for t in (await api.get(f"/api/v1/threads/{branch['id']}")).json()["turns"]]
+    assert prompts == ["first", "second", "branch follow-up"]
+
+
 async def test_a_blank_or_oversized_message_is_a_422_and_starts_nothing(api, sessions):
     thread = await create(api)
     for body in ({"prompt_text": ""}, {"prompt_text": "   \n "}, {"prompt_text": "x" * 100_001}, {}):

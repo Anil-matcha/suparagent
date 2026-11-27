@@ -3,6 +3,7 @@
 import { ArrowDown } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { makeReplyTarget, splitMessageAnnotations, type CitationAttachment, type ReplyTarget } from "@/lib/citations";
+import { canForkFrom } from "@/lib/branch-link";
 import { flashMessageElement, resolveCitationRange } from "@/lib/citations-dom";
 import { CitationSelectionToolbar } from "./CitationUI";
 import { formatReactionReply, isLatestAssistantMessage, loadThreadReactions, saveThreadReaction, type ReactionKind, type ReactionsMap } from "@/lib/reactions";
@@ -90,6 +91,7 @@ export function Conversation({
   undoneRules = [],
   onUndo,
   onBranch,
+  onFork,
   onReply,
   onAddCitation,
   threadId = null,
@@ -101,6 +103,7 @@ export function Conversation({
 }: {
   // Edit a past message and resend it in a new branch.
   onBranch?: (turnId: number, text: string) => Promise<boolean>;
+  onFork?: (turnId: number, opts: { inclusive: boolean }) => void;
   onReply?: (target: ReplyTarget) => void;
   onAddCitation?: (citation: CitationAttachment) => void;
   // The conversation the transcript belongs to: attachments are fetched from it.
@@ -263,6 +266,7 @@ export function Conversation({
                       item={item}
                       threadId={threadId}
                       onBranch={onBranch}
+                      onFork={onFork && canForkFrom(item) ? () => onFork(item.turnId!, { inclusive: true }) : undefined}
                       onReply={
                         onReply
                           ? () => onReply(makeReplyTarget(item.key, "user", splitMessageAnnotations(item.text).display || item.text))
@@ -287,6 +291,7 @@ export function Conversation({
                       reaction={reactions[item.key] ?? null}
                       onReact={canReplyToMessage ? (r) => { void handleReact(item.key, r); } : undefined}
                       onReply={onReply && !item.incomplete ? () => onReply(makeReplyTarget(item.key, "assistant", item.text)) : undefined}
+                      onFork={onFork && canForkFrom(item) ? () => onFork(item.turnId!, { inclusive: true }) : undefined}
                       onCite={onAddCitation}
                       disabled={answering !== null || sendingReactionReplyDisabled}
                     />

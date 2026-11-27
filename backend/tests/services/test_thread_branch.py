@@ -57,6 +57,17 @@ async def test_branch_gives_the_new_session_the_earlier_history_once(make_rt, se
     assert primary.calls[-1].prompt == "And a number"
 
 
+async def test_branch_inclusive_keeps_target_turn_and_history(make_rt, sessions, owner, tmp_path):
+    rt, primary, thread, turns = await _chat(make_rt, sessions, owner, tmp_path)
+    branch = await branch_thread(rt, thread.id, turns[1].id, inclusive=True)
+    await rt.send_turn(branch.id, "Follow up on colour")
+    await finished(sessions, branch.id, 3)
+    prompt = primary.calls[-1].prompt
+    assert "project is called Orchard" in prompt
+    assert "Pick a colour" in prompt
+    assert prompt.endswith("Follow up on colour")
+
+
 async def test_branch_from_the_first_message_starts_empty(make_rt, sessions, owner, tmp_path):
     rt, primary, thread, turns = await _chat(make_rt, sessions, owner, tmp_path)
     branch = await branch_thread(rt, thread.id, turns[0].id)
