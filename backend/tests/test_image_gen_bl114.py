@@ -349,3 +349,22 @@ async def test_a_failed_status_alone_also_counts_as_the_providers_fault(client, 
             transport=httpx.MockTransport(lambda request: httpx.Response(400, text=body)), **kw))
         r = await client.post("/images/generate", json={"prompt": "a fox", "provider": "muapi"})
         assert r.json()["detail"]["error_code"] == expected, body
+
+async def test_openai_adapter_default_model_is_served(monkeypatch):
+    # The configured default must be sent to the OpenAI-compatible Images API.
+    from app.core.config import Settings
+
+    default = Settings.model_fields["IMAGE_MODEL"].default
+    assert default == "gpt-image-2.6-flare"
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "sk-test")
+    monkeypatch.setattr(settings, "IMAGE_MODEL", default)
+    seen = {}
+
+    def handler(request):
+        seen["body"] = request.content
+        return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(PNG).decode()}]})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(image_gen.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    assert await image_gen.OpenAICompatibleProvider().generate("fox", "1024x1024") == PNG
+    assert b"\"model\":\"gpt-image-2.6-flare\"" in seen["body"].replace(b" ", b"")
