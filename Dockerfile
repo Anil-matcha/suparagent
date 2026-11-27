@@ -4,7 +4,7 @@
 #   docker build --build-arg ENGINES="@anthropic-ai/claude-code @openai/codex" -t suparagent .
 #   docker build --build-arg ENGINES="@google/gemini-cli opencode-ai" -t suparagent .
 # OpenRouter needs no CLI. Cursor is installed separately (not an npm package).
-# OpenCode remains experimental: set SUPARAGENT_PRESET_ENGINES=gemini,cursor,openrouter,opencode
+# OpenCode remains experimental: set SUPARAGENT_PRESET_ENGINES=gemini,cursor,openrouter,llmtr,opencode
 # only after checking its approval behavior against your own CLI configuration.
 #
 # The image listens on 0.0.0.0:8000 inside the container (the container's own address; nothing is

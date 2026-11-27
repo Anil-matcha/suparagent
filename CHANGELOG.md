@@ -4,6 +4,7 @@
 
 ### Added
 
+- LLMTR as a built-in chat engine in Settings → Engines, next to OpenRouter: save an API key from https://llmtr.com/dashboard/keys and the address is fixed to `https://llmtr.com/v1`. Chat only, like the other OpenAI-compatible engines. Include `llmtr` in `SUPARAGENT_PRESET_ENGINES` when you set an explicit list.
 - Closing the Suparagent desktop window hides it to a tray icon when one can be created, so routines and running turns keep going. Use the tray's Quit item or quit the app to stop the backend. Lifecycle tests cover closing, reopening and quitting; packaged tray behavior across platforms remains unverified.
 
 ## 0.8.9 - 2026-11-27

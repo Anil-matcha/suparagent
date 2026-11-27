@@ -37,6 +37,7 @@ const PROVIDER_COLORS: Record<string, string> = {
   google: "#2563EB",
   openai: "#10B981",
   openrouter: "#8B5CF6",
+  llmtr: "#111111",
   codex: "#059669",
 };
 

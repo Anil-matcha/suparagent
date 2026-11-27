@@ -151,7 +151,7 @@ ends. Paid checkout is enabled for hosted accounts; see the
 
 Connect an engine you already use: Claude Code or Codex CLI, Gemini CLI,
 Google Gemini through Antigravity, Cursor, another command-line agent using
-the Agent Client Protocol (ACP), OpenRouter, or an OpenAI-compatible API such
+the Agent Client Protocol (ACP), OpenRouter, LLMTR, or an OpenAI-compatible API such
 as Ollama or LM Studio. Available tools vary by engine; image input and agent
 computers, for example, are not supported by every engine. See
 [engine setup and capabilities](docs/ENGINES.md).

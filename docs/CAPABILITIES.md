@@ -18,7 +18,7 @@ record before release.
 | Antigravity | Managed runtime and isolated personal Google sign-in; account model catalog | Text | ACP permission requests; default mode confirmed before prompt | Unavailable | Unavailable | Native resume within the same account profile |
 | OpenCode (opt-in experimental) | Installed and authenticated CLI; offered model confirmed | Text | Permission override unqualified against hostile real configuration | Unavailable | Unavailable | Native if advertised; otherwise stored transcript |
 | Generic ACP | Configured authenticated ACP command; agent default model | Text | ACP permission requests; upstream configuration also matters | Unavailable | Unavailable | Native if advertised; otherwise stored transcript |
-| OpenAI-compatible / OpenRouter | Configured endpoint and optional key / OpenRouter key; endpoint model IDs | Text | Chat only, no tool execution | Unavailable | Unavailable | Stored transcript |
+| OpenAI-compatible / OpenRouter / LLMTR | Configured endpoint and optional key / OpenRouter or LLMTR key; endpoint model IDs | Text | Chat only, no tool execution | Unavailable | Unavailable | Stored transcript |
 
 Text attachments are bounded text added to the prompt. Images are accepted only
 by engines advertising image support. Cross-chat history search is available
