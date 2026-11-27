@@ -263,6 +263,9 @@ async def test_the_default_client_maker_takes_the_api_key_the_listener_passes(mo
         def __init__(self, scheduler, make_client):
             captured["make_client"] = make_client
 
+        def poke(self):  # _run_global forwards a pending wake signal left by an earlier test
+            pass
+
         async def run(self):
             return None
 
