@@ -398,12 +398,18 @@ class ComposioBridge:
                 return await composio_service.connected_names(db, rt.owner_id, self.client_factory, set(allowed),
                                                              allowed_account_ids)
         if name in composio_generic.GENERIC_TOOLS:
+            from app.services import tool_policy, tool_scope as tool_scope_svc
+            if not tool_scope_svc.tool_allowed(getattr(run, "tool_scope", None), tool_policy.qualify_tool_name(PREFIX + name, args)):
+                return {"error": "Blocked by this agent's tool scope.", "code": "not_allowed"}
             return await self.execute_generic(name, args, allowed, allowed_account_ids)
         if name == "gmail_prepare_checked_reply" and not getattr(run.ctx, "draft_only", False):
             return {"error": "This tool requires a confined draft-only routine.", "code": "not_allowed"}
         tool = composio_tools.BY_NAME.get(name)
         if tool is None or not composio_tools.allows(allowed.get(tool.app), tool.kind):
             return {"error": "This agent is not allowed to do that with that app.", "code": "not_allowed"}
+        from app.services import tool_policy, tool_scope as tool_scope_svc
+        if not tool_scope_svc.tool_allowed(getattr(run, "tool_scope", None), tool_policy.qualify_tool_name(PREFIX + name, args)):
+            return {"error": "Blocked by this agent's tool scope.", "code": "not_allowed"}
         try:
             sent, account = composio_tools.clean_arguments(tool, args)
         except composio_tools.BadArguments as exc:

@@ -347,3 +347,89 @@ async def test_install_publishes_only_after_validation(tmp_path, monkeypatch, re
         await runtime.install(validate)
     assert len(validated) == 1
     assert not list(runtime.runtime_dir().parent.glob(".install-*"))
+
+
+def test_catalog_no_unbound_local_for_hydrogen_or_flash():
+    from app.services.antigravity_adapter import catalog
+
+    session = {
+        "configOptions": [
+            {
+                "id": "model",
+                "currentValue": "gemini-4-hydrogen",
+                "options": [
+                    {"value": "gemini-4-hydrogen", "name": "Gemini 4 Hydrogen"},
+                    {"value": "gemini-3.8-flash", "name": "Gemini 3.8 Flash"},
+                    {"value": "claude-opus-4-6-thinking", "name": "Claude Opus 4.6 (Thinking)"},
+                ],
+            },
+        ]
+    }
+    models = catalog(session)
+    by_id = {m.id: m for m in models}
+    assert by_id["gemini-4-hydrogen"].default_reasoning_effort == "high"
+    assert by_id["gemini-4-hydrogen"].supported_reasoning_efforts == ("low", "medium", "high", "xhigh")
+    assert by_id["gemini-3.8-flash"].supported_reasoning_efforts == ("low", "medium", "high")
+    assert by_id["claude-opus-4-6-thinking"].supported_reasoning_efforts == ("high",)
+    assert by_id["claude-opus-4-6-thinking"].reasoning_effort_configurable is False
+
+
+async def test_full_access_maps_to_yolo_only_when_offered():
+    adapter = AntigravityAdapter()
+    calls = []
+
+    async def call(method, params, handle_incoming=False):
+        calls.append(params["value"])
+        return {"configOptions": [{"id": "mode", "currentValue": params["value"]}]}
+
+    session_with_yolo = {
+        "configOptions": [{"id": "mode", "options": [{"value": "default"}, {"value": "yolo"}]}]
+    }
+    await adapter.configure_session(call, "sess-1", session_with_yolo, SimpleNamespace(approval_mode="full_access"))
+    await adapter.configure_session(call, "sess-1", session_with_yolo, SimpleNamespace(approval_mode="ask"))
+    session_without_yolo = {"configOptions": [{"id": "mode", "options": [{"value": "default"}]}]}
+    await adapter.configure_session(call, "sess-1", session_without_yolo, SimpleNamespace(approval_mode="full_access"))
+    assert calls == ["yolo", "default", "default"]
+
+
+async def test_acp_server_request_recognizes_command_line(monkeypatch, tmp_path):
+    from app.services.acp_adapter import _AcpTurn
+    from app.services.provider_adapter import Decision
+
+    opened = []
+
+    class FakeGate:
+        async def open(self, *, request_id, tool, input, summary, kind):
+            opened.append((tool, input, kind))
+            return SimpleNamespace(tool=tool)
+
+        async def decide(self, handle):
+            return Decision("allow", "user")
+
+    class FakeRpc:
+        def __init__(self):
+            self.responses = []
+
+        def respond(self, rid, result=None, error=None):
+            self.responses.append((rid, result, error))
+
+    async def _history():
+        return []
+
+    ctx = TurnContext(1, 1, "hi", tmp_path, None, None, None, False, _history, approval_mode="ask")
+    turn_obj = _AcpTurn(ctx, SimpleNamespace(lost=False), FakeGate(), ["fake"], env={})
+    turn_obj.tools = True
+    turn_obj.rpc = FakeRpc()
+    await turn_obj._server_request(
+        {
+            "id": 42,
+            "method": "session/request_permission",
+            "params": {
+                "options": [{"optionId": "allow1", "kind": "allow_once"}],
+                "toolCall": {"kind": "execute", "rawInput": {"CommandLine": "curl -s https://ipapi.co/json/"}},
+            },
+        }
+    )
+    if turn_obj.answering:
+        await asyncio.gather(*turn_obj.answering)
+    assert opened == [("Bash", {"command": "curl -s https://ipapi.co/json/"}, "command")]

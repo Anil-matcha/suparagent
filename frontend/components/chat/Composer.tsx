@@ -1,9 +1,11 @@
 "use client";
 
-import { ArrowUp, Check, FileText, Image as ImageIcon, Loader2, Mic, Music, Plus, Sparkles, Square, Video as VideoIcon, X } from "lucide-react";
+import { ArrowUp, Check, FileText, Image as ImageIcon, Loader2, Mic, Music, Plus, Reply, Sparkles, Square, Video as VideoIcon, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, useDeferredValue } from "react";
 import { cn } from "@/lib/cn";
 import { api, type Engine } from "@/lib/api";
+import type { CitationAttachment, ReplyTarget } from "@/lib/citations";
+import { CitationBadge } from "./CitationUI";
 import { isLongPaste, isSendKey, livePastes, removePaste } from "@/lib/composer";
 import { loadDraft, saveDraft } from "@/lib/drafts";
 import { useT } from "@/lib/use-i18n";
@@ -72,6 +74,12 @@ export function Composer({
   selectedModel,
   selectedEffort,
   onModelChange,
+  replyTo = null,
+  onClearReply,
+  citations = [],
+  onUpdateCitation,
+  onRemoveCitation,
+  onNavigateCitation,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -115,6 +123,12 @@ export function Composer({
   selectedModel?: string | null;
   selectedEffort?: string | null;
   onModelChange?: (provider: string, model: string | null, effort?: string | null) => void;
+  replyTo?: ReplyTarget | null;
+  onClearReply?: () => void;
+  citations?: CitationAttachment[];
+  onUpdateCitation?: (id: string, next: CitationAttachment) => void;
+  onRemoveCitation?: (id: string) => void;
+  onNavigateCitation?: (citation: CitationAttachment) => boolean;
 }) {
   const t = useT();
   const box = useRef<HTMLTextAreaElement>(null);
@@ -169,10 +183,10 @@ export function Composer({
   };
 
   useEffect(() => {
-    if (!focusRequested) return;
+    if (!focusRequested && !replyTo) return;
     box.current?.focus();
-    onFocused?.();
-  }, [focusRequested, onFocused]);
+    if (focusRequested) onFocused?.();
+  }, [focusRequested, onFocused, replyTo]);
 
   // Grows with the text up to a limit.
   useEffect(() => {
@@ -325,7 +339,7 @@ export function Composer({
     setRecordSeconds(0);
   };
 
-  const canSend = !sending && blockedReason === null && value.trim() !== "";
+  const canSend = !sending && blockedReason === null && (value.trim() !== "" || citations.length > 0);
   const carriesFiles = (types: readonly string[]) => types.includes("Files");
 
   return (
@@ -445,9 +459,40 @@ export function Composer({
           )}
           {dragging && <p className="px-3 pb-1 text-xs text-accent">{t("composer.dropAttach")}</p>}
 
+          {replyTo && (
+            <div className="mx-1 mb-1.5 flex items-center gap-2 rounded-xl border border-line/70 bg-inset px-3 py-2 text-xs text-ink">
+              <Reply size={14} className="shrink-0 text-muted" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate text-muted">{replyTo.excerpt}</span>
+              {onClearReply && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={onClearReply}
+                  aria-label="Cancel reply"
+                  className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted hover:bg-hover hover:text-ink"
+                >
+                  <X size={13} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          )}
+          {citations.length > 0 && (
+            <div aria-label="Quoted passages" className="flex flex-wrap gap-1.5 px-2 pt-1 pb-1.5">
+              {citations.map((citation) => (
+                <CitationBadge
+                  key={citation.id}
+                  citation={citation}
+                  onChange={onUpdateCitation ? (next) => onUpdateCitation(citation.id, next) : undefined}
+                  onRemove={onRemoveCitation ? () => onRemoveCitation(citation.id) : undefined}
+                  onNavigate={onNavigateCitation ? () => onNavigateCitation(citation) : undefined}
+                />
+              ))}
+            </div>
+          )}
           {/* Full-width textarea */}
           <div className="relative w-full">
             <textarea
+              data-chat-composer
               ref={box}
               value={value}
               onChange={(e) => {
@@ -504,13 +549,19 @@ export function Composer({
                   setAttachMenuOpen(false);
                   return;
                 }
+                if (e.key === "Escape" && replyTo && onClearReply) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onClearReply();
+                  return;
+                }
                 if (isSendKey({ key: e.key, shiftKey: e.shiftKey, isComposing: e.nativeEvent.isComposing, keyCode: e.nativeEvent.keyCode })) {
                   e.preventDefault();
                   if (canSend) onSend();
                 }
               }}
               rows={1}
-              placeholder={blockedReason ?? (workingMode === "steer" ? t("composer.steerPlaceholder") : workingMode === "queue" ? t("composer.queuePlaceholder") : t("composer.placeholder"))}
+              placeholder={blockedReason ?? (replyTo ? "Reply..." : workingMode === "steer" ? t("composer.steerPlaceholder") : workingMode === "queue" ? t("composer.queuePlaceholder") : t("composer.placeholder"))}
               aria-label={t("composer.label")}
               className="block w-full max-h-52 min-h-11 resize-none bg-transparent px-2.5 pt-1.5 pb-1 text-[15px] leading-relaxed text-ink outline-none placeholder:text-faint focus-visible:outline-none"
             />

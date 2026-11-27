@@ -273,35 +273,36 @@ async def branch_thread(
 
     await _thread_or_404(rt, thread_id)
     try:
-        branch = await thread_branch.branch_thread(rt, thread_id, payload.turn_id)
+        branch = await thread_branch.branch_thread(rt, thread_id, payload.turn_id, inclusive=payload.inclusive)
     except thread_branch.BranchError as error:
         raise _error(error.status, error.code, error.message)
     except store.ThreadNotFound:
         raise HTTPException(status_code=404, detail="Thread not found")
-    try:
-        from app.auth.middleware import principal_of
-        principal = principal_of(request.scope)
-        await rt.send_turn(
-            branch.id, payload.prompt_text,
-            configuration_allowed=principal is None or principal.is_admin,
-            setup_allowed=_setup_allowed(principal),
-            person_id=principal.person_id if principal else None,
-            person_label=principal.label if principal and principal.person_id is not None else None,
-            person_is_owner=principal is None or principal.person_id is None or principal.role == "owner",
-        )
-    except Exception as exc:
-        # Never leave an empty branch behind when the resend could not start.
+    if payload.prompt_text is not None:
         try:
-            async with rt.session() as db:
-                await store.delete_thread(db, branch.id)
-            rt.hub.close(branch.id)
-        except Exception:
-            pass
-        if isinstance(exc, ProviderUnavailable):
-            raise _error(503, "provider_unavailable", str(exc))
-        if isinstance(exc, (store.ThreadBusy, SessionBroken)):
-            raise _error(409, "branch_failed", "Could not start the branch. Try again.")
-        raise
+            from app.auth.middleware import principal_of
+            principal = principal_of(request.scope)
+            await rt.send_turn(
+                branch.id, payload.prompt_text,
+                configuration_allowed=principal is None or principal.is_admin,
+                setup_allowed=_setup_allowed(principal),
+                person_id=principal.person_id if principal else None,
+                person_label=principal.label if principal and principal.person_id is not None else None,
+                person_is_owner=principal is None or principal.person_id is None or principal.role == "owner",
+            )
+        except Exception as exc:
+            # Never leave an empty branch behind when the resend could not start.
+            try:
+                async with rt.session() as db:
+                    await store.delete_thread(db, branch.id)
+                rt.hub.close(branch.id)
+            except Exception:
+                pass
+            if isinstance(exc, ProviderUnavailable):
+                raise _error(503, "provider_unavailable", str(exc))
+            if isinstance(exc, (store.ThreadBusy, SessionBroken)):
+                raise _error(409, "branch_failed", "Could not start the branch. Try again.")
+            raise
     async with rt.session() as db:
         branch = await store.get_thread(db, branch.id)
     return (await _with_computers(rt, [branch]))[0]

@@ -28,7 +28,7 @@ export function AgentSetupEntry({ agents, engines, onStart, onCreateLead }: {
     catch (err) { setError(err instanceof ApiError ? err.message : "Could not choose a lead."); }
     finally { setBusy(false); }
   };
-  return <section className="space-y-2 rounded-field border border-line p-3 text-sm" aria-label="Create by chatting">
+  return <section className="w-full min-w-0 space-y-2 rounded-field border border-line bg-surface/40 p-3 text-sm" aria-label="Create by chatting">
     <strong>Create by chatting</strong>
     <p className="text-xs text-muted">{t("agentTeam.setupGuidance")}</p>
     {team?.enabled === false ? <p className="text-xs text-warning">Team tools are disabled. Enable Teams in settings, or use the manual form.</p> : lead ? <>

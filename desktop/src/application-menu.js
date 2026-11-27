@@ -10,14 +10,45 @@ function workspaceMenu({ platform, workspace }) {
   const hosted = workspace.signedIn
     ? `Hosted workspace${workspace.email ? ` (${workspace.email})` : ""}${workspace.status ? ` · ${workspace.status}` : ""}`
     : "Hosted workspace (sign in to your account)";
+  const activeRemote = workspace.activeRemoteId ?? null;
+  const isLocalActive = workspace.active !== "hosted" && !activeRemote;
+  const extraLocalProfiles = (workspace.localProfiles ?? []).filter((p) => !p.isDefault || (workspace.localProfiles ?? []).length > 1);
+  const remotes = workspace.remotes ?? [];
+
+  const submenu = [
+    { label: "Local (this computer)", type: "radio", checked: isLocalActive, accelerator: `${mod}+1`, click: () => workspace.onSelect("local") },
+    { label: hosted, type: "radio", checked: workspace.active === "hosted" && !activeRemote, accelerator: `${mod}+2`, click: () => workspace.onSelect("hosted") },
+    { type: "separator" },
+    { label: "Sign out of hosted workspace", enabled: workspace.active === "hosted", click: () => workspace.onSignOut() },
+  ];
+
+  if (extraLocalProfiles.length > 0 && workspace.onSelectLocalProfile) {
+    submenu.push({ type: "separator" }, { label: "Local profiles", enabled: false });
+    for (const profile of extraLocalProfiles) {
+      submenu.push({
+        label: profile.name,
+        type: "radio",
+        checked: isLocalActive && profile.id === workspace.activeLocalProfileId,
+        click: () => workspace.onSelectLocalProfile(profile.id),
+      });
+    }
+  }
+
+  if (remotes.length > 0 && workspace.onSelectRemote) {
+    submenu.push({ type: "separator" }, { label: "Connected servers", enabled: false });
+    for (const remote of remotes) {
+      submenu.push({
+        label: remote.name,
+        type: "radio",
+        checked: activeRemote === remote.id,
+        click: () => workspace.onSelectRemote(remote.id),
+      });
+    }
+  }
+
   return {
     label: "Workspace",
-    submenu: [
-      { label: "Local (this computer)", type: "radio", checked: workspace.active !== "hosted", accelerator: `${mod}+1`, click: () => workspace.onSelect("local") },
-      { label: hosted, type: "radio", checked: workspace.active === "hosted", accelerator: `${mod}+2`, click: () => workspace.onSelect("hosted") },
-      { type: "separator" },
-      { label: "Sign out of hosted workspace", enabled: workspace.active === "hosted", click: () => workspace.onSignOut() },
-    ],
+    submenu,
   };
 }
 

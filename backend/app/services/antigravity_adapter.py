@@ -156,6 +156,7 @@ def catalog(session):
                 meta = models_meta.get(identifier, {})
                 lower_id = identifier.lower()
                 lower_label = (label or "").lower()
+                model_default_candidate = default_effort
                 if meta.get("supportsReasoningEffort") is False:
                     model_efforts = ()
                     configurable = False
@@ -175,8 +176,7 @@ def catalog(session):
                 elif lower_id == "gemini-4-hydrogen" or "hydrogen" in lower_id:
                     model_efforts = ("low", "medium", "high", "xhigh")
                     configurable = True
-                    if not default_effort:
-                        default_effort = "high"
+                    model_default_candidate = model_default_candidate or "high"
                 elif lower_id.startswith("gemini-") or "gemini" in lower_label:
                     model_efforts = ("low", "medium", "high")
                     configurable = True
@@ -184,7 +184,11 @@ def catalog(session):
                     model_efforts = ()
                     configurable = False
 
-                model_default = default_effort if (default_effort and default_effort in model_efforts) else (model_efforts[0] if model_efforts else None)
+                model_default = (
+                    model_default_candidate
+                    if (model_default_candidate and model_default_candidate in model_efforts)
+                    else (model_efforts[0] if model_efforts else None)
+                )
 
                 values.append(ModelOption(
                     id=identifier,
@@ -296,8 +300,18 @@ class AntigravityAdapter(AcpAdapter):
         return "oauth-personal"
 
     async def configure_session(self, call, session_id, session, ctx):
-        result = await call("session/set_config_option", {"sessionId": session_id, "configId": "mode", "value": "default"}, handle_incoming=True)
-        if option(result or {}, "mode").get("currentValue") != "default":
+        wanted = "default"
+        if getattr(ctx, "approval_mode", None) == "full_access":
+            mode_opt = option(session or {}, "mode")
+            choices = {
+                o.get("value")
+                for o in (mode_opt.get("options") or [])
+                if isinstance(o, dict) and isinstance(o.get("value"), str)
+            }
+            if "yolo" in choices:
+                wanted = "yolo"
+        result = await call("session/set_config_option", {"sessionId": session_id, "configId": "mode", "value": wanted}, handle_incoming=True)
+        if option(result or {}, "mode").get("currentValue") != wanted:
             raise InvalidConfig("Antigravity did not confirm tool approval mode.")
 
     async def select_model(self, call, session_id, session, model, effort=None):

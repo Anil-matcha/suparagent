@@ -88,6 +88,8 @@ class Settings(BaseSettings):
     LOCAL_CODEX_CLI_PATH: str = ""
     # Working directory for local runs. Empty means ~/.suparagent/local.
     LOCAL_WORKSPACE_ROOT: str = ""
+    # Opt-in: give each new non-project thread its own task-workspaces folder.
+    LOCAL_TASK_WORKSPACE_ISOLATION: bool = False
     # Linux server-only filesystem/PID isolation. A failed request never falls back.
     TURN_SANDBOX_ENABLED: bool = False
     # Opt-in stage D: private network namespace and public HTTP(S)-only gate.

@@ -23,7 +23,8 @@ PROFILE_FIELDS = (
     "name", "title", "description", "instructions", "provider", "model", "effort", "workspace_path",
     "approval_mode", "pinned", "memory_enabled", "recall_enabled", "memory_upkeep", "compaction_summary",
     "use_helper", "fallback_provider", "fallback_model", "connector_scopes", "connector_account_scopes",
-    "connector_shares",
+    "connector_shares", "tool_scope", "tools_off", "outbound_policy", "reply_style", "check_work",
+    "cache_keep_warm",
 )
 
 

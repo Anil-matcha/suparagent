@@ -2,6 +2,8 @@
 
 import { DesktopAccountSection } from "@/components/DesktopAccountSection";
 import { HostedWorkspaceCard } from "@/components/HostedWorkspaceCard";
+import { ConnectedWorkspacesSettings } from "./ConnectedWorkspacesSettings";
+import { WorkspaceBackupSettings } from "./WorkspaceBackupSettings";
 import { DesktopPermissions } from "@/components/DesktopPermissions";
 import { DevicesSection } from "@/components/DevicesSection";
 import { HistoryExport } from "@/components/HistoryExport";
@@ -18,6 +20,7 @@ export function AccountSettings() {
     <div id="setting-account-app" data-setting-id="setting-account-app" data-setting-root data-setting-container tabIndex={-1}>
       {fullAccess && <DesktopAccountSection />}
       {fullAccess && <HostedWorkspaceCard />}
+      {fullAccess && <ConnectedWorkspacesSettings />}
       <span id="setting-account-reset" className="sr-only" />
       <span id="setting-account-delete" className="sr-only" />
     </div>
@@ -33,6 +36,7 @@ export function AccountSettings() {
     </div>
     <div id="setting-account-history" data-setting-id="setting-account-history" data-setting-container tabIndex={-1}>
       <HistoryExport />
+      {fullAccess && <WorkspaceBackupSettings />}
     </div>
     <div id="setting-account-permissions" data-setting-id="setting-account-permissions" data-setting-root data-setting-container tabIndex={-1}>
       <span id="setting-account-accessibility" className="sr-only" />

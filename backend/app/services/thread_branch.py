@@ -26,9 +26,9 @@ class BranchError(Exception):
         self.status, self.code, self.message = status, code, message
 
 
-async def branch_thread(rt, thread_id: int, turn_id: int) -> store.Thread:
-    """Create a new thread holding every turn before `turn_id`. The caller sends
-    the edited message into it. Raises BranchError."""
+async def branch_thread(rt, thread_id: int, turn_id: int, *, inclusive: bool = False) -> store.Thread:
+    """Create a new thread holding turns before `turn_id` (or up to and including
+    `turn_id` when `inclusive=True`). Raises BranchError."""
     async with rt.session() as db:
         parent = await store.get_thread(db, thread_id)
         if parent is None or parent.owner_id != rt.owner_id:
@@ -38,10 +38,11 @@ async def branch_thread(rt, thread_id: int, turn_id: int) -> store.Thread:
         target = await store.get_turn(db, turn_id)
         if target is None or target.thread_id != thread_id:
             raise BranchError(404, "turn_not_found", "That message is not in this conversation.")
+        cutoff = Turn.seq <= target.seq if inclusive else Turn.seq < target.seq
         earlier = list(
             (
                 await db.execute(
-                    select(Turn).where(Turn.thread_id == thread_id, Turn.seq < target.seq).order_by(Turn.seq)
+                    select(Turn).where(Turn.thread_id == thread_id, cutoff).order_by(Turn.seq)
                 )
             ).scalars()
         )

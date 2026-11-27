@@ -115,6 +115,12 @@ class Agent(Base):
     # Owner opt-in: scheduled runs may use this worker's paid marketplace tools without waiting for approval, inside
     # the spending limits. Only the owner spending endpoint sets it; templates, hire and setup chat never do.
     scheduled_paid_use: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=expression.false())
+    tool_scope: Mapped[dict | None] = mapped_column(JSONValue, nullable=True)
+    tools_off: Mapped[list] = mapped_column(JSONValue, nullable=False, default=list, server_default=text("'[]'"))
+    outbound_policy: Mapped[str] = mapped_column(String(16), nullable=False, default="ask", server_default="ask")
+    reply_style: Mapped[str] = mapped_column(String(24), nullable=False, default="default", server_default="default")
+    check_work: Mapped[dict | None] = mapped_column(JSONValue, nullable=True)
+    cache_keep_warm: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime, server_default=func.now(), nullable=False
     )

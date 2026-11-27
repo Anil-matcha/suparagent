@@ -5,8 +5,46 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app import agent_shares
 from app.schemas.computer import ComputerSummary
+from app.services import tool_scope as tool_scope_svc
 
 ApprovalMode = Literal["ask", "accept_edits", "approve_for_me", "plan", "full_access"]
+OutboundPolicy = Literal["ask", "allow"]
+ReplyStyle = Literal["default", "conversational"]
+
+
+class CheckWorkConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    checker_agent_id: int | None = Field(default=None, ge=1)
+
+
+class OverviewSetupItem(BaseModel):
+    id: str
+    label: str
+    done: bool
+    section: str
+
+
+class AgentOverviewResponse(BaseModel):
+    agent_id: int
+    who: dict
+    setup: list[OverviewSetupItem]
+    summary: dict
+
+
+class PromptPreviewSection(BaseModel):
+    id: str
+    label: str
+    text: str
+    bytes: int
+
+
+class AgentPromptPreviewResponse(BaseModel):
+    sections: list[PromptPreviewSection]
+    total_bytes: int
+    approx_tokens: int
+    note: str
 
 # Standing instructions are capped in bytes, not characters, so the limit means
 # the same thing in every language.
@@ -89,6 +127,22 @@ class AgentCreateRequest(BaseModel):
     claude_account: str | None = Field(default=None, max_length=64)
     # Optional first contents of the agent's notes (MEMORY.md).
     starter_notes: str | None = Field(default=None, max_length=256 * 1024)
+    tool_scope: dict | None = None
+    tools_off: list[str] = Field(default_factory=list)
+    outbound_policy: OutboundPolicy = "ask"
+    reply_style: ReplyStyle = "default"
+    check_work: CheckWorkConfig | None = None
+    cache_keep_warm: bool | None = None
+
+    @field_validator("tool_scope")
+    @classmethod
+    def _create_tool_scope(cls, value: dict | None) -> dict | None:
+        return tool_scope_svc.validate_tool_scope(value)
+
+    @field_validator("tools_off")
+    @classmethod
+    def _create_tools_off(cls, value: list[str]) -> list[str]:
+        return tool_scope_svc.validate_tools_off(value)
 
     @field_validator("name")
     @classmethod
@@ -140,7 +194,23 @@ class AgentUpdateRequest(BaseModel):
     fallback_model: str | None = Field(default=None, max_length=200)
     # A named Claude account id; null is the default account.
     claude_account: str | None = Field(default=None, max_length=64)
+    tool_scope: dict | None = None
+    tools_off: list[str] | None = None
+    outbound_policy: OutboundPolicy | None = None
+    reply_style: ReplyStyle | None = None
+    check_work: CheckWorkConfig | None = None
+    cache_keep_warm: bool | None = None
     archived: bool | None = None
+
+    @field_validator("tool_scope")
+    @classmethod
+    def _update_tool_scope(cls, value: dict | None) -> dict | None:
+        return tool_scope_svc.validate_tool_scope(value)
+
+    @field_validator("tools_off")
+    @classmethod
+    def _update_tools_off(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else tool_scope_svc.validate_tools_off(value)
 
     @field_validator("name")
     @classmethod
@@ -161,7 +231,7 @@ class AgentUpdateRequest(BaseModel):
     def _something_to_change(self):
         if not self.model_fields_set:
             raise ValueError("send at least one field to change")
-        for field in ("name", "instructions", "provider", "approval_mode", "pinned", "memory_enabled", "recall_enabled", "memory_upkeep", "compaction_summary", "use_helper", "archived"):
+        for field in ("name", "instructions", "provider", "approval_mode", "pinned", "memory_enabled", "recall_enabled", "memory_upkeep", "compaction_summary", "use_helper", "tools_off", "outbound_policy", "reply_style", "archived"):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")
         return self
@@ -191,6 +261,12 @@ class AgentResponse(BaseModel):
     fallback_provider: str | None = None
     fallback_model: str | None = None
     claude_account: str | None = None
+    tool_scope: dict | None = None
+    tools_off: list[str] = Field(default_factory=list)
+    outbound_policy: OutboundPolicy = "ask"
+    reply_style: ReplyStyle = "default"
+    check_work: dict | None = None
+    cache_keep_warm: bool | None = None
     connector_scopes: dict | None = None
     connector_account_scopes: dict[str, list[str]] = Field(default_factory=dict)
     # {"gmail": {account id: {"percent": 1-100, "pins": [...]}}}; never the seed. No entry means the whole mailbox.

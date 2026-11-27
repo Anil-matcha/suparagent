@@ -2,6 +2,20 @@
 
 import { ArrowDown } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
+import { makeReplyTarget, splitMessageAnnotations, type CitationAttachment, type ReplyTarget } from "@/lib/citations";
+import { canForkFrom } from "@/lib/branch-link";
+import { flashMessageElement, resolveCitationRange } from "@/lib/citations-dom";
+import { CitationSelectionToolbar } from "./CitationUI";
+import { ChatFindBar } from "./ChatFindBar";
+import { PinnedMessagesBar, PinnedMessagesDialog } from "./PinnedMessages";
+import {
+  isMessagePinned,
+  loadThreadPins,
+  removeThreadPin,
+  subscribeThreadPins,
+  toggleThreadPin,
+  type PinnedMessage,
+} from "@/lib/pins";
 import { formatReactionReply, isLatestAssistantMessage, loadThreadReactions, saveThreadReaction, type ReactionKind, type ReactionsMap } from "@/lib/reactions";
 import type { Transcript, TranscriptItem } from "@/lib/transcript";
 import { announcement, groupToolRuns } from "@/lib/transcript-view";
@@ -90,15 +104,33 @@ export function Conversation({
   undoneRules = [],
   onUndo,
   onBranch,
+  onFork,
+  onReply,
+  onAddCitation,
   threadId = null,
   workspacePath = null,
   emptyHint,
   emptyAction,
   agent = null,
   loading = false,
+  findOpen = false,
+  focusFindNonce = 0,
+  onCloseFind,
+  pinsOpen = false,
+  onOpenPins,
+  onClosePins,
 }: {
   // Edit a past message and resend it in a new branch.
   onBranch?: (turnId: number, text: string) => Promise<boolean>;
+  onFork?: (turnId: number, opts: { inclusive: boolean }) => void;
+  onReply?: (target: ReplyTarget) => void;
+  onAddCitation?: (citation: CitationAttachment) => void;
+  findOpen?: boolean;
+  focusFindNonce?: number;
+  onCloseFind?: () => void;
+  pinsOpen?: boolean;
+  onOpenPins?: () => void;
+  onClosePins?: () => void;
   // The conversation the transcript belongs to: attachments are fetched from it.
   threadId?: number | null;
   // The pinned workspace also scopes download links in assistant replies.
@@ -188,15 +220,65 @@ export function Conversation({
     setThreadReactions({ id: threadId, map: next });
   };
 
+  const navigateToSource = (itemKey: string, citation?: CitationAttachment): boolean => {
+    const viewport = scroller.current;
+    if (!viewport) return false;
+    const messageEl = viewport.querySelector<HTMLElement>(`[data-message-key="${CSS.escape(itemKey)}"]`);
+    const sourceEl = viewport.querySelector<HTMLElement>(`[data-citation-source="${CSS.escape(itemKey)}"]`) ?? messageEl;
+    if (!sourceEl) return false;
+    flashMessageElement(messageEl ?? sourceEl);
+    if (citation) {
+      const range = resolveCitationRange(sourceEl, citation);
+      if (range) {
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+    }
+    return true;
+  };
+
+  const [pins, setPins] = useState<PinnedMessage[]>([]);
+  useEffect(() => {
+    const sync = () => setPins(loadThreadPins(threadId));
+    sync();
+    return subscribeThreadPins(threadId, sync);
+  }, [threadId]);
+
+  const handleTogglePin = (itemKey: string, role: "user" | "assistant", text: string) => {
+    setPins(toggleThreadPin(threadId, { itemKey, role, excerpt: text }));
+  };
+
+  const handleRemovePin = (itemKey: string) => {
+    setPins(removeThreadPin(threadId, itemKey));
+  };
+
   const working = transcript.runningTurnId !== null && !transcript.typing;
   const waitingOnYou = transcript.items.some((i) => i.kind === "approval" && i.status === "pending");
   const empty = transcript.items.length === 0 && transcript.typing === null && !loading;
   const showSkeleton = loading && transcript.items.length === 0 && transcript.typing === null;
   const groupedItems = groupToolRuns(transcript.items);
   const dividerKeys = findDateDividerItemKeys(groupedItems);
+  const findVersion = `${threadId ?? "new"}:${transcript.items.length}:${transcript.typing?.length ?? 0}`;
   return (
-    <div className="relative min-h-0 flex-1">
-      <Announcer items={transcript.items} />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <PinnedMessagesBar
+        pins={pins}
+        onJump={(key) => {
+          navigateToSource(key);
+        }}
+        onUnpin={handleRemovePin}
+        onManage={onOpenPins}
+      />
+      <div className="relative min-h-0 flex-1">
+        <Announcer items={transcript.items} />
+        <ChatFindBar
+          open={findOpen}
+          focusNonce={focusFindNonce}
+          viewportRef={scroller}
+          contentVersion={findVersion}
+          onClose={() => onCloseFind?.()}
+        />
       <div ref={scroller} onScroll={onScroll} className="h-full overflow-y-auto">
         <div role="log" aria-live="off" aria-label={t("chat.conversation")} className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6 sm:px-6">
           {showSkeleton && (
@@ -261,21 +343,54 @@ export function Conversation({
                 case "tool_run":
                   node = <ToolRun key={item.key} tools={item.tools as Extract<TranscriptItem, { kind: "tool" }>[]} />;
                   break;
-                case "user":
-                  node = <UserMessage key={item.key} item={item} threadId={threadId} onBranch={onBranch} />;
+                case "user": {
+                  const displayText = splitMessageAnnotations(item.text).display || item.text;
+                  node = (
+                    <UserMessage
+                      key={item.key}
+                      item={item}
+                      threadId={threadId}
+                      pinned={isMessagePinned(pins, item.key)}
+                      onBranch={onBranch}
+                      onFork={onFork && canForkFrom(item) ? () => onFork(item.turnId!, { inclusive: true }) : undefined}
+                      onReply={
+                        onReply
+                          ? () => onReply(makeReplyTarget(item.key, "user", displayText))
+                          : undefined
+                      }
+                      onCite={onAddCitation}
+                      onTogglePin={
+                        displayText.trim()
+                          ? () => handleTogglePin(item.key, "user", displayText)
+                          : undefined
+                      }
+                      onNavigateSource={navigateToSource}
+                    />
+                  );
                   break;
+                }
                 case "assistant": {
                   const canReplyToMessage = !item.incomplete && isLatestAssistantMessage(item.key, transcript.items);
                   node = (
                     <AssistantMessage
                       key={item.key}
+                      itemKey={item.key}
                       text={item.text}
                       threadId={threadId}
                       workspacePath={workspacePath}
                       incomplete={item.incomplete}
                       ts={item.ts}
+                      pinned={isMessagePinned(pins, item.key)}
                       reaction={reactions[item.key] ?? null}
                       onReact={canReplyToMessage ? (r) => { void handleReact(item.key, r); } : undefined}
+                      onReply={onReply && !item.incomplete ? () => onReply(makeReplyTarget(item.key, "assistant", item.text)) : undefined}
+                      onFork={onFork && canForkFrom(item) ? () => onFork(item.turnId!, { inclusive: true }) : undefined}
+                      onCite={onAddCitation}
+                      onTogglePin={
+                        !item.incomplete && item.text.trim()
+                          ? () => handleTogglePin(item.key, "assistant", item.text)
+                          : undefined
+                      }
                       disabled={answering !== null || sendingReactionReplyDisabled}
                     />
                   );
@@ -333,6 +448,7 @@ export function Conversation({
           )}
         </div>
       </div>
+      {onAddCitation && <CitationSelectionToolbar viewportRef={scroller} onAdd={onAddCitation} />}
       {away && (
         <button
           type="button"
@@ -344,6 +460,16 @@ export function Conversation({
           <ArrowDown size={16} aria-hidden="true" />
         </button>
       )}
+      </div>
+      <PinnedMessagesDialog
+        open={pinsOpen}
+        onOpenChange={(open) => { if (!open) onClosePins?.(); }}
+        pins={pins}
+        onJump={(key) => {
+          navigateToSource(key);
+        }}
+        onUnpin={handleRemovePin}
+      />
     </div>
   );
 }

@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld("suparagent", {
   openComposioLink: (url) => ipcRenderer.invoke("suparagent:open-composio-link", url),
   nativeControl: (request) => ipcRenderer.invoke("suparagent:native-control", request),
   hostedWorkspace: (action) => ipcRenderer.invoke("suparagent:hosted-workspace", action),
+  environments: (payload) => ipcRenderer.invoke("suparagent:environments", payload),
   appInstall: {
     install: (request) => ipcRenderer.invoke("suparagent:app-install:install", request),
     uninstall: (id) => ipcRenderer.invoke("suparagent:app-install:uninstall", id),

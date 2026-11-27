@@ -3,10 +3,51 @@ from pathlib import Path
 
 from app.computers import policy as computers
 from app import composio_generic
-from app.services import composio_policy, safety_floor
+from app.services import composio_policy, safety_floor, tool_scope as tool_scope_svc
 from app.team import policy as teams
 
 FILE_WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
+FILE_READ_TOOLS = frozenset({"Read", "Glob", "Grep", "LS", "View", "acp:read"})
+WEB_SEARCH_TOOLS = frozenset({"WebSearch", "web_search", "google_web_search", "search_web", "acp:search"})
+AUTO_WEB_SEARCH_MODES = frozenset({"accept_edits", "approve_for_me", "full_access"})
+_READ_PATH_KEYS = ("file_path", "path", "file", "target_file", "directory")
+
+
+def qualify_tool_name(tool: str, arguments: object = None) -> str:
+    """Normalize a tool invocation into `native:<tool>` or `mcp:<app>:<tool>` for scope matching."""
+    if tool.startswith(composio_policy.PREFIX):
+        name = tool.removeprefix(composio_policy.PREFIX)
+        if name == composio_generic.RUN and isinstance(arguments, dict):
+            app = arguments.get("app")
+            action = arguments.get("action")
+            if isinstance(app, str) and app and isinstance(action, str) and action:
+                return f"mcp:{app}:{action}"
+        from app import composio_tools
+        found = composio_tools.BY_NAME.get(name)
+        app_name = found.app if found is not None else "composio"
+        return f"mcp:{app_name}:{name}"
+    if tool.startswith("mcp__"):
+        rest = tool.removeprefix("mcp__")
+        if "__" in rest:
+            server, name = rest.split("__", 1)
+            return f"mcp:{server}:{name}"
+        return f"mcp:other:{rest}"
+    return f"native:{tool}"
+
+
+def _group_disabled(tools_off: list[str] | tuple[str, ...] | None, tool: str) -> bool:
+    if not tools_off:
+        return False
+    lower = tool.lower()
+    if "computers" in tools_off and (tool.startswith("mcp__computer__") or tool in computers.SCREEN_INPUT or tool in computers.SCREEN_READ):
+        return True
+    if "memory_tools" in tools_off and tool.startswith("mcp__memory__"):
+        return True
+    if "images" in tools_off and ("image" in lower and ("gen" in lower or "edit" in lower or "draw" in lower)):
+        return True
+    if "speech" in tools_off and ("speech" in lower or "tts" in lower or "audio" in lower):
+        return True
+    return False
 
 
 def _inside(path, workspace):
@@ -15,6 +56,61 @@ def _inside(path, workspace):
     except (ValueError, OSError):
         return False
     return True
+
+
+def _read_target_paths(arguments: object) -> list[str]:
+    if not isinstance(arguments, dict):
+        return []
+    targets: list[str] = []
+    locations = arguments.get("locations")
+    if isinstance(locations, list):
+        for loc in locations:
+            if isinstance(loc, str) and loc.strip():
+                targets.append(loc)
+    for key in _READ_PATH_KEYS:
+        val = arguments.get(key)
+        if isinstance(val, str) and val.strip():
+            targets.append(val)
+    return targets
+
+
+def _own_read_roots(run) -> list[Path]:
+    roots: list[Path] = []
+    ctx = getattr(run, "ctx", None)
+    workspace = getattr(ctx, "workspace", None) if ctx is not None else None
+    if isinstance(workspace, (str, Path)) and str(workspace).strip():
+        roots.append(Path(workspace))
+    agent_id = getattr(run, "agent_id", None)
+    if agent_id is None and ctx is not None:
+        agent_id = getattr(ctx, "agent_id", None)
+    if agent_id is not None:
+        from app.services import agent_memory
+        roots.append(agent_memory.agent_home(int(agent_id)))
+    return roots
+
+
+def _within_root(target: str, root: Path) -> bool:
+    raw = target.strip()
+    if not raw:
+        return False
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    try:
+        candidate.resolve().relative_to(root.resolve())
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def _is_own_file_read(run, arguments: object) -> bool:
+    targets = _read_target_paths(arguments)
+    if not targets:
+        return False
+    roots = _own_read_roots(run)
+    if not roots:
+        return False
+    return all(any(_within_root(target, root) for root in roots) for target in targets)
 
 
 def _full_access(tool, run, arguments):
@@ -49,6 +145,11 @@ def automatic(tool, mode, run, arguments):
         return "denied", "media_review_only"
     if getattr(run.ctx, "draft_only", False) and not tool.startswith(composio_policy.PREFIX):
         return "denied", "draft_only_run"
+    if _group_disabled(getattr(run, "tools_off", None), tool):
+        return "denied", "tool_group_disabled"
+    scope = getattr(run, "tool_scope", None)
+    if scope is not None and not tool_scope_svc.tool_allowed(scope, qualify_tool_name(tool, arguments)):
+        return "denied", "tool_scope_denied"
     if tool.startswith('mcp__pages__'):
         # Only renders a sandboxed page in the chat (pages_bridge.py); never in a draft-only run (refused above).
         return ('allowed', 'pages_show') if tool in ('mcp__pages__show_page', 'mcp__pages__update_page') else ('denied', 'unknown_pages_tool')
@@ -96,7 +197,8 @@ def automatic(tool, mode, run, arguments):
                 return "allowed", "routine_label_grant"
         decision = composio_policy.automatic(tool, mode, run.ctx.composio_apps, arguments,
             getattr(run.ctx, "composio_first_use_hit", False),
-            uninterrupted=getattr(run, "uninterrupted_access", False))
+            uninterrupted=getattr(run, "uninterrupted_access", False),
+            outbound_policy=getattr(run, "outbound_policy", "ask"))
         if tool == composio_policy.PREFIX + composio_generic.RUN:
             # A generic call decided without a card is remembered, so the bridge checks it again before it runs.
             key, calls = composio_generic.call_key(arguments), getattr(run.ctx, "composio_auto_calls", None)
@@ -106,6 +208,10 @@ def automatic(tool, mode, run, arguments):
                 else:
                     calls.discard(key)
         return decision
+    if tool in WEB_SEARCH_TOOLS and mode in AUTO_WEB_SEARCH_MODES:
+        return "allowed", "auto_web_search"
+    if tool in FILE_READ_TOOLS and _is_own_file_read(run, arguments):
+        return "allowed", "own_file_read"
     if mode == "full_access" and not tool.startswith("mcp__"):
         return _full_access(tool, run, arguments)
     # Screen grants are turn scoped and are never persisted as command rules.

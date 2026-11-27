@@ -43,6 +43,12 @@ _EDITABLE = (
     "connector_scopes",
     "connector_account_scopes",
     "connector_shares",
+    "tool_scope",
+    "tools_off",
+    "outbound_policy",
+    "reply_style",
+    "check_work",
+    "cache_keep_warm",
 )
 
 
@@ -101,6 +107,12 @@ async def create_agent(
     fallback_provider: str | None = None,
     fallback_model: str | None = None,
     claude_account: str | None = None,
+    tool_scope: dict | None = None,
+    tools_off: list[str] | None = None,
+    outbound_policy: str = "ask",
+    reply_style: str = "default",
+    check_work: dict | None = None,
+    cache_keep_warm: bool | None = None,
 ) -> Agent:
     """Raises ValueError (blank name, unknown approval mode) or AgentNameTaken."""
     name = name.strip()
@@ -129,6 +141,12 @@ async def create_agent(
         fallback_provider=fallback_provider,
         fallback_model=fallback_model,
         claude_account=claude_account,
+        tool_scope=tool_scope,
+        tools_off=list(tools_off or []),
+        outbound_policy=outbound_policy,
+        reply_style=reply_style,
+        check_work=check_work,
+        cache_keep_warm=cache_keep_warm,
         created_at=now,
         updated_at=now,
     )
@@ -255,6 +273,12 @@ async def duplicate_agent(db: AsyncSession, agent_id: int, *, safe: bool = False
         fallback_provider=source.fallback_provider,
         fallback_model=source.fallback_model,
         claude_account=source.claude_account,
+        tool_scope=source.tool_scope,
+        tools_off=list(source.tools_off or []),
+        outbound_policy="ask" if safe else source.outbound_policy,
+        reply_style=source.reply_style,
+        check_work=source.check_work,
+        cache_keep_warm=source.cache_keep_warm,
     )
 
 

@@ -325,6 +325,10 @@ def turn_instructions(agent) -> str | None:
     parts = []
     if agent.instructions and agent.instructions.strip():
         parts.append(agent.instructions)
+    if getattr(agent, "reply_style", "default") == "conversational":
+        parts.append(
+            "Respond in a concise, natural conversational style. Prefer direct, human-paced phrasing over heavy boilerplate headings unless asked."
+        )
     about = about_me.prompt_block()
     if about:
         parts.append(about)
@@ -335,4 +339,12 @@ def turn_instructions(agent) -> str | None:
         parts.append(business)
     if agent.memory_enabled:
         parts.append(memory_prompt(agent.id))
+    return "\n\n".join(parts) or None
+
+
+def plain_turn_instructions() -> str | None:
+    """Shared context loaded into plain chats without a named agent (`About me`, `Business profile`)."""
+    from app.services import about_me, business_profile
+
+    parts = [p for p in (about_me.prompt_block(), business_profile.prompt_block()) if p]
     return "\n\n".join(parts) or None

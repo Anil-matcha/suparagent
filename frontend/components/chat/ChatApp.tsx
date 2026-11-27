@@ -29,6 +29,7 @@ import { ApprovalsPanel } from "@/components/approvals/ApprovalsPanel";
 import type { Remembered } from "./items";
 import { Composer } from "./Composer";
 import { Conversation } from "./Conversation";
+import { ForkPanel } from "./ForkPanel";
 import { WaitingRoutineQuestions } from "./WaitingRoutineQuestions";
 import { NeedsYouCard } from "./NeedsYouCard";
 import { ChatHeader } from "./ChatHeader";
@@ -48,6 +49,21 @@ import { collaboration, type TeamState } from "@/lib/collaboration";
 import { WorkspaceSwitcher } from "@/components/shell/WorkspaceSwitcher";
 import { useSession } from "@/components/AuthGate";
 import { can } from "@/lib/permissions";
+import { buildAnnotatedMessage, type CitationAttachment, type ReplyTarget } from "@/lib/citations";
+import {
+  addFailedSend,
+  loadFailedSends,
+  newFailedSend,
+  removeFailedSend,
+  subscribeFailedSends,
+  updateFailedSendError,
+  type FailedSend,
+} from "@/lib/failed-sends";
+import { ComposerFailedSends } from "./ComposerFailedSends";
+import { measureContextWindow } from "@/lib/context-window";
+import { ContextWarning } from "./ContextWarning";
+import { isFindShortcut } from "@/lib/chat-find";
+import { isMacPlatform } from "@/lib/citations-dom";
 import { onboarding } from "@/lib/onboarding";
 import { loadDraft } from "@/lib/drafts";
 import { TeamPanel } from "./TeamPanel";
@@ -164,6 +180,7 @@ export function ChatApp() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const sidebarInline = useMediaQuery(SIDEBAR_INLINE);
   const inspectorInline = useMediaQuery(SIDEBAR_AND_PANEL_FIT);
+  const forkInline = useMediaQuery("(min-width: 960px)");
   // The right-hand inspector page, kept in the address (?panel=usage) so a reload reopens it.
   const panel = parsePanel(params.get("panel"));
   const setPanel = (next: Panel | null) => router.replace(chatHref(params.toString(), next));
@@ -245,9 +262,52 @@ export function ChatApp() {
   const [todaySnapshot, setTodaySnapshot] = useState<NeedsYouSnapshot | null>(null);
   // Files chosen for the next message, and why one was refused.
   const [attached, setAttached] = useState<File[]>([]);
+  const [replyState, setReplyState] = useState<{ threadId: number | null; value: ReplyTarget | null }>({ threadId: null, value: null });
+  const replyTo = replyState.threadId === threadId ? replyState.value : null;
+  const setReplyTo = useCallback((value: ReplyTarget | null) => setReplyState({ threadId, value }), [threadId]);
+
+  const [citationState, setCitationState] = useState<{ threadId: number | null; items: CitationAttachment[] }>({ threadId: null, items: [] });
+  const citations = citationState.threadId === threadId ? citationState.items : [];
+  const setCitations = useCallback(
+    (updater: CitationAttachment[] | ((prev: CitationAttachment[]) => CitationAttachment[])) => {
+      setCitationState((prev) => {
+        const base = prev.threadId === threadId ? prev.items : [];
+        return { threadId, items: typeof updater === "function" ? updater(base) : updater };
+      });
+    },
+    [threadId],
+  );
+
+  const [forkState, setForkState] = useState<{ threadId: number | null; forkId: number | null }>({ threadId: null, forkId: null });
+  const forkThreadId = !panel && forkState.threadId === threadId ? forkState.forkId : null;
+  const setForkThreadId = useCallback((forkId: number | null) => setForkState({ threadId, forkId }), [threadId]);
+
+  const [findState, setFindState] = useState<{ threadId: number | null; open: boolean }>({ threadId: null, open: false });
+  const findOpen = findState.threadId === threadId ? findState.open : false;
+  const setFindOpen = useCallback((open: boolean) => setFindState({ threadId, open }), [threadId]);
+
+  const [focusFindNonce, setFocusFindNonce] = useState(0);
+  const [pinsState, setPinsState] = useState<{ threadId: number | null; open: boolean }>({ threadId: null, open: false });
+  const pinsOpen = pinsState.threadId === threadId ? pinsState.open : false;
+  const setPinsOpen = useCallback((open: boolean) => setPinsState({ threadId, open }), [threadId]);
+
+  const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
+  const [retryingFailedId, setRetryingFailedId] = useState<string | null>(null);
+  const [dismissedContextKey, setDismissedContextKey] = useState<string | null>(null);
+  const failedFilesRef = useRef<Map<string, File[]>>(new Map());
   const audioAbort = useRef<AbortController | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
   const [audioConsent, setAudioConsent] = useState(false);
+
+  useEffect(() => {
+    const sync = () => setFailedSends(loadFailedSends(threadId));
+    const timer = window.setTimeout(sync, 0);
+    const unsubscribe = subscribeFailedSends(threadId, sync);
+    return () => {
+      window.clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [threadId]);
   const [audioCapability, setAudioCapability] = useState<{ provider_label: string; available: boolean; retention: string } | null>(null);
   useEffect(() => { if (fullAccess) api.audioCapabilities().then(setAudioCapability).catch(() => setAudioCapability(null)); }, [fullAccess]);
   const [attachNotice, setAttachNotice] = useState<string | null>(null);
@@ -281,6 +341,20 @@ export function ChatApp() {
   const ready = gate.phase === "ready" && (gate.status.available || (gate.status.enabled && engines !== null));
   const stream = useThreadStream(ready ? threadId : null);
   const { transcript } = stream;
+
+  useEffect(() => {
+    if (!ready || roomId !== null) return;
+    const isMac = isMacPlatform();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isFindShortcut(event, isMac)) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      event.preventDefault();
+      setFindOpen(true);
+      setFocusFindNonce((n) => n + 1);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [ready, roomId]);
 
   useEffect(() => {
     if (!fullAccess || params.get("onboarding") !== "1" || threadId !== null) return;
@@ -713,6 +787,9 @@ export function ChatApp() {
       ? "Tokens and cost by month"
       : `This conversation: ${formatTokens(totals.tokens)} tokens, ${formatCost(totals.cost)}` +
         (totals.reported < totals.turns ? ` (${totals.turns - totals.reported} turn(s) reported nothing)` : "");
+  const contextStatus = measureContextWindow(transcript.items, selectedModel, selectedEngine);
+  const contextWarningKey =
+    contextStatus.severity === "none" ? null : `${threadId ?? "new"}:${contextStatus.severity}`;
 
   let blockedReason: string | null = null;
   if (stream.connection === "failed") blockedReason = "This conversation cannot be opened.";
@@ -760,7 +837,8 @@ export function ChatApp() {
   const send = async () => {
     if (transcript.runningTurnId !== null) {
       if (!canMessageDuringRun || threadId === null) return;
-      const text = draft.trim();
+      const rawText = draft.trim();
+      const text = buildAnnotatedMessage(rawText, { replyTo, citations });
       if (!text) return;
       if (text.length > MAX_FOLLOW_UP_TEXT_CHARS) {
         setSendError(t("composer.messageTooLong"));
@@ -791,9 +869,30 @@ export function ChatApp() {
         }
         setDraft("");
         setChosenSkills(() => []);
+        setReplyTo(null);
+        setCitations([]);
         setAttachNotice(null);
       } catch (err) {
-        setSendError(sendErrorText(err));
+        const errorText = sendErrorText(err);
+        setFailedSends(
+          addFailedSend(
+            threadId,
+            newFailedSend({
+              threadId,
+              rawText: text,
+              displayText: rawText,
+              error: errorText,
+              skills: chosenSkills,
+              replyTo,
+              citations,
+            }),
+          ),
+        );
+        setDraft("");
+        setChosenSkills(() => []);
+        setReplyTo(null);
+        setCitations([]);
+        setSendError(null);
       } finally {
         setSending(false);
         setListTick((n) => n + 1);
@@ -804,15 +903,17 @@ export function ChatApp() {
     // `/name rest` for a skill that is on selects it; anything else is sent as typed.
     const command = parseSkillCommand(draft, agentSkills.filter((s) => s.enabled).map((s) => s.name));
     const usedSkills = command ? toggleSkillOn(chosenSkills, command.name) : chosenSkills;
-    const message = command ? command.rest : draft.trim();
-    const text = message;
-    if (!text) return;
+    const rawMessage = command ? command.rest : draft.trim();
+    const message = buildAnnotatedMessage(rawMessage, { replyTo, citations });
+    if (!message) return;
     setSendError(null);
     setSending(true);
     const processing = new AbortController();
     audioAbort.current = processing;
+    let id = threadId;
+    const ids: string[] = [];
+    let uploadedCount = 0;
     try {
-      let id = threadId;
       if (id === null) {
         id = (await api.createThread(startingAgentId, { provider: selectedProvider, model: newModel, effort: newEffort })).id;
         if (startingAgentId === null) {
@@ -822,8 +923,10 @@ export function ChatApp() {
         // Open it now: the stream replays from the start, so nothing is missed.
         router.replace(`/chat?thread=${id}`);
       }
-      const ids: string[] = [];
-      for (const file of attached) ids.push((await api.uploadAttachment(id, file, audioConsent ? "openai" : undefined, processing.signal)).id);
+      for (const file of attached) {
+        ids.push((await api.uploadAttachment(id, file, audioConsent ? "openai" : undefined, processing.signal)).id);
+        uploadedCount += 1;
+      }
       if (audioUrl.trim()) ids.push((await api.importAudioUrl(id, audioUrl.trim(), audioConsent ? "openai" : "", processing.signal)).id);
       processing.signal.throwIfAborted();
       liveTurnStarted.current = true;
@@ -831,11 +934,42 @@ export function ChatApp() {
       setDraft("");
       setChosenSkills(() => []);
       setAttached([]);
+      setReplyTo(null);
+      setCitations([]);
       setAudioUrl("");
       setAudioConsent(false);
       setAttachNotice(null);
     } catch (err) {
-      setSendError(sendErrorText(err));
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setSendError(sendErrorText(err));
+      } else {
+        const errorText = sendErrorText(err);
+        const failedItem = newFailedSend({
+          threadId: id,
+          rawText: message,
+          displayText: draft.trim() || rawMessage,
+          error: errorText,
+          skills: usedSkills,
+          attachmentIds: ids,
+          replyTo,
+          citations,
+        });
+        const remainingFiles = attached.slice(uploadedCount);
+        if (remainingFiles.length > 0) {
+          failedFilesRef.current.set(failedItem.id, remainingFiles);
+        }
+        const nextList = addFailedSend(id, failedItem);
+        if (id === threadId) setFailedSends(nextList);
+        setDraft("");
+        setChosenSkills(() => []);
+        setAttached([]);
+        setReplyTo(null);
+        setCitations([]);
+        setAudioUrl("");
+        setAudioConsent(false);
+        setAttachNotice(null);
+        setSendError(null);
+      }
       if (err instanceof ApiError && err.code === "skill_unavailable") setSkillsTick((n) => n + 1);
     } finally {
       audioAbort.current = null;
@@ -844,17 +978,93 @@ export function ChatApp() {
     }
   };
 
+  const retryFailedSend = async (item: FailedSend) => {
+    if (sending || retryingFailedId !== null) return;
+    setSendError(null);
+    setRetryingFailedId(item.id);
+    const processing = new AbortController();
+    audioAbort.current = processing;
+    let id = item.threadId ?? threadId;
+    const ids = [...item.attachmentIds];
+    const pendingFiles = failedFilesRef.current.get(item.id) ?? [];
+    let uploadedCount = 0;
+    try {
+      if (id === null) {
+        id = (await api.createThread(startingAgentId, { provider: selectedProvider, model: newModel, effort: newEffort })).id;
+        if (startingAgentId === null) {
+          writeCachedPreference({ provider: selectedProvider, model: newModel, effort: newEffort });
+          void api.setEnginePreference({ provider: selectedProvider, model: newModel, effort: newEffort }).catch(() => {});
+        }
+        router.replace(`/chat?thread=${id}`);
+      }
+      for (const file of pendingFiles) {
+        ids.push((await api.uploadAttachment(id, file, undefined, processing.signal)).id);
+        uploadedCount += 1;
+      }
+      processing.signal.throwIfAborted();
+      liveTurnStarted.current = true;
+      await api.sendTurn(id, item.rawText, ids, item.skills);
+      failedFilesRef.current.delete(item.id);
+      setFailedSends(removeFailedSend(threadId, item.id));
+      if (id !== threadId) removeFailedSend(id, item.id);
+    } catch (err) {
+      if (uploadedCount > 0) {
+        failedFilesRef.current.set(item.id, pendingFiles.slice(uploadedCount));
+      }
+      setFailedSends(updateFailedSendError(threadId, item.id, sendErrorText(err)));
+      if (err instanceof ApiError && err.code === "skill_unavailable") setSkillsTick((n) => n + 1);
+    } finally {
+      audioAbort.current = null;
+      setRetryingFailedId(null);
+      setListTick((n) => n + 1);
+    }
+  };
+
+  const editFailedSend = (item: FailedSend) => {
+    const remainingFiles = failedFilesRef.current.get(item.id);
+    if (remainingFiles?.length) {
+      setAttached((prev) => [...prev, ...remainingFiles].slice(0, MAX_ATTACHMENTS));
+      failedFilesRef.current.delete(item.id);
+    }
+    setDraft(item.displayText);
+    if (item.skills.length) setChosenSkills(() => item.skills);
+    setReplyTo(item.replyTo);
+    setCitations(item.citations);
+    setFailedSends(removeFailedSend(threadId, item.id));
+    setSendError(null);
+    setFocusComposer(true);
+  };
+
+  const dismissFailedSend = (id: string) => {
+    failedFilesRef.current.delete(id);
+    setFailedSends(removeFailedSend(threadId, id));
+  };
+
   // Edit a past message and resend it in a new conversation; the original stays.
   const branchFromMessage = async (turnId: number, text: string): Promise<boolean> => {
     if (threadId === null) return false;
     try {
       const branch = await api.branchThread(threadId, turnId, text);
       setListTick((n) => n + 1);
-      router.push(`/chat?thread=${branch.id}`);
+      setPanel(null);
+      setForkThreadId(branch.id);
       return true;
     } catch (err) {
       toast(`${t("branch.failed")}${err instanceof Error && err.message ? `: ${err.message}` : ""}`, "danger");
       return false;
+    }
+  };
+
+  // Fork from any completed turn into a side-by-side branch panel without leaving the main thread.
+  const forkSideBySide = async (turnId: number, opts: { inclusive: boolean }) => {
+    if (threadId === null) return;
+    try {
+      const branch = await api.branchThread(threadId, turnId, null, { inclusive: opts.inclusive });
+      setListTick((n) => n + 1);
+      setPanel(null);
+      setForkThreadId(branch.id);
+    } catch (err) {
+      toast(`${t("branch.failed")}${err instanceof Error && err.message ? `: ${err.message}` : ""}`, "danger");
     }
   };
 
@@ -1135,6 +1345,8 @@ export function ChatApp() {
       onFiles={ready && threadId !== null && thread !== null ? () => setFilesOpen(true) : undefined}
       onUsage={ready && fullAccess ? () => setPanel("usage") : undefined}
       onToday={ready && fullAccess ? () => void refreshToday() : undefined}
+      onFind={ready && roomId === null ? () => { setFindOpen(true); setFocusFindNonce((n) => n + 1); } : undefined}
+      onPins={ready && roomId === null && threadId !== null ? () => setPinsOpen(true) : undefined}
       onCopyLink={copyLink}
       onUndo={undoOffered ? () => setUndoOpen(true) : undefined}
       usageHint={conversationTotal}
@@ -1420,6 +1632,18 @@ export function ChatApp() {
               undoneRules={undoneRules}
               onUndo={undoRule}
               onBranch={roomId === null && ready && transcript.runningTurnId === null && !sending ? branchFromMessage : undefined}
+              onFork={roomId === null && ready && !sending ? forkSideBySide : undefined}
+              onReply={(target) => {
+                setReplyTo(target);
+                setFocusComposer(true);
+              }}
+              onAddCitation={(citation) => setCitations((prev) => [...prev, citation])}
+              findOpen={findOpen}
+              focusFindNonce={focusFindNonce}
+              onCloseFind={() => setFindOpen(false)}
+              pinsOpen={pinsOpen}
+              onOpenPins={() => setPinsOpen(true)}
+              onClosePins={() => setPinsOpen(false)}
             />
           )}
 
@@ -1500,6 +1724,21 @@ export function ChatApp() {
               </div>
             </div>
           )}
+          {contextWarningKey && dismissedContextKey !== contextWarningKey && (
+            <ContextWarning
+              status={contextStatus}
+              onNewChat={() => startChat()}
+              onDismiss={() => setDismissedContextKey(contextWarningKey)}
+            />
+          )}
+          <ComposerFailedSends
+            items={failedSends}
+            retryingId={retryingFailedId}
+            disabled={sending || transcript.runningTurnId !== null}
+            onRetry={(item) => void retryFailedSend(item)}
+            onEdit={editFailedSend}
+            onDismiss={dismissFailedSend}
+          />
           <Composer
             draftKey={threadId === null ? "new" : String(threadId)}
             focusRequested={focusComposer}
@@ -1531,10 +1770,33 @@ export function ChatApp() {
             selectedModel={selectedModel}
             selectedEffort={selectedEffort}
             onModelChange={handleDirectModelChange}
+            replyTo={replyTo}
+            onClearReply={() => setReplyTo(null)}
+            citations={citations}
+            onUpdateCitation={(id, next) =>
+              setCitations((prev) => prev.map((item) => (item.id === id ? next : item)))
+            }
+            onRemoveCitation={(id) =>
+              setCitations((prev) => prev.filter((item) => item.id !== id))
+            }
           />
           </>}
         </main>
       </div>
+      {forkThreadId !== null && (
+        <ForkPanel
+          threadId={forkThreadId}
+          inline={forkInline}
+          agents={agents}
+          engines={engines}
+          onClose={() => setForkThreadId(null)}
+          onOpenFullThread={(id) => {
+            setForkThreadId(null);
+            router.push(`/chat?thread=${id}`);
+          }}
+          onListChanged={() => setListTick((n) => n + 1)}
+        />
+      )}
       {panel === "usage" && (
         <Inspector title="Usage" inline={inspectorInline} onClose={() => setPanel(null)}>
           <UsageView />

@@ -610,3 +610,206 @@ def restore_backup(archive: Path, passphrase: str | None = None) -> RestoreRepor
         if staging_root is not None:
             shutil.rmtree(staging_root, ignore_errors=True)
         lease.release()
+
+
+EXCLUSION_NOTES = (
+    "The installation encryption key (TOKEN_ENCRYPTION_KEYS) stays on this machine.",
+    "Engine login homes (~/.claude, ~/.codex, Antigravity OAuth tokens) stay in their own folders.",
+    "Project folders outside the workspace root, symbolic links, and OS keychains are excluded.",
+)
+PENDING_RESTORE_DIR = ".pending-restore"
+
+
+def _count_part(path: Path, is_file: bool) -> PartReport:
+    if is_file:
+        return PartReport(files=1, bytes=path.stat().st_size) if path.is_file() else PartReport()
+    if not path.is_dir():
+        return PartReport()
+    files, total = 0, 0
+    for current, dirs, filenames in os.walk(path, followlinks=False):
+        base = Path(current)
+        dirs[:] = [d for d in dirs if not (base / d).is_symlink()]
+        for fn in filenames:
+            candidate = base / fn
+            if candidate.is_file() and not candidate.is_symlink():
+                try:
+                    total += candidate.stat().st_size
+                    files += 1
+                except OSError:
+                    pass
+    return PartReport(files=files, bytes=total)
+
+
+def estimate_backup() -> dict:
+    """Estimate live workspace backup parts, file counts, and byte sizes."""
+    where = locations()
+    parts: dict[str, dict[str, int]] = {}
+    total_files, total_bytes = 0, 0
+    for name in PARTS:
+        report = _count_part(where[name], is_file=(name == "database"))
+        parts[name] = {"files": report.files, "bytes": report.bytes}
+        total_files += report.files
+        total_bytes += report.bytes
+    return {
+        "database_exists": where["database"].is_file(),
+        "total_files": total_files,
+        "total_bytes": total_bytes,
+        "parts": parts,
+        "exclusions": list(EXCLUSION_NOTES),
+    }
+
+
+def _open_decrypted_tar(archive: Path, passphrase: str | None, temp_dir: Path) -> tuple[tarfile.TarFile, bool]:
+    encrypted = is_encrypted(archive)
+    if encrypted and not passphrase:
+        raise BackupError("This backup is password-protected. Provide its password.")
+    tar_path = archive
+    if encrypted:
+        tar_path = temp_dir / "archive.tar.gz"
+        decrypt_file(archive, tar_path, passphrase or "")
+    try:
+        return tarfile.open(tar_path, "r:gz"), encrypted
+    except (tarfile.TarError, OSError) as exc:
+        raise BackupError(f"{archive.name} is not a readable backup archive ({exc}).") from None
+
+
+def _table_counts(database: Path) -> dict[str, int]:
+    connection = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
+    counts = {"agents": 0, "threads": 0, "messages": 0, "rooms": 0}
+    try:
+        for key, table in (("agents", "agent"), ("threads", "thread"), ("messages", "turn"), ("rooms", "room")):
+            try:
+                counts[key] = int(connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0])
+            except sqlite3.Error:
+                pass
+    finally:
+        connection.close()
+    return counts
+
+
+def preview_backup(archive: Path, passphrase: str | None = None) -> dict:
+    """Validate and inspect an archive's manifest and SQLite summary without modifying live data."""
+    from alembic.script import ScriptDirectory
+    from app.server.database import _config, newest_revision
+
+    archive = Path(archive).expanduser()
+    if not archive.is_file():
+        raise BackupError(f"There is no backup file at {archive}.")
+    temp = Path(tempfile.mkdtemp(prefix=".preview-"))
+    os.chmod(temp, 0o700)
+    try:
+        tar, encrypted = _open_decrypted_tar(archive, passphrase, temp)
+        with tar:
+            manifest = _read_manifest(tar)
+            member = tar.getmember(f"database/{DATABASE_NAME}")
+            staged_db = temp / DATABASE_NAME
+            source = tar.extractfile(member)
+            if source is None:
+                raise BackupError("The archive has no readable database.")
+            with staged_db.open("wb") as out:
+                shutil.copyfileobj(source, out, 1024 * 1024)
+            revision = _check_database(staged_db)
+            known = {script.revision for script in ScriptDirectory.from_config(_config()).walk_revisions()}
+            compatible = revision is None or revision in known
+            key_matches = True
+            key_error: str | None = None
+            try:
+                _check_key(staged_db)
+            except KeyProblem as exc:
+                key_matches = False
+                key_error = str(exc)
+            counts = _table_counts(staged_db)
+            parts = manifest.get("parts") or {}
+            total_files = sum(int((p or {}).get("files", 0)) for p in parts.values())
+            total_bytes = sum(int((p or {}).get("bytes", 0)) for p in parts.values())
+            warnings: list[str] = []
+            if not compatible:
+                warnings.append("This archive came from a newer database schema revision. Update Suparagent before restoring.")
+            if not key_matches and key_error:
+                warnings.append(key_error)
+            if not manifest.get("workspaces_included", True):
+                warnings.append("Workspace folders were omitted when this backup was created.")
+            return {
+                "created_at": manifest.get("created_at"),
+                "encrypted": encrypted,
+                "database_revision": revision,
+                "older_than_code": revision != newest_revision(),
+                "compatible": compatible and key_matches,
+                "workspaces_included": bool(manifest.get("workspaces_included", True)),
+                "counts": {**counts, "files": total_files, "bytes": total_bytes},
+                "parts": parts,
+                "exclusions": list(EXCLUSION_NOTES),
+                "warnings": warnings,
+            }
+    except KeyError:
+        raise BackupError("The archive has no database.") from None
+    except (tarfile.TarError, EOFError, OSError) as exc:
+        raise BackupError(f"Could not inspect the backup archive ({exc}).") from None
+    finally:
+        shutil.rmtree(temp, ignore_errors=True)
+
+
+def stage_pending_restore(archive: Path, data_dir: Path, passphrase: str | None = None) -> dict:
+    """Validate an archive and stage its verified tar.gz for restore on next startup."""
+    summary = preview_backup(archive, passphrase)
+    if not summary["compatible"]:
+        reason = summary["warnings"][0] if summary["warnings"] else "The backup is incompatible with this installation."
+        raise BackupError(reason)
+    pending_dir = data_dir / PENDING_RESTORE_DIR
+    shutil.rmtree(pending_dir, ignore_errors=True)
+    pending_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    staged_tar = pending_dir / "archive.tar.gz"
+    if is_encrypted(archive):
+        decrypt_file(archive, staged_tar, passphrase or "")
+    else:
+        shutil.copyfile(archive, staged_tar)
+    os.chmod(staged_tar, 0o600)
+    (pending_dir / "marker.json").write_text(
+        json.dumps({"staged_at": datetime.now(UTC).isoformat(timespec="seconds"), "summary": summary}),
+        encoding="utf-8",
+    )
+    os.chmod(pending_dir / "marker.json", 0o600)
+    return summary
+
+
+def apply_pending_restore(data_dir: Path, backup_dir: Path) -> RestoreReport | None:
+    """Apply a staged restore before the database opens, keeping a pre-restore safety copy."""
+    pending_dir = data_dir / PENDING_RESTORE_DIR
+    staged_tar = pending_dir / "archive.tar.gz"
+    if not staged_tar.is_file():
+        return None
+    where = locations()
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    safety = backup_dir / f"pre-restore-{stamp}"
+    safety.mkdir(parents=True, exist_ok=True, mode=0o700)
+    moved: list[tuple[Path, Path]] = []
+    try:
+        for name in PARTS:
+            target = where[name]
+            if name == "database":
+                for suffix in ("", "-wal", "-shm"):
+                    candidate = Path(str(target) + suffix)
+                    if candidate.exists():
+                        dest = safety / candidate.name
+                        shutil.move(str(candidate), str(dest))
+                        moved.append((dest, candidate))
+            elif target.exists():
+                dest = safety / name
+                shutil.move(str(target), str(dest))
+                moved.append((dest, target))
+        report = restore_backup(staged_tar)
+        shutil.rmtree(pending_dir, ignore_errors=True)
+        return report
+    except BaseException:
+        for src, orig in reversed(moved):
+            try:
+                if orig.exists():
+                    if orig.is_dir():
+                        shutil.rmtree(orig, ignore_errors=True)
+                    else:
+                        orig.unlink(missing_ok=True)
+                shutil.move(str(src), str(orig))
+            except OSError:
+                pass
+        shutil.rmtree(pending_dir, ignore_errors=True)
+        raise

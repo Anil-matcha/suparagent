@@ -405,7 +405,7 @@ class _AcpTurn:
         except _Stopped:
             await self._cancel()
         except Exception:  # noqa: BLE001
-            logger.warning("ACP run crashed", thread_id=self.ctx.thread_id)
+            logger.exception("ACP run crashed", thread_id=self.ctx.thread_id)
             return self._outcome(crashed=True)
         finally:
             for task in list(self.answering):
@@ -752,7 +752,7 @@ class _AcpTurn:
         ):
             self.rpc.respond(rid, payload(True))
             return
-        command = raw.get("command")
+        command = raw.get("command") or raw.get("command_line") or raw.get("CommandLine") or raw.get("cmd") or raw.get("Cmd")
         if kind == "execute" and isinstance(command, str) and command.strip():
             tool, tool_input, approval_kind = "Bash", {"command": command}, "command"
         else:

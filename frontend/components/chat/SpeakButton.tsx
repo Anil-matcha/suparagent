@@ -11,9 +11,7 @@ let stopCurrent: (() => void) | null = null;
 
 const SIZE = "inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-muted transition-colors hover:bg-hover hover:text-ink touch:size-10";
 
-// A small button under an assistant reply that reads it aloud, and stops it. Nothing is spoken until
-// it is pressed. It says when a long reply was cut and what the reading cost.
-export function SpeakButton({ text }: { text: string }) {
+export function useSpeechPlayback(text: string) {
   const [phase, setPhase] = useState<"idle" | "loading" | "playing">("idle");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +43,7 @@ export function SpeakButton({ text }: { text: string }) {
     if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
   }, [stop]);
 
-  const start = async () => {
+  const start = useCallback(async () => {
     stopCurrent?.();
     stopCurrent = stop;
     setError(null);
@@ -77,15 +75,27 @@ export function SpeakButton({ text }: { text: string }) {
       setNote("");
       stop();
     }
-  };
+  }, [stop, text]);
 
   const busy = phase !== "idle";
-  const label = phase === "loading" ? "Preparing audio. Press to cancel." : phase === "playing" ? "Stop reading" : "Read aloud";
+  const label = phase === "loading" ? "Preparing audio…" : phase === "playing" ? "Stop reading" : "Read aloud";
+  const toggle = useCallback(() => {
+    if (busy) stop();
+    else void start();
+  }, [busy, start, stop]);
+
+  return { phase, busy, label, note, error, toggle, stop };
+}
+
+// A small button under an assistant reply that reads it aloud, and stops it. Nothing is spoken until
+// it is pressed. It says when a long reply was cut and what the reading cost.
+export function SpeakButton({ text }: { text: string }) {
+  const { phase, busy, label, note, error, toggle } = useSpeechPlayback(text);
   return (
     <>
       <button
         type="button"
-        onClick={(event) => { event.preventDefault(); event.stopPropagation(); if (busy) stop(); else void start(); }}
+        onClick={(event) => { event.preventDefault(); event.stopPropagation(); toggle(); }}
         aria-label={label}
         aria-pressed={phase === "playing"}
         title={label}

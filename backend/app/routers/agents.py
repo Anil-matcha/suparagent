@@ -32,6 +32,8 @@ from app.schemas.agent import (
     AgentMigrationPreviewResponse,
     AgentMemoryResponse,
     AgentMemoryWriteRequest,
+    AgentOverviewResponse,
+    AgentPromptPreviewResponse,
     AgentResponse,
     AgentUpdateRequest,
     MemoryJournalRow,
@@ -42,7 +44,7 @@ from app.schemas.agent import (
     TopicListResponse,
     TopicWriteRequest,
 )
-from app.services import agent_history, agent_memory, agent_package, agent_skills, memory_entries, memory_journal, memory_log, memory_proposals, memory_topics, openbot_database_import
+from app.services import agent_history, agent_memory, agent_overview, agent_package, agent_skills, memory_entries, memory_journal, memory_log, memory_proposals, memory_topics, openbot_database_import
 from app.services import agent_migration_archive
 from app.services import agent_store as store
 from app.services.agent_removal import remove_agent
@@ -108,19 +110,49 @@ def _guard_create(request: Request, payload: AgentCreateRequest) -> None:
         raise _admin_only("make_lead")
     if payload.approval_mode == "accept_edits":
         raise _admin_only("approval_mode accept_edits")
+    if payload.tool_scope is not None:
+        raise _admin_only("tool_scope")
+    if payload.outbound_policy != "ask":
+        raise _admin_only("outbound_policy")
+    if payload.check_work is not None:
+        raise _admin_only("check_work")
 
 
 def _guard_update(request: Request, payload: AgentUpdateRequest, agent) -> None:
     """The same for an edit. Leaving "accept_edits" alone, or moving to "ask" or "plan", is fine."""
     if not _restricted(request):
         return
-    for field in ("workspace_path", "connector_scopes", "connector_account_scopes", "connector_shares", "claude_account"):
+    for field in (
+        "workspace_path",
+        "connector_scopes",
+        "connector_account_scopes",
+        "connector_shares",
+        "claude_account",
+        "tool_scope",
+        "check_work",
+    ):
         if field in payload.model_fields_set:
             raise _admin_only(field)
     if payload.make_lead is not None:
         raise _admin_only("make_lead")
     if payload.approval_mode == "accept_edits" and agent.approval_mode != "accept_edits":
         raise _admin_only("approval_mode accept_edits")
+    if payload.outbound_policy == "allow" and getattr(agent, "outbound_policy", "ask") != "allow":
+        raise _admin_only("outbound_policy allow")
+
+
+async def _check_work_target(rt: ThreadRuntime, agent_id: int | None, raw: dict | None) -> dict | None:
+    if raw is None:
+        return None
+    checker_id = raw.get("checker_agent_id")
+    if checker_id is not None:
+        if agent_id is not None and checker_id == agent_id:
+            raise _error(422, "invalid_check_work", "An agent cannot check its own work.")
+        async with rt.session() as db:
+            checker = await store.get_agent(db, checker_id)
+        if checker is None or checker.owner_id != rt.owner_id or checker.archived_at is not None:
+            raise _error(422, "invalid_check_work", "Choose an active checker agent you own.")
+    return {"enabled": bool(raw.get("enabled", False)), "checker_agent_id": checker_id}
 
 
 def _check_claude_account(account_id: str | None) -> None:
@@ -400,6 +432,9 @@ async def create_agent(payload: AgentCreateRequest, request: Request, rt: Thread
     _check_engine(rt, payload.provider, payload.model)
     _check_fallback(rt, payload.provider, payload.fallback_provider, payload.fallback_model)
     _check_claude_account(payload.claude_account)
+    check_work = await _check_work_target(
+        rt, None, payload.check_work.model_dump() if payload.check_work is not None else None
+    )
     workspace = _check_workspace(payload.workspace_path)
     try:
         async with rt.session() as db:
@@ -424,6 +459,12 @@ async def create_agent(payload: AgentCreateRequest, request: Request, rt: Thread
                 fallback_provider=payload.fallback_provider,
                 fallback_model=payload.fallback_model,
                 claude_account=payload.claude_account,
+                tool_scope=payload.tool_scope,
+                tools_off=payload.tools_off,
+                outbound_policy=payload.outbound_policy,
+                reply_style=payload.reply_style,
+                check_work=check_work,
+                cache_keep_warm=payload.cache_keep_warm,
                 make_lead=payload.make_lead,
             )
     except store.AgentNameTaken:
@@ -443,6 +484,20 @@ async def list_agents(include_archived: bool = False, rt: ThreadRuntime = Depend
 @router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent(agent_id: int, rt: ThreadRuntime = Depends(get_runtime)):
     return (await _with_computers(rt, [await _agent_or_404(rt, agent_id)]))[0]
+
+
+@router.get("/{agent_id}/overview", response_model=AgentOverviewResponse)
+async def get_agent_overview(agent_id: int, rt: ThreadRuntime = Depends(get_runtime)):
+    agent = await _agent_or_404(rt, agent_id)
+    async with rt.session() as db:
+        return await agent_overview.build_overview(db, rt, agent)
+
+
+@router.get("/{agent_id}/prompt-preview", response_model=AgentPromptPreviewResponse)
+async def get_agent_prompt_preview(agent_id: int, rt: ThreadRuntime = Depends(get_runtime)):
+    agent = await _agent_or_404(rt, agent_id)
+    async with rt.session() as db:
+        return await agent_overview.build_prompt_preview(db, rt, agent)
 
 
 @router.patch("/{agent_id}", response_model=AgentResponse)
@@ -491,9 +546,20 @@ async def _apply_update(
             "connector_scopes",
             "connector_account_scopes",
             "connector_shares",
+            "tool_scope",
+            "tools_off",
+            "outbound_policy",
+            "reply_style",
+            "check_work",
+            "cache_keep_warm",
         )
         if field in payload.model_fields_set
     }
+    if "check_work" in changes:
+        cw = changes["check_work"]
+        changes["check_work"] = await _check_work_target(
+            rt, agent_id, cw.model_dump() if cw is not None else None
+        )
     if "claude_account" in changes:
         _check_claude_account(changes["claude_account"])
     account_scopes_submitted = "connector_account_scopes" in changes

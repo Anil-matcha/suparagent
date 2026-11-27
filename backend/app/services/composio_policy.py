@@ -50,7 +50,8 @@ def _generic(name: str, mode: str | None, levels: dict, arguments: object, first
 
 
 def automatic(tool: str, mode: str | None, levels: dict | None, arguments: object = None,
-              first_use_hit: bool = False, uninterrupted: bool = False):
+              first_use_hit: bool = False, uninterrupted: bool = False,
+              outbound_policy: str = "ask"):
     """('allowed' | 'denied', reason) for a composio tool, None when a person must
     decide, or None for a tool that is not a composio tool. `levels` is what this
     turn's agent may do, {app: "read" | "labels" | "write"}."""
@@ -85,4 +86,6 @@ def automatic(tool: str, mode: str | None, levels: dict | None, arguments: objec
         return "allowed", "routine_uninterrupted_app" if uninterrupted else "composio_label_grant"
     if uninterrupted:
         return "allowed", "routine_uninterrupted_app"
+    if outbound_policy == "allow":
+        return "allowed", "outbound_policy_allow"
     return None  # a change: the person decides on a card

@@ -162,6 +162,14 @@ def main(stdin=None, handshake_timeout: float = handshake.DEFAULT_TIMEOUT_SECOND
 
 def _prepared_and_served(desktop, message, lifeline, sock, port) -> int:
     from app.desktop import database
+    from app.server import backup as workspace_backup
+
+    try:
+        restored = workspace_backup.apply_pending_restore(desktop.data_dir, desktop.backup_dir)
+        if restored is not None:
+            log("Applied staged workspace backup before startup.")
+    except Exception as exc:  # noqa: BLE001
+        log(f"Could not apply staged workspace restore (kept previous data): {exc}")
 
     try:
         backup = database.prepare(desktop)

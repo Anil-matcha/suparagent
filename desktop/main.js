@@ -40,6 +40,9 @@ const { registerApplicationMenu } = require("./src/application-menu");
 const { createHostedWorkspace, createWorkspaceStore, PLAN_URL } = require("./src/hosted-workspace");
 const { HEADER } = require("./src/origin");
 const { registerHostedWorkspace } = require("./src/hosted-workspace-ipc");
+const { createLocalProfileStore } = require("./src/local-profiles");
+const { ENVIRONMENTS_FILE, createEnvironmentStore, createRemoteWorkspaceManager } = require("./src/environments");
+const { registerEnvironmentsIpc } = require("./src/environments-ipc");
 const { trayIconPath, installTrayLifecycle } = require("./src/tray");
 
 // Chromium fixes its Linux password store before the app is ready. Pick a real
@@ -80,6 +83,9 @@ let backendStopped = false;
 let shutdown = null;
 let backendOrigin = null;
 let workspaceController = null; // set while the hosted workspace feature is on
+let localProfiles = null;
+let environmentStore = null;
+let remoteManager = null;
 let nativeControl = null;
 let updater = null;
 let tray = null;
@@ -380,7 +386,10 @@ async function main() {
   });
   tray = createTray();
 
-  const dataDir = path.join(userData, "data");
+  const localProfileStore = createLocalProfileStore({ userDataDir: userData });
+  localProfiles = localProfileStore;
+  const activeProfile = localProfileStore.state();
+  const dataDir = localProfileStore.dataDirFor(activeProfile.activeId);
   const logFile = path.join(userData, "logs", "backend.log");
 
   let key;
@@ -470,13 +479,18 @@ async function main() {
 // Local and hosted workspaces share this one window (BL-143). The local page stays the window's own
 // contents; the hosted page is a separate sandboxed view with no preload, no token and its own session.
 function setUpWorkspaces(token) {
-  // On by default (owner decision 2026-11-06). SUPARAGENT_HOSTED_WORKSPACE=0 turns it off: no hosted view, no menu, no Settings card.
-  if (process.env.SUPARAGENT_HOSTED_WORKSPACE === "0") return;
   const win = window;
-  const store = createWorkspaceStore(path.join(app.getPath("userData"), "workspace.json"));
+  const userDataDir = app.getPath("userData");
+  const hostedDisabled = process.env.SUPARAGENT_HOSTED_WORKSPACE === "0";
+  const store = createWorkspaceStore(path.join(userDataDir, "workspace.json"));
   const state = { signedIn: false, email: null, status: "" };
   let hosted = null;
-  const renderMenu = () =>
+
+  environmentStore = createEnvironmentStore({ filePath: path.join(userDataDir, ENVIRONMENTS_FILE) });
+
+  const baseTitle = () => (mode === "dev" ? "Suparagent (dev)" : "Suparagent");
+  const renderMenu = () => {
+    const localState = localProfiles?.state() ?? { activeId: "default", profiles: [] };
     registerApplicationMenu({
       Menu,
       appName: app.getName(),
@@ -484,24 +498,88 @@ function setUpWorkspaces(token) {
       getWindow: () => window,
       getOrigin: () => backendOrigin,
       openExternal: (url) => void shell.openExternal(url),
-      workspace: {
-        active: hosted?.current() ?? "local",
-        signedIn: state.signedIn,
-        email: state.email,
-        status: state.status,
-        onSelect: async (which) => {
-          // Re-ask the backend at the moment of choosing, so a sign-in made after the last check counts.
-          if (which === "hosted" && !state.signedIn) await refresh(true);
-          if (which === "hosted" && !state.signedIn) {
-            void shell.openExternal(PLAN_URL);
-            renderMenu(); // put the radio back on the workspace that is still shown
-            return;
-          }
-          hosted.show(which);
-        },
-        onSignOut: () => void hosted.signOut(),
-      },
+      workspace: hostedDisabled && environmentStore.list().length === 0 && localState.profiles.length <= 1
+        ? null
+        : {
+            active: hosted?.current() ?? "local",
+            signedIn: state.signedIn,
+            email: state.email,
+            status: state.status,
+            activeLocalProfileId: localState.activeId,
+            localProfiles: localState.profiles,
+            activeRemoteId: remoteManager?.currentRemoteId() ?? null,
+            remotes: environmentStore.list(),
+            onSelect: async (which) => {
+              remoteManager?.hideAll();
+              if (which === "hosted" && !state.signedIn) await refresh(true);
+              if (which === "hosted" && !state.signedIn) {
+                void shell.openExternal(PLAN_URL);
+                renderMenu();
+                return;
+              }
+              hosted?.show(which);
+            },
+            onSignOut: () => void hosted?.signOut(),
+            onSelectLocalProfile: (id) => {
+              remoteManager?.hideAll();
+              hosted?.show("local");
+              if (id !== localState.activeId) {
+                localProfiles.setActive(id);
+                app.relaunch();
+                void leave();
+              }
+            },
+            onSelectRemote: (id) => {
+              hosted?.show("local");
+              void remoteManager?.showRemote(id).catch((err) => {
+                dialog.showErrorBox("Could not connect to server", String(err?.message ?? err));
+                renderMenu();
+              });
+            },
+          },
     });
+  };
+
+  remoteManager = createRemoteWorkspaceManager({
+    window: win,
+    WebContentsView,
+    session,
+    openExternal: (url) => shell.openExternal(url),
+    store: environmentStore,
+    onChange: (remote) => {
+      if (remote) win.setTitle(`Suparagent \u2014 ${remote.name}`);
+      else if (hosted?.current() !== "hosted") win.setTitle(baseTitle());
+      renderMenu();
+    },
+  });
+  win.on("closed", () => {
+    remoteManager?.destroy();
+    remoteManager = null;
+  });
+
+  registerEnvironmentsIpc({
+    ipcMain,
+    getWindow: () => window,
+    getOrigin: () => backendOrigin,
+    localProfiles,
+    environmentStore,
+    getRemoteManager: () => remoteManager,
+    onMenuUpdate: renderMenu,
+    onShowLocal: () => {
+      hosted?.show("local");
+      win.setTitle(baseTitle());
+    },
+    onRestart: () => {
+      app.relaunch();
+      void leave();
+    },
+  });
+
+  if (hostedDisabled) {
+    renderMenu();
+    return;
+  }
+
   hosted = createHostedWorkspace({
     window: win,
     WebContentsView,
@@ -510,7 +588,9 @@ function setUpWorkspaces(token) {
     store,
     // The title says which data is on screen: native chrome the hosted page cannot read or draw.
     onChange: (which) => {
-      win.setTitle(which === "hosted" ? "Suparagent \u2014 Hosted workspace (cloud data; local agents are not shown here)" : mode === "dev" ? "Suparagent (dev)" : "Suparagent");
+      if (!remoteManager?.currentRemoteId()) {
+        win.setTitle(which === "hosted" ? "Suparagent \u2014 Hosted workspace (cloud data; local agents are not shown here)" : baseTitle());
+      }
       renderMenu();
     },
     onStatus: (status) => {
