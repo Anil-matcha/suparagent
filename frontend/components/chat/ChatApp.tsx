@@ -50,6 +50,8 @@ import { WorkspaceSwitcher } from "@/components/shell/WorkspaceSwitcher";
 import { useSession } from "@/components/AuthGate";
 import { can } from "@/lib/permissions";
 import { buildAnnotatedMessage, type CitationAttachment, type ReplyTarget } from "@/lib/citations";
+import { isFindShortcut } from "@/lib/chat-find";
+import { isMacPlatform } from "@/lib/citations-dom";
 import { onboarding } from "@/lib/onboarding";
 import { loadDraft } from "@/lib/drafts";
 import { TeamPanel } from "./TeamPanel";
@@ -251,6 +253,8 @@ export function ChatApp() {
   const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
   const [citations, setCitations] = useState<CitationAttachment[]>([]);
   const [forkThreadId, setForkThreadId] = useState<number | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [focusFindNonce, setFocusFindNonce] = useState(0);
   const audioAbort = useRef<AbortController | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
   const [audioConsent, setAudioConsent] = useState(false);
@@ -259,6 +263,7 @@ export function ChatApp() {
     setReplyTo(null);
     setCitations([]);
     setForkThreadId(null);
+    setFindOpen(false);
   }, [threadId]);
 
   useEffect(() => {
@@ -297,6 +302,20 @@ export function ChatApp() {
   const ready = gate.phase === "ready" && (gate.status.available || (gate.status.enabled && engines !== null));
   const stream = useThreadStream(ready ? threadId : null);
   const { transcript } = stream;
+
+  useEffect(() => {
+    if (!ready || roomId !== null) return;
+    const isMac = isMacPlatform();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isFindShortcut(event, isMac)) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      event.preventDefault();
+      setFindOpen(true);
+      setFocusFindNonce((n) => n + 1);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [ready, roomId]);
 
   useEffect(() => {
     if (!fullAccess || params.get("onboarding") !== "1" || threadId !== null) return;
@@ -1169,6 +1188,7 @@ export function ChatApp() {
       onFiles={ready && threadId !== null && thread !== null ? () => setFilesOpen(true) : undefined}
       onUsage={ready && fullAccess ? () => setPanel("usage") : undefined}
       onToday={ready && fullAccess ? () => void refreshToday() : undefined}
+      onFind={ready && roomId === null ? () => { setFindOpen(true); setFocusFindNonce((n) => n + 1); } : undefined}
       onCopyLink={copyLink}
       onUndo={undoOffered ? () => setUndoOpen(true) : undefined}
       usageHint={conversationTotal}
@@ -1460,6 +1480,9 @@ export function ChatApp() {
                 setFocusComposer(true);
               }}
               onAddCitation={(citation) => setCitations((prev) => [...prev, citation])}
+              findOpen={findOpen}
+              focusFindNonce={focusFindNonce}
+              onCloseFind={() => setFindOpen(false)}
             />
           )}
 

@@ -6,6 +6,7 @@ import { makeReplyTarget, splitMessageAnnotations, type CitationAttachment, type
 import { canForkFrom } from "@/lib/branch-link";
 import { flashMessageElement, resolveCitationRange } from "@/lib/citations-dom";
 import { CitationSelectionToolbar } from "./CitationUI";
+import { ChatFindBar } from "./ChatFindBar";
 import { formatReactionReply, isLatestAssistantMessage, loadThreadReactions, saveThreadReaction, type ReactionKind, type ReactionsMap } from "@/lib/reactions";
 import type { Transcript, TranscriptItem } from "@/lib/transcript";
 import { announcement, groupToolRuns } from "@/lib/transcript-view";
@@ -100,12 +101,18 @@ export function Conversation({
   emptyAction,
   agent = null,
   loading = false,
+  findOpen = false,
+  focusFindNonce = 0,
+  onCloseFind,
 }: {
   // Edit a past message and resend it in a new branch.
   onBranch?: (turnId: number, text: string) => Promise<boolean>;
   onFork?: (turnId: number, opts: { inclusive: boolean }) => void;
   onReply?: (target: ReplyTarget) => void;
   onAddCitation?: (citation: CitationAttachment) => void;
+  findOpen?: boolean;
+  focusFindNonce?: number;
+  onCloseFind?: () => void;
   // The conversation the transcript belongs to: attachments are fetched from it.
   threadId?: number | null;
   // The pinned workspace also scopes download links in assistant replies.
@@ -195,9 +202,17 @@ export function Conversation({
   const showSkeleton = loading && transcript.items.length === 0 && transcript.typing === null;
   const groupedItems = groupToolRuns(transcript.items);
   const dividerKeys = findDateDividerItemKeys(groupedItems);
+  const findVersion = `${threadId ?? "new"}:${transcript.items.length}:${transcript.typing?.length ?? 0}`;
   return (
     <div className="relative min-h-0 flex-1">
       <Announcer items={transcript.items} />
+      <ChatFindBar
+        open={findOpen}
+        focusNonce={focusFindNonce}
+        viewportRef={scroller}
+        contentVersion={findVersion}
+        onClose={() => onCloseFind?.()}
+      />
       <div ref={scroller} onScroll={onScroll} className="h-full overflow-y-auto">
         <div role="log" aria-live="off" aria-label={t("chat.conversation")} className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6 sm:px-6">
           {showSkeleton && (

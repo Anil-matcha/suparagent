@@ -60,6 +60,7 @@ export interface SelectProps
   containerClassName?: string;
   triggerClassName?: string;
   menuClassName?: string;
+  menuAlign?: "start" | "end";
   chevronClassName?: string;
   leadingIcon?: ReactNode;
   triggerLabel?: ReactNode;
@@ -200,6 +201,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
       containerClassName,
       triggerClassName,
       menuClassName,
+      menuAlign = "start",
       chevronClassName,
       leadingIcon,
       triggerLabel,
@@ -349,7 +351,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
 
           <RadixDropdown.Portal>
             <RadixDropdown.Content
-              align="start"
+              align={menuAlign}
               sideOffset={4}
               collisionPadding={8}
               style={{
