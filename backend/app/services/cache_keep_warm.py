@@ -51,6 +51,7 @@ class Candidate:
     thread_id: int
     provider: str
     updated_at: float  # epoch seconds of the chat's last change
+    agent_keep_warm: bool | None = None
 
 
 @dataclass
@@ -108,17 +109,20 @@ class KeepWarm:
     async def tick(self) -> int:
         """Ping every chat that is due. Returns how many were pinged. Never raises."""
         try:
-            if not self._enabled():
-                self._state.clear()
-                return 0
+            global_enabled = self._enabled()
             now = self._clock()
             found = await self._candidates(now - self.idle_seconds - _SLACK_SECONDS, self.max_threads * 4)
         except Exception:  # noqa: BLE001
             logger.exception("keep-warm could not list chats")
             return 0
+        if not global_enabled and not any(c.agent_keep_warm is True for c in found):
+            self._state.clear()
+            return 0
         eligible: list[tuple[Candidate, float]] = []
         for c in found:
             if c.provider not in self.engines:
+                continue
+            if c.agent_keep_warm is False or (c.agent_keep_warm is None and not global_enabled):
                 continue
             real = self._real_activity(c)
             state = self._state.get(c.thread_id)
@@ -169,12 +173,13 @@ def build(runtime) -> KeepWarm:
 
         from sqlalchemy import select
 
-        from app.db.models import Thread
+        from app.db.models import Agent, Thread
 
         async with runtime.session() as db:
             rows = (
                 await db.execute(
-                    select(Thread.id, Thread.provider, Thread.updated_at)
+                    select(Thread.id, Thread.provider, Thread.updated_at, Agent.cache_keep_warm)
+                    .outerjoin(Agent, Thread.agent_id == Agent.id)
                     .where(
                         Thread.owner_id == runtime.owner_id,
                         Thread.archived_at.is_(None),
@@ -189,10 +194,10 @@ def build(runtime) -> KeepWarm:
                 )
             ).all()
         out = []
-        for thread_id, provider, updated in rows:
+        for thread_id, provider, updated, agent_keep_warm in rows:
             if updated.tzinfo is None:
                 updated = updated.replace(tzinfo=timezone.utc)
-            out.append(Candidate(thread_id, provider, updated.timestamp()))
+            out.append(Candidate(thread_id, provider, updated.timestamp(), agent_keep_warm))
         return out
 
     async def send(thread_id: int) -> float | None:

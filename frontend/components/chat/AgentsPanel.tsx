@@ -11,7 +11,7 @@ import { Select } from "@/components/ui/Select";
 import { Tab, TabList, TabPanel, Tabs } from "@/components/ui/Tabs";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/Toast";
-import { api, ApiError, isLocalApiEndpoint, type Agent, type AgentInput, type AgentMemory, type ApprovalMode, type ClaudeAccount, type Engine, type OpenBotDatabasePreview, type OpenBotDatabaseProfilePreview } from "@/lib/api";
+import { api, ApiError, isLocalApiEndpoint, type Agent, type AgentInput, type AgentMemory, type ApprovalMode, type CheckWorkConfig, type ClaudeAccount, type Engine, type OpenBotDatabasePreview, type OpenBotDatabaseProfilePreview, type OutboundPolicy, type ReplyStyle, type ToolScope } from "@/lib/api";
 import { type AgentMigrationFilePreview, type AgentMigrationFileProfilePreview } from "@/lib/api";
 import {
   approvalModesForProvider,
@@ -54,6 +54,13 @@ import { WorkerLabelsPanel } from "./agents/WorkerLabelsPanel";
 import { HistoryLearningPanel, LessonsPanel } from "./agents/HistoryLearningPanel";
 import { filterAgents, shouldShowAgentSearch, unavailableEnginesInUse } from "./agents/agent-list";
 import { draftSignature } from "./agents/draft-state";
+import { AgentOverviewSection } from "./agents/AgentOverviewSection";
+import { SETTINGS_SECTIONS, sectionMatchesQuery, type EditorSection } from "./agents/AgentSettingsSections";
+import { CheckWorkSetting } from "./agents/CheckWorkSetting";
+import { OutboundPolicyControl } from "./agents/OutboundPolicyControl";
+import { ReplyStyleField } from "./agents/ReplyStyleField";
+import { ToolScopeSection } from "./agents/ToolScopeSection";
+import { ApprovalRules } from "../approvals/ApprovalRules";
 
 type Draft = {
   id: number | null;
@@ -77,6 +84,12 @@ type Draft = {
   connector_account_scopes: AccountScopes;
   // The share of a mailbox it may see, per app and account; no entry means all mail.
   connector_shares: Shares;
+  tool_scope: ToolScope;
+  tools_off: string[];
+  outbound_policy: OutboundPolicy;
+  reply_style: ReplyStyle;
+  check_work: CheckWorkConfig;
+  cache_keep_warm: boolean | null;
   // Create only: the first contents of the agent's notes.
   starter_notes: string;
 };
@@ -99,6 +112,12 @@ const EMPTY: Draft = {
   connector_scopes: {},
   connector_account_scopes: {},
   connector_shares: {},
+  tool_scope: null,
+  tools_off: [],
+  outbound_policy: "ask",
+  reply_style: "default",
+  check_work: null,
+  cache_keep_warm: null,
   starter_notes: "",
 };
 
@@ -121,6 +140,12 @@ function toDraft(agent: Agent): Draft {
     connector_scopes: agent.connector_scopes ?? {},
     connector_account_scopes: agent.connector_account_scopes ?? {},
     connector_shares: agent.connector_shares ?? {},
+    tool_scope: agent.tool_scope ?? null,
+    tools_off: agent.tools_off ?? [],
+    outbound_policy: agent.outbound_policy ?? "ask",
+    reply_style: agent.reply_style ?? "default",
+    check_work: agent.check_work ?? null,
+    cache_keep_warm: agent.cache_keep_warm ?? null,
     starter_notes: "",
   };
 }
@@ -137,12 +162,20 @@ function toInput(draft: Draft, admin = false): AgentInput {
     workspace_path: draft.workspace_path.trim() || null,
     approval_mode: draft.approval_mode,
     memory_enabled: draft.memory_enabled,
+    tools_off: draft.tools_off,
+    reply_style: draft.reply_style,
+    cache_keep_warm: draft.cache_keep_warm,
     // The agent's own engine cannot be its fallback.
     fallback_provider: draft.fallback_provider && draft.fallback_provider !== draft.provider ? draft.fallback_provider : null,
     fallback_model: draft.fallback_provider && draft.fallback_provider !== draft.provider ? draft.fallback_model?.trim() || null : null,
   };
-  // Only the owner may choose the account; other devices never send the field.
-  if (admin) input.claude_account = draft.provider === "claude" ? draft.claude_account : null;
+  // Only the owner may choose the account or security policies; other devices never send those fields.
+  if (admin) {
+    input.claude_account = draft.provider === "claude" ? draft.claude_account : null;
+    input.tool_scope = draft.tool_scope;
+    input.outbound_policy = draft.outbound_policy;
+    input.check_work = draft.check_work;
+  }
   if (draft.id === null && draft.starter_notes.trim()) input.starter_notes = draft.starter_notes;
   if (draft.id !== null) {
     input.connector_scopes = scopesToSend(draft.connector_scopes, draft.provider);
@@ -184,7 +217,6 @@ const SMALL =
 const PRIMARY =
   "cursor-pointer rounded-md px-4 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 bg-accent text-accent-fg hover:opacity-90";
 const GAUGE_COLOR = { ok: "bg-success", near: "bg-warning", over: "bg-danger" } as const;
-type EditorSection = "basics" | "model" | "apps" | "memory";
 
 function saveFile(fileName: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
@@ -246,7 +278,8 @@ export function AgentsPanel({
   const [fromTemplate, setFromTemplate] = useState<{ template: AgentTemplate; skills: string[] } | null>(null);
   const [draft, setDraft] = useState<Draft | null>(() => initialEditAgent ? toDraft(initialEditAgent) : startCreating ? EMPTY : null);
   const [originalDraft, setOriginalDraft] = useState<Draft | null>(() => initialEditAgent ? toDraft(initialEditAgent) : startCreating ? EMPTY : null);
-  const [editorSection, setEditorSection] = useState<EditorSection>("basics");
+  const [editorSection, setEditorSection] = useState<EditorSection>(() => initialEditAgent ? "overview" : "basics");
+  const [settingsSearch, setSettingsSearch] = useState("");
   const [notes, setNotes] = useState<NotesState | null>(null);
   const [exporting, setExporting] = useState<ExportState | null>(null);
   const [importing, setImporting] = useState<ImportState | null>(null);
@@ -262,6 +295,7 @@ export function AgentsPanel({
   const [discardConfirm, setDiscardConfirm] = useState(false);
   const [closeAfterDiscard, setCloseAfterDiscard] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [showSetupChat, setShowSetupChat] = useState(false);
   const [agentFilter, setAgentFilter] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -698,7 +732,8 @@ export function AgentsPanel({
   const openDraft = (nextDraft: Draft) => {
     setDraft(nextDraft);
     setOriginalDraft(nextDraft);
-    setEditorSection("basics");
+    setEditorSection(nextDraft.id !== null ? "overview" : "basics");
+    setSettingsSearch("");
     setRoleChoice(null);
     setMemberChoices({});
     setDiscardConfirm(false);
@@ -711,6 +746,7 @@ export function AgentsPanel({
     setDraft(null);
     setOriginalDraft(null);
     setEditorSection("basics");
+    setSettingsSearch("");
     setRoleChoice(null);
     setMemberChoices({});
     setNotes(null);
@@ -726,6 +762,7 @@ export function AgentsPanel({
     setDeleteConfirm(null);
     setDiscardConfirm(false);
     setCloseAfterDiscard(false);
+    setShowSetupChat(false);
     setError(null);
   };
 
@@ -788,18 +825,48 @@ export function AgentsPanel({
                   <Button type="button" variant="danger" onClick={discardAndClose}>Discard changes</Button>
                 </div>
               )}
+              <div className="mb-2">
+                <input
+                  type="search"
+                  value={settingsSearch}
+                  onChange={(e) => {
+                    const q = e.target.value;
+                    setSettingsSearch(q);
+                    const visible = SETTINGS_SECTIONS.filter(
+                      (sec) => (!sec.requiresSaved || draft.id !== null) && (sec.id !== "apps" || canEditConnectedApps) && sectionMatchesQuery(sec, q),
+                    );
+                    if (visible.length > 0 && !visible.some((sec) => sec.id === editorSection)) {
+                      setEditorSection(visible[0].id);
+                    }
+                  }}
+                  placeholder="Filter settings (workspace, tool scope, outbound, cache)…"
+                  aria-label="Filter agent settings"
+                  className={`${FIELD} text-xs`}
+                />
+              </div>
               <Tabs
                 value={editorSection}
                 onValueChange={(value) => setEditorSection(value as EditorSection)}
                 className="flex min-h-0 flex-1 flex-col"
               >
                 <TabList label="Agent settings sections">
-                  <Tab value="basics">Basics</Tab>
-                  <Tab value="model">Model and approvals</Tab>
-                  {canEditConnectedApps && <Tab value="apps">Connected apps</Tab>}
-                  <Tab value="memory">Memory and notes</Tab>
+                  {SETTINGS_SECTIONS.filter(
+                    (sec) =>
+                      (!sec.requiresSaved || draft.id !== null) &&
+                      (sec.id !== "apps" || canEditConnectedApps) &&
+                      sectionMatchesQuery(sec, settingsSearch),
+                  ).map((sec) => (
+                    <Tab key={sec.id} value={sec.id}>
+                      {sec.label}
+                    </Tab>
+                  ))}
                 </TabList>
-                <div className="min-h-0 flex-1 overflow-y-auto pb-4 pt-4">
+                <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-4 pt-4">
+                  {draft.id !== null && (
+                    <TabPanel value="overview" className="space-y-3">
+                      <AgentOverviewSection agentId={draft.id} onNavigate={setEditorSection} />
+                    </TabPanel>
+                  )}
                   <TabPanel value="basics" className="space-y-3">
                     {draft.id === null && onSetupChat && admin && (
                       <SetupEntryDisclosure agents={agents} engines={engines} onStart={onSetupChat} onCreateLead={() => setRoleChoice({ id: null, value: true })} />
@@ -846,15 +913,45 @@ export function AgentsPanel({
                         className={`${FIELD} mt-1 resize-y`}
                       />
                     </label>
-                    <label className="block text-xs text-muted">
+                    <div className="block text-xs text-muted">
                       Workspace folder
-                      <input
-                        value={draft.workspace_path}
-                        onChange={(e) => setDraft({ ...draft, workspace_path: e.target.value })}
-                        placeholder="Leave empty for the agent's own folder"
-                        className={`${FIELD} mt-1 font-mono`}
-                      />
-                    </label>
+                      <div className="mt-1 flex items-center gap-2">
+                        <input
+                          value={draft.workspace_path}
+                          onChange={(e) => setDraft({ ...draft, workspace_path: e.target.value })}
+                          placeholder="Leave empty for the agent's own folder"
+                          className={`${FIELD} min-w-0 flex-1 font-mono`}
+                        />
+                        {typeof window !== "undefined" && window.suparagent?.choosePath && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            disabled={busy}
+                            onClick={async () => {
+                              const picked = await window.suparagent?.choosePath("folder");
+                              if (picked) setDraft({ ...draft, workspace_path: picked });
+                            }}
+                          >
+                            Browse…
+                          </Button>
+                        )}
+                        {draft.workspace_path && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            disabled={busy}
+                            onClick={() => setDraft({ ...draft, workspace_path: "" })}
+                          >
+                            Clear
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <ReplyStyleField
+                      value={draft.reply_style}
+                      disabled={busy}
+                      onChange={(reply_style) => setDraft({ ...draft, reply_style })}
+                    />
                     {draft.id === null && fromTemplate && fromTemplate.template.skills.length > 0 && (
                       <TemplateSkillChoices
                         skills={fromTemplate.template.skills}
@@ -952,6 +1049,47 @@ export function AgentsPanel({
                       </div>
                       {modeInfo && <p>{modeInfo.description}</p>}
                     </fieldset>
+                    {admin && (
+                      <CheckWorkSetting
+                        value={draft.check_work}
+                        agents={agents}
+                        currentAgentId={draft.id}
+                        disabled={busy}
+                        onChange={(check_work) => setDraft({ ...draft, check_work })}
+                      />
+                    )}
+                  </TabPanel>
+
+                  <TabPanel value="permissions" className="space-y-4">
+                    {admin ? (
+                      <>
+                        <ToolScopeSection
+                          toolScope={draft.tool_scope}
+                          toolsOff={draft.tools_off}
+                          disabled={busy}
+                          onToolScopeChange={(tool_scope) => setDraft({ ...draft, tool_scope })}
+                          onToolsOffChange={(tools_off) => setDraft({ ...draft, tools_off })}
+                        />
+                        <OutboundPolicyControl
+                          value={draft.outbound_policy}
+                          disabled={busy}
+                          onChange={(outbound_policy) => setDraft({ ...draft, outbound_policy })}
+                        />
+                        {isLocalApiEndpoint() && (
+                          <div className="space-y-2 rounded-field border border-line p-3">
+                            <h3 className="text-sm font-medium text-ink">Saved command allowlist</h3>
+                            <p className="text-xs text-muted">
+                              Manage bash rules allowed without prompting for this workspace.
+                            </p>
+                            <ApprovalRules workspace={draft.workspace_path.trim() || null} />
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-xs text-muted">
+                        Tool scopes and outbound policies can only be changed by the workspace owner.
+                      </p>
+                    )}
                   </TabPanel>
 
                   {canEditConnectedApps && (
@@ -1004,6 +1142,41 @@ export function AgentsPanel({
                       />
                       Use notes: load this agent&apos;s MEMORY.md into each conversation
                     </label>
+                  </TabPanel>
+
+                  <TabPanel value="advanced" className="space-y-4">
+                    <fieldset className="space-y-2 rounded-field border border-line p-3 text-xs">
+                      <legend className="px-1 text-sm font-medium text-ink">Cache keep-warm</legend>
+                      <p className="text-muted">
+                        Override whether background keep-alive pings run for idle chats belonging to this agent.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {(
+                          [
+                            { id: null, label: "Use global setting" },
+                            { id: true, label: "Always keep warm" },
+                            { id: false, label: "Never keep warm" },
+                          ] as const
+                        ).map((opt) => (
+                          <label
+                            key={String(opt.id)}
+                            className={`cursor-pointer rounded-md border px-3 py-1.5 text-xs ${
+                              draft.cache_keep_warm === opt.id ? "border-accent bg-inset text-ink" : "border-line text-muted"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="cache-keep-warm"
+                              className="sr-only"
+                              checked={draft.cache_keep_warm === opt.id}
+                              disabled={busy}
+                              onChange={() => setDraft({ ...draft, cache_keep_warm: opt.id })}
+                            />
+                            {opt.label}
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
                   </TabPanel>
                 </div>
               </Tabs>
@@ -1347,17 +1520,34 @@ export function AgentsPanel({
             </div>
           ) : (
             <>
-              <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
-                <div className="flex shrink-0 items-center gap-3">
-                  <Button variant="primary" onClick={() => openDraft({ ...EMPTY })}>
-                    {t("sidebar.newAgent")}
-                  </Button>
-                  {onSetupChat && admin && (
-                    <SetupEntryDisclosure agents={agents} engines={engines} onStart={onSetupChat} onCreateLead={() => { openDraft({ ...EMPTY }); setRoleChoice({ id: null, value: true }); }} />
-                  )}
+              <div className="mb-3 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="primary" onClick={() => openDraft({ ...EMPTY })}>
+                      {t("sidebar.newAgent")}
+                    </Button>
+                    {onSetupChat && admin && (
+                      <Button
+                        variant={showSetupChat ? "secondary" : "ghost"}
+                        aria-expanded={showSetupChat}
+                        onClick={() => setShowSetupChat((open) => !open)}
+                      >
+                        Create by chatting
+                      </Button>
+                    )}
+                    <Button onClick={() => setGallery(true)}>Templates…</Button>
+                    <Button onClick={() => { setError(null); setOpenBotDatabase(null); setMigration({ source: null, text: "", copied: false }); }}>
+                      Migrate…
+                    </Button>
+                    <Button onClick={() => fileInput.current?.click()}>Import…</Button>
+                  </div>
+                  <label className="flex min-h-9 cursor-pointer items-center gap-2 px-1 text-xs text-muted touch:min-h-11">
+                    <input type="checkbox" checked={showArchived} onChange={() => setShowArchived((on) => !on)} />
+                    {t("sidebar.showArchived")}
+                  </label>
                 </div>
                 {searchEnabled && (
-                  <label className="min-w-[12rem] flex-1">
+                  <label className="block w-full">
                     <span className="sr-only">Search agents</span>
                     <input
                       type="search"
@@ -1369,17 +1559,17 @@ export function AgentsPanel({
                     />
                   </label>
                 )}
-                <div className="ml-auto flex flex-wrap items-center gap-2">
-                  <Button onClick={() => setGallery(true)}>Templates…</Button>
-                  <Button onClick={() => { setError(null); setOpenBotDatabase(null); setMigration({ source: null, text: "", copied: false }); }}>
-                    Migrate…
-                  </Button>
-                  <Button onClick={() => fileInput.current?.click()}>Import…</Button>
-                  <label className="flex min-h-9 cursor-pointer items-center gap-2 px-1 text-xs text-muted touch:min-h-11">
-                    <input type="checkbox" checked={showArchived} onChange={() => setShowArchived((on) => !on)} />
-                    {t("sidebar.showArchived")}
-                  </label>
-                </div>
+                {showSetupChat && onSetupChat && admin && (
+                  <AgentSetupEntry
+                    agents={agents}
+                    engines={engines}
+                    onStart={onSetupChat}
+                    onCreateLead={() => {
+                      openDraft({ ...EMPTY });
+                      setRoleChoice({ id: null, value: true });
+                    }}
+                  />
+                )}
               </div>
               {visible.length === 0 ? (
                 <p className="text-sm text-muted">

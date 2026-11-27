@@ -216,6 +216,11 @@ class ActiveRun:
     log_memory: bool = False
     # What the memory files said when the turn began, to journal the agent's own edits.
     memory_before: dict | None = None
+    tool_scope: dict | None = None
+    tools_off: list[str] = field(default_factory=list)
+    outbound_policy: str = "ask"
+    check_work: dict | None = None
+    internal: bool = False
 
     def touch(self) -> None:
         try:
@@ -895,11 +900,12 @@ class ThreadRuntime:
         if person_label:
             async with self.session() as db:
                 speaker_note = speaker.note(person_label, await speaker.count_people(db))
+        agent_tools_off = list(getattr(agent, "tools_off", None) or []) if agent is not None else []
         ctx = TurnContext(
             thread_id=thread_id,
             turn_id=turn.id,
             prompt=handoff + agent_skills.prompt_block(chosen_skills) + memory_recall.with_recall(recall, attachments.prompt_with_text_files(speaker_note + prompt_text, attached)),
-            images=[
+            images=[] if "images" in agent_tools_off else [
                 {"path": str(path), "mime": a.mime, "name": a.name}
                 for a, path in attached
                 if a.kind == "image"
@@ -962,6 +968,11 @@ class ThreadRuntime:
                 # Another person's chat is not the owner's words, whatever their rights.
                 and speaker.learns_from(person_id, person_is_owner)
             ),
+            tool_scope=getattr(agent, "tool_scope", None) if agent is not None else None,
+            tools_off=agent_tools_off,
+            outbound_policy=getattr(agent, "outbound_policy", "ask") if agent is not None else "ask",
+            check_work=getattr(agent, "check_work", None) if agent is not None else None,
+            internal=internal,
         )
         if not draft_only and agent is not None and agent.team_id is not None and app_settings.get("TEAM_ENABLED") and capabilities_of(adapter).mcp:
             from app.db.models import Team
@@ -1320,7 +1331,7 @@ class ThreadRuntime:
                 if binding is not None and run.ctx.approval_mode != "plan":
                     authorized = await routine_uninterrupted.automatic(self, run, "mcp__computer__read_file", {})
                     binding.routine_uninterrupted = authorized == ("allowed", "routine_uninterrupted_grant")
-                if not getattr(run.ctx, "draft_only", False) and binding is None and run.agent_id is not None and capabilities_of(adapter).computers:
+                if not getattr(run.ctx, "draft_only", False) and binding is None and run.agent_id is not None and capabilities_of(adapter).computers and "computers" not in run.tools_off:
                     binding = run.ctx.browser = await self.computers.attach_browser(run.agent_id, run.turn_id)
                 if run.ctx.team is not None:
                     team_bridge = TeamBridge(self, run)
@@ -1331,7 +1342,7 @@ class ThreadRuntime:
                         run.memory_before = memory_journal.snapshot(run.agent_id)
                     except Exception:  # noqa: BLE001
                         logger.exception("could not note the memory files", turn_id=run.turn_id)
-                if run.agent_id is not None and run.log_memory and capabilities_of(adapter).can_search_history:
+                if run.agent_id is not None and run.log_memory and capabilities_of(adapter).can_search_history and "memory_tools" not in run.tools_off:
                     memory_bridge = MemoryBridge(self, run)
                     run.ctx.memory_launch = memory_bridge.launch
                     memory_bridge.start()
@@ -1418,6 +1429,16 @@ class ThreadRuntime:
                 provider_state=outcome.provider_state,
             )
         try:
+            if (
+                not run.internal
+                and not getattr(run.ctx, "draft_only", False)
+                and not run.recorder.lost
+                and outcome.status == "succeeded"
+                and isinstance(run.check_work, dict)
+                and run.check_work.get("enabled")
+                and run.check_work.get("checker_agent_id")
+            ):
+                await self._run_check_work(run, outcome)
             await self._finish(run, outcome)
             try:
                 await self.team_jobs.on_turn_end(run.turn_id)
@@ -1441,6 +1462,51 @@ class ThreadRuntime:
             self.hub.notify(run.thread_id)
             # After the run is gone, so a retry is never refused as running.
             self.notices.spawn(self.notices.after_turn(run, outcome))
+
+    async def _run_check_work(self, run: ActiveRun, outcome: TurnOutcome) -> None:
+        """Bounded post-turn verification using a designated checker agent (single pass, non-blocking)."""
+        try:
+            checker_id = int(run.check_work["checker_agent_id"])
+            if checker_id == run.agent_id:
+                return
+            async with self.session() as db:
+                checker = await agent_store.get_agent(db, checker_id)
+            if checker is None or checker.owner_id != self.owner_id or checker.archived_at is not None:
+                return
+            adapter = self.adapters.get(checker.provider)
+            if adapter is None:
+                return
+            try:
+                config = await self.prepare_adapter(checker.provider, adapter)
+            except Exception:  # noqa: BLE001
+                config = None
+            source = await side_jobs.source_for(
+                self, checker, "check_work", adapter, config=config, model=checker.model
+            )
+            if source is None:
+                return
+            prompt_safe = agent_memory.redact_secrets(run.prompt_text or "")[0][:2000]
+            reply_safe = agent_memory.redact_secrets(outcome.result or "")[0][:4000]
+            checker_role = agent_memory.redact_secrets(checker.instructions or "")[0][:1500]
+            review_prompt = (
+                f"You are reviewing another agent's completed response.\n"
+                + (f"Reviewer guidance:\n{checker_role}\n\n" if checker_role else "")
+                + f"User request:\n{prompt_safe}\n\n"
+                + f"Agent response:\n{reply_safe}\n\n"
+                + "Give a concise 1-3 sentence verification note: state if it looks complete and accurate, or flag specific omissions/risks."
+            )
+            note = (await source.generate(review_prompt, timeout=25)).strip()
+            if note and not run.recorder.lost:
+                await run.recorder.emit(
+                    "check_work.reviewed",
+                    {
+                        "checker_agent_id": checker.id,
+                        "checker_name": checker.name,
+                        "note": agent_memory.redact_secrets(note)[0][:1200],
+                    },
+                )
+        except Exception:  # noqa: BLE001
+            logger.warning("check_work verification skipped", turn_id=run.turn_id, exc_info=True)
 
     async def _run_adapter(self, run: ActiveRun, adapter: ProviderAdapter) -> TurnOutcome:
         with app_settings.use(run.settings_snapshot):

@@ -497,6 +497,42 @@ export type ComputerSettings = {
 // Conversations started with it keep using it.
 export type ClaudeAccount = { id: string; label: string; created_at: string | null };
 
+export type OutboundPolicy = "ask" | "allow";
+export type ReplyStyle = "default" | "conversational";
+export type ToolScope = { allow?: string[]; deny?: string[] } | null;
+export type CheckWorkConfig = { enabled: boolean; checker_agent_id: number | null } | null;
+
+export type AgentOverview = {
+  agent_id: number;
+  who: {
+    name: string;
+    title: string | null;
+    description: string | null;
+    instructions_lead: string | null;
+  };
+  setup: { id: string; label: string; done: boolean; section: string }[];
+  summary: {
+    provider: string;
+    provider_label: string;
+    model: string | null;
+    effort: string | null;
+    approval_mode: ApprovalMode;
+    workspace_path: string | null;
+    memory_enabled: boolean;
+    skills_count: number;
+    apps_count: number;
+    routines_count: number;
+    revisions_count: number;
+  };
+};
+
+export type AgentPromptPreview = {
+  sections: { id: string; label: string; text: string; bytes: number }[];
+  total_bytes: number;
+  approx_tokens: number;
+  note: string;
+};
+
 export type Agent = {
   id: number;
   name: string;
@@ -530,6 +566,12 @@ export type Agent = {
   fallback_model?: string | null;
   // A named Claude account id; null or missing is the default account.
   claude_account?: string | null;
+  tool_scope?: ToolScope;
+  tools_off?: string[];
+  outbound_policy?: OutboundPolicy;
+  reply_style?: ReplyStyle;
+  check_work?: CheckWorkConfig;
+  cache_keep_warm?: boolean | null;
   archived_at: string | null;
   created_at?: string;
   updated_at?: string;
@@ -589,6 +631,12 @@ export type AgentInput = {
   fallback_model?: string | null;
   // A named Claude account id; null or missing is the default account.
   claude_account?: string | null;
+  tool_scope?: ToolScope;
+  tools_off?: string[];
+  outbound_policy?: OutboundPolicy;
+  reply_style?: ReplyStyle;
+  check_work?: CheckWorkConfig;
+  cache_keep_warm?: boolean | null;
   // Update only: connected apps this agent may read, {app: "read"}; null or {} for none.
   connector_scopes?: Record<string, string> | null;
   // Update only: exact connected account IDs this agent may use, keyed by app.
@@ -1489,6 +1537,12 @@ export const api = {
   // Only the fields given change; `archived` archives or restores.
   updateAgent: (agentId: number, change: Partial<AgentInput> & { archived?: boolean }) =>
     request<Agent>(`/agents/${agentId}`, { method: "PATCH", body: JSON.stringify(change) }),
+
+  getAgentOverview: (agentId: number) =>
+    request<AgentOverview>(`/agents/${agentId}/overview`),
+
+  getAgentPromptPreview: (agentId: number) =>
+    request<AgentPromptPreview>(`/agents/${agentId}/prompt-preview`),
 
   // Ready-made agents (/templates): a bundled, read-only catalog.
   listTemplates: () => request<TemplateCatalog>("/templates"),

@@ -325,6 +325,10 @@ def turn_instructions(agent) -> str | None:
     parts = []
     if agent.instructions and agent.instructions.strip():
         parts.append(agent.instructions)
+    if getattr(agent, "reply_style", "default") == "conversational":
+        parts.append(
+            "Respond in a concise, natural conversational style. Prefer direct, human-paced phrasing over heavy boilerplate headings unless asked."
+        )
     about = about_me.prompt_block()
     if about:
         parts.append(about)
