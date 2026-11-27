@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "community": [
+    "plugins/community/aimlapi.json",
     "plugins/community/levea.json",
     "plugins/community/muapi.json",
     "plugins/community/pixeltable-docs.json",
