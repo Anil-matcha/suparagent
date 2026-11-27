@@ -6,6 +6,9 @@ from app.routers.permission import router as permissions_router
 from app.routers.local import router as local_router
 from app.routers.providers import router as providers_router
 from app.routers.agents import router as agents_router
+from app.routers.shadow import router as shadow_router
+from app.routers.worker_labels import router as worker_labels_router
+from app.routers.history_learning import router as history_learning_router
 from app.routers.agent_skills import router as agent_skills_router
 from app.routers.threads import router as threads_router
 from app.routers.settings import router as settings_router
@@ -26,6 +29,7 @@ from app.routers.attachments import router as attachments_router
 from app.routers.workspace_files import router as workspace_files_router
 from app.routers.workspace_snapshots import router as workspace_snapshots_router
 from app.routers.images import router as images_router
+from app.routers.speech import router as speech_router
 from app.routers.usage import router as usage_router
 from app.routers.history_export import router as history_export_router
 from app.routers.profile import router as profile_router
@@ -53,6 +57,9 @@ router.include_router(schedule_router)
 router.include_router(local_router)
 router.include_router(providers_router)
 router.include_router(agents_router)
+router.include_router(shadow_router)
+router.include_router(worker_labels_router)
+router.include_router(history_learning_router)
 router.include_router(agent_skills_router)
 router.include_router(threads_router)
 router.include_router(settings_router)
@@ -76,6 +83,7 @@ router.include_router(attachments_router)
 router.include_router(workspace_files_router)
 router.include_router(workspace_snapshots_router)
 router.include_router(images_router)
+router.include_router(speech_router)
 router.include_router(usage_router)
 router.include_router(history_export_router)
 router.include_router(profile_router)

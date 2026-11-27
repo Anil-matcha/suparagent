@@ -84,6 +84,13 @@ def automatic(tool, mode, run, arguments):
                 if mode == "plan":
                     return "denied", "plan_mode"
                 return "allowed", "routine_write_grant"
+            if found.kind == "label":
+                # A routine may add its own labels only when its grants name the tool and the agent is at the labels level or above.
+                if name not in composio_tools.ROUTINE_WRITE_TOOLS or not composio_tools.allows((run.ctx.composio_apps or {}).get(found.app), "label"):
+                    return "denied", "routine_label_not_granted"
+                if mode == "plan":
+                    return "denied", "plan_mode"
+                return "allowed", "routine_label_grant"
         decision = composio_policy.automatic(tool, mode, run.ctx.composio_apps, arguments,
             getattr(run.ctx, "composio_first_use_hit", False),
             uninterrupted=getattr(run, "uninterrupted_access", False))

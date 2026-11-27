@@ -71,8 +71,13 @@ async def test_codex_without_an_agent_or_with_notes_off_mounts_nothing(crt, sess
     thread = await crt.create_thread(provider="codex", agent_id=off.id)
     await crt.send_turn(thread.id, "hi")
     await finished(sessions, thread.id)
-    assert all("config" not in m["params"] for m in codex.received("thread/start"))
-    assert all("developerInstructions" not in m["params"] for m in codex.received("thread/start"))
+    for start in codex.received("thread/start"):
+        servers = (start["params"].get("config") or {}).get("mcp_servers", {})
+        assert "memory" not in servers  # the notes are off, or there is no agent
+        # The only thing an agent may still be given is the connected-apps server that offers just the request to
+        # connect an app (services/app_connection.py), with its note.
+        assert set(servers) <= {"suparagent_composio"}
+        assert "memory" not in start["params"].get("developerInstructions", "").lower()
 
 
 # --- ACP ------------------------------------------------------------------------------------

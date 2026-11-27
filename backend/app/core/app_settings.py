@@ -14,6 +14,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.desktop import profile
+from app.services.speech_voices import VOICE_IDS
 
 
 @dataclass(frozen=True)
@@ -24,11 +25,13 @@ class Definition:
     minimum: int | None = None
     maximum: int | None = None
     classification: str = "application"
+    choices: tuple[str, ...] | None = None
 
 
 REGISTRY = {
     "TEAM_ENABLED": Definition("boolean", False, "next_run"),
     "TEAM_LEAD_AUTO": Definition("boolean", True, "next_run"),
+    "TEAM_PROFILE_AUTO": Definition("boolean", False, "next_run"),
     "TEAM_ESCALATIONS": Definition("boolean", False, "next_run"),
     "DESKTOP_ONBOARDING_COMPLETED": Definition("boolean", False, "immediate"),
     "LOCAL_CLAUDE_CLI_PATH": Definition("file", True, "next_run"),
@@ -37,6 +40,7 @@ REGISTRY = {
     "LOCAL_TASK_TIMEOUT_SECONDS": Definition("integer", False, "next_run", 0, 3600),
     "LOCAL_APPROVAL_TIMEOUT_SECONDS": Definition("integer", True, "next_run", 30, 3600),
     "LOCAL_MAX_OUTPUT_BYTES": Definition("integer", False, "next_run", 1024, 16_000_000),
+    "SPEECH_VOICE": Definition("choice", False, "immediate", choices=VOICE_IDS),
     "SPEND_PER_CALL_CENTS": Definition("integer", True, "immediate", 0, 100_000),
     "SPEND_PER_RUN_CENTS": Definition("integer", True, "immediate", 0, 1_000_000),
     "SPEND_PER_WORKER_MONTH_CENTS": Definition("integer", True, "immediate", 0, 10_000_000),
@@ -81,6 +85,9 @@ def validate(key: str, value: object, *, prepare: bool = False):
     if definition.kind == "boolean":
         if type(value) is not bool:
             raise ValueError("Must be a boolean.")
+    elif definition.kind == "choice":
+        if value not in (definition.choices or ()):
+            raise ValueError("Choose one of the listed options.")
     elif definition.kind == "integer":
         if type(value) is not int or not definition.minimum <= value <= definition.maximum:
             raise ValueError(f"Must be an integer from {definition.minimum} to {definition.maximum}.")

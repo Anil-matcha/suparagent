@@ -20,7 +20,7 @@ const CHIP = "cursor-pointer rounded-full border px-3 py-1 text-xs font-medium";
 
 // Ready-made agents: browse and search a bundled list, then Add one. Add only
 // hands the template to the new-agent form; nothing is created here.
-export function TemplatesGallery({ onAdd }: { onAdd: (template: AgentTemplate) => void }) {
+export function TemplatesGallery({ onAdd, onHire }: { onAdd: (template: AgentTemplate) => void; onHire?: (template: AgentTemplate) => void }) {
   const [catalog, setCatalog] = useState<TemplateCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -128,6 +128,16 @@ export function TemplatesGallery({ onAdd }: { onAdd: (template: AgentTemplate) =
                 >
                   {template.available ? "Add" : "Unavailable"}
                 </button>
+                {onHire && template.available && (
+                  <button
+                    type="button"
+                    onClick={() => onHire(template)}
+                    aria-label={`Hire ${template.name}`}
+                    className="ml-2 cursor-pointer rounded-md border border-line px-3 py-1 text-xs font-medium hover:bg-hover"
+                  >
+                    Hire
+                  </button>
+                )}
               </div>
             </li>
           ))}

@@ -11,7 +11,7 @@ from sqlalchemy import select, func
 from app.core.config import settings
 from app.db.models import Agent, AgentJob, Approval, Thread, Team, TeamEvent, TeamSetupRequest, Turn
 from app.db.transactions import begin_write
-from app.services import agent_memory
+from app.services import agent_history, agent_memory
 from app.team import fence
 from app.team.service import TeamError, audit, clean_line, member, now, team_for
 
@@ -197,6 +197,9 @@ async def undo_status(db, row):
     if row.kind == 'routine':
         from app.team import routine_changes
         return await routine_changes.status(db, row)
+    if row.kind == 'skill':
+        from app.team import skill_changes
+        return await skill_changes.status(db, row)
     if row.kind != 'setup' or row.state != 'applied':
         return {'available': False, 'reason': 'This change is no longer undoable.'}
     team = await team_for(db, row.owner_id)
@@ -295,8 +298,10 @@ async def _apply_operations(db, owner, caller, team, turn_id, thread_id, operati
         else:
             agent = await db.get(Agent, op['agent_id'], with_for_update=True)
             before = snapshot(agent)
+            history_before = agent_history.profile_of(agent)
             for key, value in op['fields'].items():
                 setattr(agent, key, value)
+            await agent_history.record(db, agent, history_before, source='chat')
             audit(db, team, 'agent_updated', agent_id=agent.id, thread_id=thread_id, data={'turn_id': turn_id, 'fields': sorted(op['fields'])})
             results.append({'action': 'updated', 'agent_id': agent.id, 'name': agent.name,
                             'changes': changes(before, {key: getattr(agent, key) for key in op['fields']})})
@@ -475,8 +480,10 @@ async def propose(db, owner, caller_id, turn_id, thread_id, plan, *, check_engin
         else:
             agent = await db.get(Agent, op['agent_id'], with_for_update=True)
             before = snapshot(agent)
+            history_before = agent_history.profile_of(agent)
             for key, value in op['fields'].items():
                 setattr(agent, key, value)
+            await agent_history.record(db, agent, history_before, source='chat')
             audit(db, team, 'agent_updated', agent_id=agent.id, thread_id=thread_id, data={'turn_id': turn_id, 'fields': sorted(op['fields'])})
             results.append({'action': 'updated', 'agent_id': agent.id, 'name': agent.name,
                             'changes': changes(before, {key: getattr(agent, key) for key in op['fields']})})
@@ -503,13 +510,16 @@ async def undo(db, owner, request_id):
     await begin_write(db)
     team = await team_for(db, owner, lock=True)
     row = await existing(db, owner, request_id)
-    if row is None or team is None or row.team_id != team.id or row.kind not in ('setup', 'routine'):
+    if row is None or team is None or row.team_id != team.id or row.kind not in ('setup', 'routine', 'skill'):
         await db.rollback()
         raise TeamError('request_not_found', 'No such team change to undo.')
     if row.state != 'applied':
         code = 'already_undone' if row.state == 'undone' else 'not_undoable'
         await db.rollback()
         raise TeamError(code, 'This change cannot be undone.')
+    if row.kind == 'skill':
+        from app.team import skill_changes
+        return await skill_changes.undo(db, owner, row, team)
     if row.kind == 'routine':
         from app.team import routine_changes
         from app.services.routine_service import InvalidRoutine
@@ -547,8 +557,10 @@ async def undo(db, owner, request_id):
         await db.delete(agent)
         audit(db, team, 'agent_create_undone', agent_id=agent.id, data={'removed': 'deleted', 'request_id': request_id})
     for agent, before in updated:
+        history_before = agent_history.profile_of(agent)
         for key, value in before.items():
             setattr(agent, key, value)
+        await agent_history.record(db, agent, history_before, source='chat_undo')
         audit(db, team, 'agent_update_undone', agent_id=agent.id, data={'request_id': request_id})
     row.state, row.decided_at = 'undone', now()
     await db.commit()

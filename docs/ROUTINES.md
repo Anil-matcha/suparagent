@@ -253,27 +253,44 @@ The editor lets you authorize exact actions and connected accounts once per
 routine. **Select all available actions** grants the actions allowed by the
 selected agent's active connected accounts, including writes only when that
 agent already has write access; **Clear all actions** removes these routine
-grants. The agent must also have matching app and account access. Scheduled and
-manual runs can use granted reads, send a one-recipient plain-text Gmail email,
-create a new GitHub `campaign/` branch, or commit a file on that branch without
-repeated action approvals. Plan mode refuses writes. Webhook and retry runs
-receive no app tools. Computer-backed runs receive them only with the
-Uninterrupted access setting described below.
+grants. The agent must also have matching app and account access. Scheduled,
+manual and Gmail event runs can use granted reads, send a one-recipient
+plain-text Gmail email, create a new GitHub `campaign/` branch, or commit a
+file on that branch without repeated action approvals. Plan mode refuses
+writes. Custom webhook and retry runs receive no app tools. Computer-backed
+runs receive them only with the Uninterrupted access setting described below.
+
+### Gmail new-mail event
+
+The routine editor can add a Gmail new-mail trigger alongside the schedule.
+Composio applies the account's label or search filter before it sends an event.
+The event only wakes the routine: the app keeps validated provider identifiers,
+not message text, and the agent reads mail through the routine's existing
+Gmail grants and mailbox-share rule. The default debounce is five minutes and
+the default cap is twelve event-started runs per day; quiet hours are optional.
+
+A hosted install with a public endpoint receives signed Composio webhooks
+directly. A desktop uses the Suparagent account relay and one outbound stream;
+the schedule remains in place if the event path is unavailable. The backend
+is deployed on staging; the real event path and an installed desktop build
+remain unqualified.
 
 New grants apply on the next run and revocations stop subsequent calls. Writes
 are reserved before dispatch and the same exact request cannot be replayed in
-that run. Run history shows receipts and uncertain outcomes. A new manual or
-scheduled run can perform the work again: check the app before rerunning after
-an uncertain result. External changes are not covered by file Undo. Other writes,
-remain unavailable except for the separate confined draft mode below. See [Connected apps](CONNECTED_APPS.md#routine-specific-app-access).
+that run. Run history shows receipts and uncertain outcomes. A new manual,
+scheduled or Gmail event run can perform the work again; check the app before
+rerunning after an uncertain result. External changes are not covered by file
+Undo. Other writes remain unavailable except for the separate confined draft
+mode below. See [Connected apps](CONNECTED_APPS.md#routine-specific-app-access).
 
 ## Uninterrupted access
 
 Enable **Uninterrupted access** in the routine editor to authorize the selected
-agent's configured capabilities for scheduled and manual runs. This is a broad
-routine permission: it includes app actions within the agent's selected
-read/write app and account scopes, its exact granted marketplace tools, and
-screen, browser, command and file tools on its attached isolated computer.
+agent's configured capabilities for scheduled, manual and Gmail event runs.
+This is a broad routine permission: it includes app actions within the
+agent's selected read/write app and account scopes, its exact granted
+marketplace tools, and the screen, browser, command and file tools on its
+attached isolated computer.
 For a daily browser task, the attached Boat desktop can navigate and interact
 without an **Allow this turn** card on every occurrence.
 

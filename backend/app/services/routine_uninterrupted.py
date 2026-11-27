@@ -3,7 +3,7 @@ from sqlalchemy import select
 
 from app.computers import policy as computers
 from app.db.models import Agent, Computer, Thread, Turn, CommunityMcpConnection, CommunityMcpToolGrant, MuapiToolGrant, UserCredential
-from app.db.models.routine import Routine, RoutineRun
+from app.db.models.routine import SCHEDULED_TRIGGERS, Routine, RoutineRun
 from app.services import safety_floor
 
 
@@ -55,7 +55,7 @@ async def state(runtime, run, db=None, *, lock=False):
     turn = await db.get(Turn, run.turn_id)
     if (routine is None or not routine.uninterrupted_access or routine.owner_id != runtime.owner_id
             or routine.agent_id != run.agent_id or agent is None or agent.owner_id != runtime.owner_id
-            or agent.archived_at is not None or occurrence.trigger not in ("manual", "schedule")
+            or agent.archived_at is not None or occurrence.trigger not in SCHEDULED_TRIGGERS
             or occurrence.state not in ("running", "needs_input") or occurrence.thread_id != run.thread_id
             or occurrence.turn_id not in (None, run.turn_id) or turn is None
             or turn.thread_id != run.thread_id or turn.origin != "routine" or turn.status != "running"
@@ -152,7 +152,7 @@ async def automatic(runtime, run, tool: str, arguments: dict):
                         or not composio_tools.allows(apps.get(found.app), found.kind)
                         or not set(ceiling.get("accounts", {}).get(found.app, [])).intersection(accounts.get(found.app, []))):
                     return "denied", "routine_app_not_granted"
-                if found.kind == "write" and run.ctx.approval_mode == "plan":
+                if found.kind != "read" and run.ctx.approval_mode == "plan":
                     return "denied", "plan_mode"
             else:
                 alias = tool.removeprefix("mcp__community__")

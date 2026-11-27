@@ -1,6 +1,6 @@
 # Templates
 
-Templates are ready-made starting points for new agents. Open **Agents → Templates…** to browse a bundled list of roles, filter by category (Everyday, Sales, Marketing, Support, Web) and search by name, role, description or category.
+Templates are ready-made starting points for new agents. Open **Agents → Templates…** to browse a bundled list of roles, filter by category (Operations, Growth, Sales, Marketing, Support, Web) and search by name, role, description or category.
 
 ## What choosing one does
 
@@ -14,11 +14,11 @@ Some templates suggest skills (text instructions the agent can be asked to follo
 
 ## Workers
 
-The bundled templates are eight **workers**: Daily briefer, Lead researcher, Outreach drafter, SEO writer, Social media manager, Ad manager, Customer care and Site keeper. The first five use MuAPI data tools; Ad manager, Customer care and Site keeper work from what you paste or point them to and make no paid calls. Each card also shows its **starter routines (paused)** and a **setup depth** (Express, Standard or Guided). These are descriptions only: choosing a worker fills the form like any other template and creates no routine, schedules nothing and grants no tool. A worker's instructions are its short role text followed once by shared run rules (drafts only, a fixed order for paid lookups, one run record per run). Suggested MuAPI tools are named for you to grant later; they are never granted by choosing a template.
+The bundled templates are eight **workers**: Operations analyst, GTM engineer, Sales, SEO, Social media, Ad manager, Customer support and Web developer. Every worker can use MuAPI's read-only data tools (and Social media and Ad manager also the capped picture tools) for paid lookups under the workspace spend limits; without MuAPI each does its free steps and says what needs MuAPI. Customer support also reads your support inbox and Web developer reads your own sites without MuAPI. Each card also shows its **starter routines (paused)** and a **setup depth** (Express, Standard or Guided). These are descriptions only: choosing a worker fills the form like any other template and creates no routine, schedules nothing and grants no tool. A worker's instructions are its short role text followed once by shared run rules (drafts only, a fixed order for paid lookups, one run record per run). Suggested MuAPI tools are named for you to grant later; they are never granted by choosing a template.
 
 ## Roles that need a connection
 
-A template built around a connection this app does not have yet (email, community feeds) is shown with "Needs … · not available yet" and its Add button is disabled. Most roles need no connection and work offline.
+A template built around a connection this app does not have yet (email, community feeds) is shown with "Needs … · not available yet" and its Add button is disabled. Roles that only need Muapi can still be added before it is connected.
 
 A role built around a connection you can set up in this app (Muapi) can be added before the connection exists. It shows "Needs Muapi · Connect" until the Muapi listing is installed from the marketplace and its token is saved; Connect opens the marketplace. Adding the role grants nothing and calls nothing, and the role cannot use Muapi tools until you grant them to the agent. `GET /templates` reports each template's `missing` connections for this workspace; the check is local and makes no Muapi request.
 

@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from app.core.config import settings
 from app.schemas.routine import (
+    AppEventStatus,
     NotificationResponse,
     RoutineCreateRequest,
     RoutineAppActionResponse,
@@ -28,7 +29,7 @@ from app.schemas.routine import (
     WaitingRoutineRun,
     WebhookSecretResponse,
 )
-from app.services import notification_feed
+from app.services import app_events, notification_feed
 from app.services import routine_schedule as schedules
 from app.services import routine_service as service
 from app.services.local_access_policy import require_local_access
@@ -60,9 +61,10 @@ async def _validated_grants(db, owner_id, agent_id, grants):
         raise _error(422, "invalid_app_grant", "Use an empty list to switch app access off.")
     if not grants:
         return []
-    from app.schemas.routine import validate_draft_grants
+    from app.schemas.routine import validate_draft_grants, validate_shadow_grants
     try:
         validate_draft_grants(grants)
+        validate_shadow_grants(grants)
     except ValueError as exc:
         raise _error(422, "invalid_app_grant", str(exc)) from None
     tools = [g.tool for g in grants]
@@ -86,6 +88,23 @@ async def _validated_grants(db, owner_id, agent_id, grants):
         if not any(a.id == grant.account_id and a.toolkit == tool.app and a.status == "ACTIVE" for a in accounts):
             raise _error(422, "invalid_app_grant", "Select an active connected account for each action.")
     return [g.model_dump() for g in grants]
+
+
+def _app_event_error(exc: app_events.AppEventError) -> HTTPException:
+    return _error(exc.status, exc.code, exc.message)
+
+
+def _composio_factory():
+    """Looked up when used, so a test can replace composio_bridge.make_client."""
+    from app.services import composio_bridge
+    return lambda key: composio_bridge.make_client(key)
+
+
+async def _enriched(db, response: RoutineResponse, routine) -> RoutineResponse:
+    """The new-mail trigger's status, for a routine that has one."""
+    if routine.app_event is None:
+        return response
+    return response.model_copy(update={"app_event_status": AppEventStatus.model_validate(await app_events.status_for(db, routine))})
 
 
 def _routine_status(routine, now: datetime) -> str:
@@ -117,7 +136,7 @@ def _describe(routine, latest=None, now: datetime | None = None) -> RoutineRespo
 
 async def _one(db, routine) -> RoutineResponse:
     latest = (await service.latest_runs(db, [routine.id])).get(routine.id)
-    return _describe(routine, latest)
+    return await _enriched(db, _describe(routine, latest), routine)
 
 
 def _hook_path(routine_id: int) -> str:
@@ -134,8 +153,8 @@ async def list_routines(sch: service.RoutineScheduler = Depends(service.get_sche
     async with sch.session() as db:
         routines = await service.list_routines(db, sch.owner_id)
         latest = await service.latest_runs(db, [r.id for r in routines])
-    now = datetime.now(UTC)
-    return [_describe(r, latest.get(r.id), now) for r in routines]
+        now = datetime.now(UTC)
+        return [await _enriched(db, _describe(r, latest.get(r.id), now), r) for r in routines]
 
 
 @router.post("/routines", response_model=RoutineResponse, status_code=201)
@@ -151,7 +170,26 @@ async def create_routine(payload: RoutineCreateRequest, sch: service.RoutineSche
             await db.refresh(routine)
         except service.InvalidRoutine as exc:
             raise _invalid(exc) from None
-        return _describe(routine)
+        if payload.app_event is not None:
+            try:
+                await app_events.apply(db, sch.owner_id, routine, payload.app_event.stored(), _composio_factory())
+            except app_events.AppEventError as exc:
+                # A routine that was asked to wake on mail and cannot is not created half-way.
+                await service.delete_routine(db, sch.owner_id, routine.id)
+                raise _app_event_error(exc) from None
+            await db.refresh(routine)
+        return await _one(db, routine)
+
+
+@router.get("/routines/app-event/readiness")
+async def app_event_readiness(sch: service.RoutineScheduler = Depends(service.get_scheduler)):
+    """Whether this install can wake a routine on new mail, for the editor to show before anything is switched on."""
+    from app.services import composio_service
+    async with sch.session() as db:
+        configured = await composio_service.configured(db, sch.owner_id)
+    problem = app_events.endpoint_problem()
+    return {"composio_configured": configured, "can_receive": problem is None,
+            "reason": problem[0] if problem else None, "message": problem[1] if problem else None}
 
 
 @router.post("/routines/preview", response_model=SchedulePreviewResponse)
@@ -252,6 +290,15 @@ async def update_routine(
             raise _not_found() from None
         except service.InvalidRoutine as exc:
             raise _invalid(exc) from None
+        try:
+            if "app_event" in payload.model_fields_set:
+                await app_events.apply(db, sch.owner_id, routine,
+                                       payload.app_event.stored() if payload.app_event is not None else None, _composio_factory())
+            elif routine.app_event is not None and (access_changed or grants is not None or payload.agent_id is not None):
+                await app_events.recheck(db, sch.owner_id, routine, _composio_factory())
+        except app_events.AppEventError as exc:
+            raise _app_event_error(exc) from None  # the other edits in this request were saved
+        await db.refresh(routine)
         return await _one(db, routine)
 
 
@@ -259,6 +306,9 @@ async def update_routine(
 async def delete_routine(routine_id: int, sch: service.RoutineScheduler = Depends(service.get_scheduler)):
     async with sch.session() as db:
         try:
+            routine = await service.get_routine(db, sch.owner_id, routine_id)
+            # The remote trigger goes first; if Composio cannot be reached its id is kept for a retry and the delete goes on.
+            await app_events.remove(db, sch.owner_id, routine, _composio_factory(), deleting=True)
             await service.delete_routine(db, sch.owner_id, routine_id)
         except service.RoutineNotFound:
             raise _not_found() from None
@@ -275,6 +325,8 @@ async def _pause(routine_id: int, paused: bool, sch: service.RoutineScheduler) -
             raise _error(409, "spent_schedule", str(exc)) from None
         except service.InvalidRoutine as exc:
             raise _error(422, exc.code, str(exc)) from None
+        if routine.app_event is not None:
+            await app_events.set_paused(db, sch.owner_id, routine, paused, _composio_factory())
         return await _one(db, routine)
 
 

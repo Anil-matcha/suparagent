@@ -96,6 +96,13 @@ class Agent(Base):
     connector_account_scopes: Mapped[dict] = mapped_column(
         JSONValue, nullable=False, default=dict, server_default=text("'{}'")
     )
+    # The share of a mailbox an agent may see, per app and Composio account:
+    # {"gmail": {"<account id>": {"percent": 1-100, "seed": "<hex>", "pins": [thread ids]}}}.
+    # No entry for an account means the whole mailbox. Enforced in app/gmail_share.py on
+    # every Gmail call (services/composio_service.run_tool). The seed never leaves the server.
+    connector_shares: Mapped[dict] = mapped_column(
+        JSONValue, nullable=False, default=dict, server_default=text("'{}'")
+    )
     # Pinned agents list first.
     pinned: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=expression.false()

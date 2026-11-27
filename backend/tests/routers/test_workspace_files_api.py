@@ -32,8 +32,8 @@ def layout(tmp_path):
     (root / "src").mkdir(parents=True)
     outside.mkdir()
     (outside / "secret.txt").write_text("outside the workspace")
-    (root / "README.md").write_text("# Hello\n")
-    (root / "src" / "main.py").write_text("print('hi')\n")
+    (root / "README.md").write_bytes(b"# Hello\n")
+    (root / "src" / "main.py").write_bytes(b"print('hi')\n")
     (root / "chart.png").write_bytes(PNG)
     (root / "blob.bin").write_bytes(b"\x00\x01\x02" * 10)
     (root / ".env").write_text("API_KEY=sk-live")
@@ -41,10 +41,13 @@ def layout(tmp_path):
     (root / "server.pem").write_text("-----BEGIN PRIVATE KEY-----")
     (root / ".git").mkdir()
     (root / ".git" / "config").write_text("[core]")
-    os.symlink(outside / "secret.txt", root / "escape.txt")
-    os.symlink(outside, root / "escape-dir")
-    os.symlink(root / "README.md", root / "readme-link.md")
-    os.symlink(root / ".env", root / "innocent.txt")
+    try:
+        os.symlink(outside / "secret.txt", root / "escape.txt")
+        os.symlink(outside, root / "escape-dir")
+        os.symlink(root / "README.md", root / "readme-link.md")
+        os.symlink(root / ".env", root / "innocent.txt")
+    except OSError:
+        pass
     return root
 
 
@@ -82,7 +85,9 @@ def test_secret_names():
         assert not secret(parts), parts
 
 
-async def test_listing_shows_folders_first_hides_escapes_and_marks_secrets(api):
+async def test_listing_shows_folders_first_hides_escapes_and_marks_secrets(api, layout):
+    if not (layout / "readme-link.md").exists():
+        pytest.skip("Symlink creation requires elevated privileges on Windows")
     response = await api.get(api.base)
     assert response.status_code == 200, response.text
     body = response.json()
@@ -134,7 +139,9 @@ async def test_traversal_is_refused(api, path):
         assert b"outside the workspace" not in response.content
 
 
-async def test_symlink_escapes_are_refused(api):
+async def test_symlink_escapes_are_refused(api, layout):
+    if not (layout / "escape.txt").exists():
+        pytest.skip("Symlink creation requires elevated privileges on Windows")
     for route in ("/content", "/download", "/raw"):
         response = await api.get(f"{api.base}{route}", params={"path": "escape.txt"})
         assert response.status_code == 403 and code(response) == "outside_workspace", route
@@ -144,8 +151,11 @@ async def test_symlink_escapes_are_refused(api):
     assert listing.status_code == 403 and code(listing) == "outside_workspace"
 
 
-async def test_secrets_are_never_served(api):
-    for path in (".env", ".env.local", "server.pem", ".git/config", "innocent.txt"):
+async def test_secrets_are_never_served(api, layout):
+    paths = [".env", ".env.local", "server.pem", ".git/config"]
+    if (layout / "innocent.txt").exists():
+        paths.append("innocent.txt")
+    for path in paths:
         for route in ("/content", "/download"):
             response = await api.get(f"{api.base}{route}", params={"path": path})
             assert response.status_code == 403 and code(response) == "secret_file", (route, path)
@@ -185,8 +195,11 @@ async def test_a_folder_downloads_as_a_zip_without_secrets_or_escapes(api, layou
     (layout / "src" / "deep" / "notes.txt").write_text("deep")
     (layout / "src" / ".env").write_text("API_KEY=sk-live")
     (layout / "src" / "id_rsa").write_text("PRIVATE")
-    os.symlink(layout / "src", layout / "src-link")  # a folder link is not followed
-    os.symlink(layout / "chart.png", layout / "src" / "chart-link.png")  # a file link inside is fine
+    try:
+        os.symlink(layout / "src", layout / "src-link")  # a folder link is not followed
+        os.symlink(layout / "chart.png", layout / "src" / "chart-link.png")  # a file link inside is fine
+    except OSError:
+        pytest.skip("Symlink creation requires elevated privileges on Windows")
 
     response = await api.get(f"{api.base}/zip")
     root = layout.name
@@ -212,11 +225,12 @@ async def test_a_folder_downloads_as_a_zip_without_secrets_or_escapes(api, layou
     assert sub.headers["content-disposition"].startswith('attachment; filename="src.zip"')
 
 
-async def test_a_zip_refuses_escapes_secrets_and_files(api):
+async def test_a_zip_refuses_escapes_secrets_and_files(api, layout):
     for path in ("../outside", "/etc", "src/../.."):
         assert (await api.get(f"{api.base}/zip", params={"path": path})).status_code == 400, path
-    escaped = await api.get(f"{api.base}/zip", params={"path": "escape-dir"})
-    assert escaped.status_code == 403 and code(escaped) == "outside_workspace"
+    if (layout / "escape-dir").exists():
+        escaped = await api.get(f"{api.base}/zip", params={"path": "escape-dir"})
+        assert escaped.status_code == 403 and code(escaped) == "outside_workspace"
     secret = await api.get(f"{api.base}/zip", params={"path": ".git"})
     assert secret.status_code == 403 and code(secret) == "secret_file"
     a_file = await api.get(f"{api.base}/zip", params={"path": "README.md"})
@@ -251,22 +265,35 @@ async def test_a_zip_leaves_no_temporary_file(api, monkeypatch, tmp_path):
 
 async def test_a_zip_leaves_out_names_that_are_unsafe_in_a_zip(api, layout):
     unsafe = ["..\\..\\evil.bat", "C:evil.txt", "bell\x07.txt", "rep\u202etxt.exe", "zero\u200bwidth.txt"]
+    created = 0
     for name in unsafe:
-        (layout / "src" / name).write_text("bad")
-    (layout / "src" / "sub\\dir").mkdir()
-    (layout / "src" / "sub\\dir" / "inner.txt").write_text("bad")
+        try:
+            p = layout / "src" / name
+            p.write_text("bad")
+            if p.name != name:
+                p.unlink(missing_ok=True)
+                continue
+            created += 1
+        except OSError:
+            continue
+    try:
+        (layout / "src" / "sub\\dir").mkdir()
+        (layout / "src" / "sub\\dir" / "inner.txt").write_text("bad")
+        created += 1
+    except OSError:
+        pass
     (layout / "src" / "ok name é.txt").write_text("fine")
 
     response = await api.get(f"{api.base}/zip", params={"path": "src"})
     assert zip_names(response) == {"src/main.py", "src/ok name é.txt"}
-    assert response.headers["x-skipped-unsafe-names"] == str(len(unsafe) + 1)
+    assert response.headers["x-skipped-unsafe-names"] == str(created)
     assert b"bad" not in response.content
 
 
 async def test_a_zip_leaves_out_names_that_are_not_utf8(api, layout):
     try:
         fd = os.open(os.fsencode(layout / "src") + b"/latin-\xe9.txt", os.O_WRONLY | os.O_CREAT, 0o644)
-    except OSError:
+    except (UnicodeDecodeError, OSError):
         pytest.skip("this filesystem refuses names that are not UTF-8")
     os.write(fd, b"bad")
     os.close(fd)
@@ -284,7 +311,10 @@ async def test_a_folder_swapped_for_a_link_to_a_secret_folder_is_refused(api, la
         found = walk(root, folder)
         (layout / "cfg" / "config").unlink()
         (layout / "cfg").rmdir()
-        os.symlink(layout / ".git", layout / "cfg")  # .git/config holds "[core]"
+        try:
+            os.symlink(layout / ".git", layout / "cfg")  # .git/config holds "[core]"
+        except OSError:
+            pytest.skip("Symlink creation requires elevated privileges on Windows")
         return found
 
     monkeypatch.setattr(workspace_files, "_zip_members", walk_then_swap)

@@ -404,6 +404,26 @@ def delete_skill(agent_id: int, name: str, *, expected_revision: str | None = No
         _delete_skill(agent_id, name)
 
 
+def restore_skill(agent_id: int, name: str, before: dict | None, expected_revision: str) -> None:
+    """Undo one saved change: put back `before` (None removes a created skill).
+
+    Refuses when the skill is gone or was edited since `expected_revision`.
+    """
+    check_name(name)
+    with _mutation_lock(agent_id):
+        try:
+            current = read_skill(agent_id, name)
+        except SkillError:
+            raise SkillError(409, "skill_undo_stale", "This skill is gone or changed, so Undo was refused.") from None
+        if current.revision != expected_revision:
+            raise SkillError(409, "skill_undo_stale", "This skill changed after it was saved. Undo would remove a later edit.")
+        if before is None:
+            _delete_skill(agent_id, name)
+        else:
+            _write_skill(agent_id, name, before["description"], before["body"], enabled=before["enabled"],
+                         source=before["source"], triggers=before["triggers"])
+
+
 def _delete_skill(agent_id: int, name: str) -> None:
     directory = _skill_dir(agent_id, name)
     path = directory / SKILL_FILE

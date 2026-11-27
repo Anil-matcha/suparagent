@@ -35,6 +35,11 @@ class EmailVerify(BaseModel):
     adopt_local_data: bool
 
 
+class GoogleSignIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    adopt_local_data: bool
+
+
 class Confirm(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm: str = Field(max_length=32)
@@ -62,6 +67,12 @@ def _error(err: account.DesktopAccountError) -> HTTPException:
         "local_reset_failed": "Local data could not be erased. Nothing was unlinked; try again.",
         "account_deleted_local_cleanup_failed": "Your account was deleted, but local data could not be fully erased. Choose Reset this profile to finish.",
         "rate_limited": "Too many attempts. Wait a little and try again.",
+        "google_sign_in_unavailable": "Google sign-in is not available right now. Use an email code instead.",
+        "google_sign_in_timeout": "Google sign-in took too long. Try again.",
+        "google_sign_in_cancelled": "Google sign-in was cancelled.",
+        "google_sign_in_failed": "Google sign-in did not finish. Try again.",
+        "google_signup_closed": "New accounts are not open yet.",
+        "browser_unavailable": "Suparagent could not open your browser. Use an email code instead.",
     }
     return HTTPException(status_code=err.status, detail={"error_code": err.code,
                                                            "message": messages.get(err.code, "Account sign-in failed. Try again.")})
@@ -89,6 +100,20 @@ async def email_verify(data: EmailVerify):
         return await _manager().email_verify(data.email, data.code, data.adopt_local_data)
     except account.DesktopAccountError as err:
         raise _error(err)
+
+
+@router.post("/google")
+async def google_sign_in(data: GoogleSignIn):
+    """Opens the browser and waits (up to 10 minutes) for the person to finish signing in with Google."""
+    try:
+        return await _manager().google_sign_in(data.adopt_local_data)
+    except account.DesktopAccountError as err:
+        raise _error(err)
+
+
+@router.post("/google/cancel")
+async def google_cancel():
+    return {"cancelled": _manager().google_cancel()}
 
 
 @router.post("/logout")

@@ -98,6 +98,8 @@ class Settings(BaseSettings):
     TURN_SANDBOX_WRITABLE_PATHS: str = ""
     TEAM_ENABLED: bool = True
     TEAM_LEAD_AUTO: bool = True
+    # An agent may change its own name, title, description and instructions at the person's request without a permission prompt (Undo stays). Off by default.
+    TEAM_PROFILE_AUTO: bool = False
     # Teammates may flag a gate only the person can lift (app/team/notices.py). Off by default.
     TEAM_ESCALATIONS: bool = False
     TEAM_MAX_CREATED_PER_TURN: int = 4
@@ -185,7 +187,9 @@ class Settings(BaseSettings):
     # Image generation (BL-114): any OpenAI-compatible images endpoint. Off until a key is set.
     IMAGE_API_BASE_URL: str = "https://api.openai.com/v1"
     IMAGE_API_KEY: str = ""
-    IMAGE_MODEL: str = "gpt-image-1"
+    IMAGE_MODEL: str = "gpt-image-2.6-flare"
+    # Spoken replies (BL-53): the voice a reply is read in. An id from app/services/speech_voices.py.
+    SPEECH_VOICE: str = "eleven-daniel"
     AUTH_LIMITS_DIR: str = ""
     # Whether a request from this machine needs no sign-in:
     #   off       every request signs in (default; safest)
