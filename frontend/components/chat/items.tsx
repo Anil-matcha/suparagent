@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronRight, Copy, CornerUpLeft, Ellipsis, GitBranch, Loader2, Quote, Reply, SmilePlus, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { Check, ChevronRight, Copy, CornerUpLeft, Ellipsis, GitBranch, Loader2, Pencil, Pin, PinOff, Quote, Reply, SmilePlus, Square, ThumbsDown, ThumbsUp, Volume2, X } from "lucide-react";
 import type { ReactionKind } from "@/lib/reactions";
 import { buildAnnotatedMessage, citationAttachment, createCitationTextSelector, splitMessageAnnotations, type CitationAttachment } from "@/lib/citations";
 import { Menu, MenuItem } from "@/components/ui/Menu";
@@ -18,7 +18,7 @@ import { toolRunSummary } from "@/lib/transcript-view";
 import { Button } from "@/components/ui/Button";
 import { useSession } from "../AuthGate";
 import { Markdown } from "./Markdown";
-import { SpeakButton } from "./SpeakButton";
+import { useSpeechPlayback } from "./SpeakButton";
 import { copyToClipboard } from "@/lib/clipboard";
 import { MessageAttachments } from "./Attachments";
 import { canBranchFrom, canForkFrom } from "@/lib/branch-link";
@@ -103,19 +103,23 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
 export function UserMessage({
   item,
   threadId = null,
+  pinned = false,
   onBranch,
   onFork,
   onReply,
   onCite,
+  onTogglePin,
   onNavigateSource,
 }: {
   item: Item<"user">;
   threadId?: number | null;
+  pinned?: boolean;
   // Edit this message and resend it in a new branch; resolves false on failure.
   onBranch?: (turnId: number, text: string) => Promise<boolean>;
   onFork?: () => void;
   onReply?: () => void;
   onCite?: (citation: CitationAttachment) => void;
+  onTogglePin?: () => void;
   onNavigateSource?: (itemKey: string, citation?: CitationAttachment) => boolean;
 }) {
   const t = useT();
@@ -124,6 +128,7 @@ export function UserMessage({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(parsed.display || item.text);
   const [busy, setBusy] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const canBranch = onBranch !== undefined && canBranchFrom(item);
   const canFork = onFork !== undefined && canForkFrom(item);
   if (editing && canBranch) {
@@ -177,7 +182,12 @@ export function UserMessage({
         </button>
       )}
       <div className="flex max-w-[88%] items-end gap-1 sm:max-w-[80%]">
-        <div className="mb-0.5 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/msg:opacity-100">
+        <div
+          className={cn(
+            "mb-0.5 flex items-center gap-0.5 transition-opacity",
+            menuOpen ? "opacity-100" : "opacity-0 focus-within:opacity-100 group-hover/msg:opacity-100 touch:opacity-100",
+          )}
+        >
           {onReply && (
             <button
               type="button"
@@ -190,9 +200,11 @@ export function UserMessage({
             </button>
           )}
           {(parsed.display || item.text) && <CopyButton text={parsed.display || item.text} />}
-          {(canBranch || canFork || onCite) && (
+          {(canBranch || canFork || onCite || onTogglePin) && (
             <Menu
               align="end"
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
               trigger={
                 <button
                   type="button"
@@ -204,9 +216,26 @@ export function UserMessage({
                 </button>
               }
             >
-              {canFork && <MenuItem onSelect={onFork}>Branch side by side</MenuItem>}
-              {onCite && <MenuItem onSelect={citeSnippet}>Cite quote</MenuItem>}
-              {canBranch && <MenuItem onSelect={() => { setDraft(parsed.display || item.text); setEditing(true); }}>{t("branch.edit")}</MenuItem>}
+              {onTogglePin && (
+                <MenuItem onSelect={onTogglePin} icon={pinned ? <PinOff size={14} /> : <Pin size={14} />}>
+                  {pinned ? "Unpin message" : "Pin message"}
+                </MenuItem>
+              )}
+              {canFork && (
+                <MenuItem onSelect={onFork} icon={<GitBranch size={14} />}>
+                  Branch side by side
+                </MenuItem>
+              )}
+              {onCite && (
+                <MenuItem onSelect={citeSnippet} icon={<Quote size={14} />}>
+                  Cite quote
+                </MenuItem>
+              )}
+              {canBranch && (
+                <MenuItem onSelect={() => { setDraft(parsed.display || item.text); setEditing(true); }} icon={<Pencil size={14} />}>
+                  {t("branch.edit")}
+                </MenuItem>
+              )}
             </Menu>
           )}
         </div>
@@ -231,14 +260,24 @@ export function UserMessage({
           ))}
         </div>
       )}
-      {(timeStr || item.person) && (
-        <time
-          dateTime={item.ts ?? undefined}
-          title={item.ts ? new Date(item.ts).toLocaleString() : undefined}
-          className="select-none px-1 text-[11px] text-muted/70 font-normal"
-        >
-          {[item.person, timeStr].filter(Boolean).join(" · ")}
-        </time>
+      {(timeStr || item.person || pinned) && (
+        <div className="flex items-center gap-1.5 px-1">
+          {pinned && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-inset px-2 py-0.5 text-[11px] font-medium text-muted">
+              <Pin size={10} className="text-accent" aria-hidden="true" />
+              Pinned
+            </span>
+          )}
+          {(timeStr || item.person) && (
+            <time
+              dateTime={item.ts ?? undefined}
+              title={item.ts ? new Date(item.ts).toLocaleString() : undefined}
+              className="select-none text-[11px] text-muted/70 font-normal"
+            >
+              {[item.person, timeStr].filter(Boolean).join(" · ")}
+            </time>
+          )}
+        </div>
       )}
       {item.skills && item.skills.length > 0 && (
         <p className="max-w-[88%] break-words text-xs text-muted sm:max-w-[80%]">
@@ -255,11 +294,13 @@ export function AssistantMessage({
   incomplete = false,
   live = false,
   ts = null,
+  pinned = false,
   reaction = null,
   onReact,
   onReply,
   onFork,
   onCite,
+  onTogglePin,
   disabled = false,
   threadId = null,
   workspacePath = null,
@@ -269,11 +310,13 @@ export function AssistantMessage({
   incomplete?: boolean;
   live?: boolean;
   ts?: string | null;
+  pinned?: boolean;
   reaction?: ReactionKind | null;
   onReact?: (reaction: ReactionKind) => void;
   onReply?: () => void;
   onFork?: () => void;
   onCite?: (citation: CitationAttachment) => void;
+  onTogglePin?: () => void;
   disabled?: boolean;
   threadId?: number | null;
   workspacePath?: string | null;
@@ -281,6 +324,8 @@ export function AssistantMessage({
   const t = useT();
   const timeStr = formatMessageTime(ts, t);
   const [reactOpen, setReactOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const speech = useSpeechPlayback(text);
   const citeWhole = () => {
     if (!onCite || !itemKey) return;
     const raw = text.trim();
@@ -298,10 +343,27 @@ export function AssistantMessage({
       </div>
       {live && <span aria-hidden="true" className="animate-pulse text-muted motion-reduce:animate-none">▍</span>}
       {!live && text && (
-        <div className="-ml-1 mt-1.5 flex flex-wrap items-center gap-1">
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {pinned && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-inset px-2 py-0.5 text-[11px] font-medium text-muted">
+              <Pin size={10} className="text-accent" aria-hidden="true" />
+              Pinned
+            </span>
+          )}
+          {timeStr && (
+            <time
+              dateTime={ts ?? undefined}
+              title={ts ? new Date(ts).toLocaleString() : undefined}
+              className="select-none px-0.5 text-[11px] text-muted/70 font-normal"
+            >
+              {timeStr}
+            </time>
+          )}
           <div className={cn(
             "flex items-center gap-0.5 transition-opacity",
-            reaction || reactOpen ? "opacity-100" : "opacity-0 focus-within:opacity-100 group-hover/msg:opacity-100",
+            reaction || reactOpen || menuOpen || speech.busy
+              ? "opacity-100"
+              : "opacity-0 focus-within:opacity-100 group-hover/msg:opacity-100 touch:opacity-100",
           )}>
             {onReply && (
               <button
@@ -312,17 +374,6 @@ export function AssistantMessage({
                 className="inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-muted transition-colors hover:bg-hover hover:text-ink touch:size-9"
               >
                 <Reply size={14} aria-hidden="true" />
-              </button>
-            )}
-            {onFork && (
-              <button
-                type="button"
-                onClick={onFork}
-                aria-label="Branch side by side"
-                title="Branch side by side"
-                className="inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-muted transition-colors hover:bg-hover hover:text-ink touch:size-9"
-              >
-                <GitBranch size={14} aria-hidden="true" />
               </button>
             )}
             {onReact && (
@@ -386,36 +437,54 @@ export function AssistantMessage({
               </div>
             )}
             <CopyButton text={text} />
-            <SpeakButton text={text} />
-            {(onReply || onFork || onCite) && (
-              <Menu
-                align="start"
-                trigger={
-                  <button
-                    type="button"
-                    aria-label="More message actions"
-                    title="More"
-                    className="inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-muted transition-colors hover:bg-hover hover:text-ink touch:size-9"
-                  >
-                    <Ellipsis size={14} aria-hidden="true" />
-                  </button>
+            <Menu
+              align="start"
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+              trigger={
+                <button
+                  type="button"
+                  aria-label="More message actions"
+                  title="More"
+                  className="inline-flex size-7 cursor-pointer items-center justify-center rounded-field text-muted transition-colors hover:bg-hover hover:text-ink touch:size-9"
+                >
+                  <Ellipsis size={14} aria-hidden="true" />
+                </button>
+              }
+            >
+              <MenuItem
+                onSelect={speech.toggle}
+                icon={
+                  speech.phase === "loading" ? (
+                    <Loader2 size={14} className="animate-spin motion-reduce:animate-none" />
+                  ) : speech.phase === "playing" ? (
+                    <Square size={13} className="fill-current text-accent" />
+                  ) : (
+                    <Volume2 size={14} />
+                  )
                 }
               >
-                {onReply && <MenuItem onSelect={onReply}>Reply</MenuItem>}
-                {onFork && <MenuItem onSelect={onFork}>Branch side by side</MenuItem>}
-                {onCite && itemKey && <MenuItem onSelect={citeWhole}>Cite quote</MenuItem>}
-              </Menu>
-            )}
+                {speech.label}
+              </MenuItem>
+              {onTogglePin && (
+                <MenuItem onSelect={onTogglePin} icon={pinned ? <PinOff size={14} /> : <Pin size={14} />}>
+                  {pinned ? "Unpin message" : "Pin message"}
+                </MenuItem>
+              )}
+              {onFork && (
+                <MenuItem onSelect={onFork} icon={<GitBranch size={14} />}>
+                  Branch side by side
+                </MenuItem>
+              )}
+              {onCite && itemKey && (
+                <MenuItem onSelect={citeWhole} icon={<Quote size={14} />}>
+                  Cite quote
+                </MenuItem>
+              )}
+            </Menu>
           </div>
-          {timeStr && (
-            <time
-              dateTime={ts ?? undefined}
-              title={ts ? new Date(ts).toLocaleString() : undefined}
-              className="select-none px-1 text-[11px] text-muted/70 font-normal"
-            >
-              {timeStr}
-            </time>
-          )}
+          {speech.note && <span role="status" className="text-[11px] font-normal text-muted/80">{speech.note}</span>}
+          {speech.error && <span role="alert" className="text-[11px] font-normal text-danger">{speech.error}</span>}
         </div>
       )}
       {incomplete && <p className="mt-1 text-xs text-muted">This message stopped before it was finished.</p>}

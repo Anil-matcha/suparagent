@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, CalendarDays, Folder, Link2, Menu as MenuIcon, MoreHorizontal, Search, ShieldCheck, Undo2 } from "lucide-react";
+import { BarChart3, CalendarDays, Folder, Link2, Menu as MenuIcon, MoreHorizontal, Pin, Search, ShieldCheck, Undo2 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Agent } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -28,6 +28,7 @@ export function ChatHeader({
   onUsage,
   onToday,
   onFind,
+  onPins,
   onCopyLink,
   onUndo,
   usageHint,
@@ -49,6 +50,7 @@ export function ChatHeader({
   onUsage?: () => void;
   onToday?: () => void;
   onFind?: () => void;
+  onPins?: () => void;
   // Copies a link that opens this chat or room again.
   onCopyLink?: () => void;
   // Opens the "undo this task's file changes" confirmation; absent while a task runs.
@@ -63,6 +65,7 @@ export function ChatHeader({
   type Action = { key: string; label: string; icon: ReactNode; run: () => void; hint?: string };
   const secondary: Action[] = [];
   if (onFind) secondary.push({ key: "find", label: "Find in chat (Ctrl+F)", icon: <Search size={16} />, run: onFind, hint: "Find in chat (Ctrl+F)" });
+  if (onPins) secondary.push({ key: "pins", label: "Pinned messages", icon: <Pin size={16} />, run: onPins });
   if (onApprovals) secondary.push({ key: "approvals", label: t("header.approvals"), icon: <ShieldCheck size={16} />, run: onApprovals });
   if (onFiles) secondary.push({ key: "files", label: t("header.files"), icon: <Folder size={16} />, run: onFiles });
   if (onUsage) secondary.push({ key: "usage", label: t("header.usage"), icon: <BarChart3 size={16} />, run: onUsage, hint: usageHint });

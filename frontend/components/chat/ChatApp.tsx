@@ -255,6 +255,7 @@ export function ChatApp() {
   const [forkThreadId, setForkThreadId] = useState<number | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [focusFindNonce, setFocusFindNonce] = useState(0);
+  const [pinsOpen, setPinsOpen] = useState(false);
   const audioAbort = useRef<AbortController | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
   const [audioConsent, setAudioConsent] = useState(false);
@@ -264,6 +265,7 @@ export function ChatApp() {
     setCitations([]);
     setForkThreadId(null);
     setFindOpen(false);
+    setPinsOpen(false);
   }, [threadId]);
 
   useEffect(() => {
@@ -1189,6 +1191,7 @@ export function ChatApp() {
       onUsage={ready && fullAccess ? () => setPanel("usage") : undefined}
       onToday={ready && fullAccess ? () => void refreshToday() : undefined}
       onFind={ready && roomId === null ? () => { setFindOpen(true); setFocusFindNonce((n) => n + 1); } : undefined}
+      onPins={ready && roomId === null && threadId !== null ? () => setPinsOpen(true) : undefined}
       onCopyLink={copyLink}
       onUndo={undoOffered ? () => setUndoOpen(true) : undefined}
       usageHint={conversationTotal}
@@ -1483,6 +1486,9 @@ export function ChatApp() {
               findOpen={findOpen}
               focusFindNonce={focusFindNonce}
               onCloseFind={() => setFindOpen(false)}
+              pinsOpen={pinsOpen}
+              onOpenPins={() => setPinsOpen(true)}
+              onClosePins={() => setPinsOpen(false)}
             />
           )}
 
