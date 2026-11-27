@@ -50,6 +50,16 @@ import { WorkspaceSwitcher } from "@/components/shell/WorkspaceSwitcher";
 import { useSession } from "@/components/AuthGate";
 import { can } from "@/lib/permissions";
 import { buildAnnotatedMessage, type CitationAttachment, type ReplyTarget } from "@/lib/citations";
+import {
+  addFailedSend,
+  loadFailedSends,
+  newFailedSend,
+  removeFailedSend,
+  subscribeFailedSends,
+  updateFailedSendError,
+  type FailedSend,
+} from "@/lib/failed-sends";
+import { ComposerFailedSends } from "./ComposerFailedSends";
 import { isFindShortcut } from "@/lib/chat-find";
 import { isMacPlatform } from "@/lib/citations-dom";
 import { onboarding } from "@/lib/onboarding";
@@ -256,6 +266,9 @@ export function ChatApp() {
   const [findOpen, setFindOpen] = useState(false);
   const [focusFindNonce, setFocusFindNonce] = useState(0);
   const [pinsOpen, setPinsOpen] = useState(false);
+  const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
+  const [retryingFailedId, setRetryingFailedId] = useState<string | null>(null);
+  const failedFilesRef = useRef<Map<string, File[]>>(new Map());
   const audioAbort = useRef<AbortController | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
   const [audioConsent, setAudioConsent] = useState(false);
@@ -266,6 +279,12 @@ export function ChatApp() {
     setForkThreadId(null);
     setFindOpen(false);
     setPinsOpen(false);
+  }, [threadId]);
+
+  useEffect(() => {
+    const sync = () => setFailedSends(loadFailedSends(threadId));
+    sync();
+    return subscribeFailedSends(threadId, sync);
   }, [threadId]);
 
   useEffect(() => {
@@ -797,7 +816,8 @@ export function ChatApp() {
   const send = async () => {
     if (transcript.runningTurnId !== null) {
       if (!canMessageDuringRun || threadId === null) return;
-      const text = buildAnnotatedMessage(draft.trim(), { replyTo, citations });
+      const rawText = draft.trim();
+      const text = buildAnnotatedMessage(rawText, { replyTo, citations });
       if (!text) return;
       if (text.length > MAX_FOLLOW_UP_TEXT_CHARS) {
         setSendError(t("composer.messageTooLong"));
@@ -832,7 +852,26 @@ export function ChatApp() {
         setCitations([]);
         setAttachNotice(null);
       } catch (err) {
-        setSendError(sendErrorText(err));
+        const errorText = sendErrorText(err);
+        setFailedSends(
+          addFailedSend(
+            threadId,
+            newFailedSend({
+              threadId,
+              rawText: text,
+              displayText: rawText,
+              error: errorText,
+              skills: chosenSkills,
+              replyTo,
+              citations,
+            }),
+          ),
+        );
+        setDraft("");
+        setChosenSkills(() => []);
+        setReplyTo(null);
+        setCitations([]);
+        setSendError(null);
       } finally {
         setSending(false);
         setListTick((n) => n + 1);
@@ -850,8 +889,10 @@ export function ChatApp() {
     setSending(true);
     const processing = new AbortController();
     audioAbort.current = processing;
+    let id = threadId;
+    const ids: string[] = [];
+    let uploadedCount = 0;
     try {
-      let id = threadId;
       if (id === null) {
         id = (await api.createThread(startingAgentId, { provider: selectedProvider, model: newModel, effort: newEffort })).id;
         if (startingAgentId === null) {
@@ -861,8 +902,10 @@ export function ChatApp() {
         // Open it now: the stream replays from the start, so nothing is missed.
         router.replace(`/chat?thread=${id}`);
       }
-      const ids: string[] = [];
-      for (const file of attached) ids.push((await api.uploadAttachment(id, file, audioConsent ? "openai" : undefined, processing.signal)).id);
+      for (const file of attached) {
+        ids.push((await api.uploadAttachment(id, file, audioConsent ? "openai" : undefined, processing.signal)).id);
+        uploadedCount += 1;
+      }
       if (audioUrl.trim()) ids.push((await api.importAudioUrl(id, audioUrl.trim(), audioConsent ? "openai" : "", processing.signal)).id);
       processing.signal.throwIfAborted();
       liveTurnStarted.current = true;
@@ -876,13 +919,104 @@ export function ChatApp() {
       setAudioConsent(false);
       setAttachNotice(null);
     } catch (err) {
-      setSendError(sendErrorText(err));
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setSendError(sendErrorText(err));
+      } else {
+        const errorText = sendErrorText(err);
+        const failedItem = newFailedSend({
+          threadId: id,
+          rawText: message,
+          displayText: draft.trim() || rawMessage,
+          error: errorText,
+          skills: usedSkills,
+          attachmentIds: ids,
+          replyTo,
+          citations,
+        });
+        const remainingFiles = attached.slice(uploadedCount);
+        if (remainingFiles.length > 0) {
+          failedFilesRef.current.set(failedItem.id, remainingFiles);
+        }
+        const nextList = addFailedSend(id, failedItem);
+        if (id === threadId) setFailedSends(nextList);
+        setDraft("");
+        setChosenSkills(() => []);
+        setAttached([]);
+        setReplyTo(null);
+        setCitations([]);
+        setAudioUrl("");
+        setAudioConsent(false);
+        setAttachNotice(null);
+        setSendError(null);
+      }
       if (err instanceof ApiError && err.code === "skill_unavailable") setSkillsTick((n) => n + 1);
     } finally {
       audioAbort.current = null;
       setSending(false);
       setListTick((n) => n + 1);
     }
+  };
+
+  const retryFailedSend = async (item: FailedSend) => {
+    if (sending || retryingFailedId !== null) return;
+    setSendError(null);
+    setRetryingFailedId(item.id);
+    const processing = new AbortController();
+    audioAbort.current = processing;
+    let id = item.threadId ?? threadId;
+    const ids = [...item.attachmentIds];
+    const pendingFiles = failedFilesRef.current.get(item.id) ?? [];
+    let uploadedCount = 0;
+    try {
+      if (id === null) {
+        id = (await api.createThread(startingAgentId, { provider: selectedProvider, model: newModel, effort: newEffort })).id;
+        if (startingAgentId === null) {
+          writeCachedPreference({ provider: selectedProvider, model: newModel, effort: newEffort });
+          void api.setEnginePreference({ provider: selectedProvider, model: newModel, effort: newEffort }).catch(() => {});
+        }
+        router.replace(`/chat?thread=${id}`);
+      }
+      for (const file of pendingFiles) {
+        ids.push((await api.uploadAttachment(id, file, undefined, processing.signal)).id);
+        uploadedCount += 1;
+      }
+      processing.signal.throwIfAborted();
+      liveTurnStarted.current = true;
+      await api.sendTurn(id, item.rawText, ids, item.skills);
+      failedFilesRef.current.delete(item.id);
+      setFailedSends(removeFailedSend(threadId, item.id));
+      if (id !== threadId) removeFailedSend(id, item.id);
+    } catch (err) {
+      if (uploadedCount > 0) {
+        failedFilesRef.current.set(item.id, pendingFiles.slice(uploadedCount));
+      }
+      setFailedSends(updateFailedSendError(threadId, item.id, sendErrorText(err)));
+      if (err instanceof ApiError && err.code === "skill_unavailable") setSkillsTick((n) => n + 1);
+    } finally {
+      audioAbort.current = null;
+      setRetryingFailedId(null);
+      setListTick((n) => n + 1);
+    }
+  };
+
+  const editFailedSend = (item: FailedSend) => {
+    const remainingFiles = failedFilesRef.current.get(item.id);
+    if (remainingFiles?.length) {
+      setAttached((prev) => [...prev, ...remainingFiles].slice(0, MAX_ATTACHMENTS));
+      failedFilesRef.current.delete(item.id);
+    }
+    setDraft(item.displayText);
+    if (item.skills.length) setChosenSkills(() => item.skills);
+    setReplyTo(item.replyTo);
+    setCitations(item.citations);
+    setFailedSends(removeFailedSend(threadId, item.id));
+    setSendError(null);
+    setFocusComposer(true);
+  };
+
+  const dismissFailedSend = (id: string) => {
+    failedFilesRef.current.delete(id);
+    setFailedSends(removeFailedSend(threadId, id));
   };
 
   // Edit a past message and resend it in a new conversation; the original stays.
@@ -1569,6 +1703,14 @@ export function ChatApp() {
               </div>
             </div>
           )}
+          <ComposerFailedSends
+            items={failedSends}
+            retryingId={retryingFailedId}
+            disabled={sending || transcript.runningTurnId !== null}
+            onRetry={(item) => void retryFailedSend(item)}
+            onEdit={editFailedSend}
+            onDismiss={dismissFailedSend}
+          />
           <Composer
             draftKey={threadId === null ? "new" : String(threadId)}
             focusRequested={focusComposer}

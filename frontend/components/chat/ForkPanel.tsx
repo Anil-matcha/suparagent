@@ -5,8 +5,18 @@ import { ArrowUpRight, GitBranch, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type Agent, type Engine, type Thread } from "@/lib/api";
 import { buildAnnotatedMessage, type CitationAttachment, type ReplyTarget } from "@/lib/citations";
+import {
+  addFailedSend,
+  loadFailedSends,
+  newFailedSend,
+  removeFailedSend,
+  subscribeFailedSends,
+  updateFailedSendError,
+  type FailedSend,
+} from "@/lib/failed-sends";
 import { pendingApprovals } from "@/lib/transcript";
 import { Composer } from "./Composer";
+import { ComposerFailedSends } from "./ComposerFailedSends";
 import { Conversation } from "./Conversation";
 import { useThreadStream } from "./useThreadStream";
 
@@ -49,8 +59,16 @@ export function ForkPanel({
   const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
   const [citations, setCitations] = useState<CitationAttachment[]>([]);
   const [focusComposer, setFocusComposer] = useState(true);
+  const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
+  const [retryingFailedId, setRetryingFailedId] = useState<string | null>(null);
   const [width, setWidth] = useState<number>(readSavedWidth);
   const draggingRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  useEffect(() => {
+    const sync = () => setFailedSends(loadFailedSends(threadId));
+    sync();
+    return subscribeFailedSends(threadId, sync);
+  }, [threadId]);
 
   const stream = useThreadStream(threadId);
   const { transcript } = stream;
@@ -90,7 +108,8 @@ export function ForkPanel({
 
   const send = async () => {
     if (transcript.runningTurnId !== null || sending) return;
-    const message = buildAnnotatedMessage(draft.trim(), { replyTo, citations });
+    const rawText = draft.trim();
+    const message = buildAnnotatedMessage(rawText, { replyTo, citations });
     if (!message) return;
     setSendError(null);
     setSending(true);
@@ -101,10 +120,50 @@ export function ForkPanel({
       setCitations([]);
       onListChanged();
     } catch (err) {
-      setSendError(err instanceof ApiError ? err.message : "Could not send message.");
+      const errorText = err instanceof ApiError ? err.message : "Could not send message.";
+      setFailedSends(
+        addFailedSend(
+          threadId,
+          newFailedSend({
+            threadId,
+            rawText: message,
+            displayText: rawText,
+            error: errorText,
+            replyTo,
+            citations,
+          }),
+        ),
+      );
+      setDraft("");
+      setReplyTo(null);
+      setCitations([]);
     } finally {
       setSending(false);
     }
+  };
+
+  const retryFailedSend = async (item: FailedSend) => {
+    if (transcript.runningTurnId !== null || sending || retryingFailedId !== null) return;
+    setRetryingFailedId(item.id);
+    try {
+      await api.sendTurn(threadId, item.rawText, item.attachmentIds, item.skills);
+      setFailedSends(removeFailedSend(threadId, item.id));
+      onListChanged();
+    } catch (err) {
+      const errorText = err instanceof ApiError ? err.message : "Could not send message.";
+      setFailedSends(updateFailedSendError(threadId, item.id, errorText));
+    } finally {
+      setRetryingFailedId(null);
+    }
+  };
+
+  const editFailedSend = (item: FailedSend) => {
+    setDraft(item.displayText);
+    setReplyTo(item.replyTo);
+    setCitations(item.citations);
+    setFailedSends(removeFailedSend(threadId, item.id));
+    setSendError(null);
+    setFocusComposer(true);
   };
 
   const stop = async () => {
@@ -193,6 +252,14 @@ export function ForkPanel({
               setFocusComposer(true);
             }}
             onAddCitation={(citation) => setCitations((prev) => [...prev, citation])}
+          />
+          <ComposerFailedSends
+            items={failedSends}
+            retryingId={retryingFailedId}
+            disabled={sending || transcript.runningTurnId !== null}
+            onRetry={(item) => void retryFailedSend(item)}
+            onEdit={editFailedSend}
+            onDismiss={(id) => setFailedSends(removeFailedSend(threadId, id))}
           />
           <Composer
             draftKey={`branch-${threadId}`}
