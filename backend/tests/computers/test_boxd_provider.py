@@ -180,7 +180,10 @@ def test_create_labels_the_machine_and_only_uses_the_saved_key(provider, fake):
     assert status.state == "creating" and status.container_id == "id-1"
     _, name, options = fake.calls[0]
     assert name == spec().name
-    assert options == {"labels": {"suparagent/instance": INSTANCE, "suparagent/computer": "7", "suparagent/generation": "gen-1"}}
+    assert options == {
+        "labels": {"suparagent/instance": INSTANCE, "suparagent/computer": "7", "suparagent/generation": "gen-1"},
+        "isolated": True,
+    }
     assert provider.keys == [KEY]
 
 
