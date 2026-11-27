@@ -740,7 +740,7 @@ class _AcpTurn:
         ):
             self.rpc.respond(rid, payload(True))
             return
-        command = raw.get("command")
+        command = raw.get("command") or raw.get("command_line") or raw.get("CommandLine") or raw.get("cmd") or raw.get("Cmd")
         if kind == "execute" and isinstance(command, str) and command.strip():
             tool, tool_input, approval_kind = "Bash", {"command": command}, "command"
         else:

@@ -924,13 +924,24 @@ class ThreadRuntime:
             # The agent's instructions, then its notes (MEMORY.md) when on.
             instructions=_with_brief(
                 "\n\n".join(filter(None, (
-                    agent_memory.turn_instructions(agent) if agent is not None else None,
+                    agent_memory.turn_instructions(agent) if agent is not None else agent_memory.plain_turn_instructions(),
                     workspace_locations_prompt(
                         agent.id if agent is not None else None,
                         thread.workspace_path,
                         agent.workspace_path if agent is not None else None,
                         base=local_claude_runner.workspace_dir(),
                     ) if thread.workspace_path and app_settings.resolve("LOCAL_TASK_WORKSPACE_ISOLATION").effective_value else None,
+                    (
+                        "You have local workspace and shell tools enabled (subject to the conversation's approval mode). "
+                        "When a request asks for live or external information (such as current weather, web data, or "
+                        "approximate network location when no city is specified in notes/files), use shell HTTP tools "
+                        "(e.g. curl or PowerShell Invoke-RestMethod) or other available tools to look it up rather than "
+                        "claiming you lack access."
+                    )
+                    if not draft_only
+                    and app_settings.get("LOCAL_TOOLS_ENABLED")
+                    and (approval_mode if approval_mode is not None else (agent.approval_mode if agent is not None else "ask")) != "plan"
+                    else None,
                     explicit_memory,
                 ))) or None, brief,
             ),

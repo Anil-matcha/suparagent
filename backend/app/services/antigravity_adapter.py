@@ -300,8 +300,18 @@ class AntigravityAdapter(AcpAdapter):
         return "oauth-personal"
 
     async def configure_session(self, call, session_id, session, ctx):
-        result = await call("session/set_config_option", {"sessionId": session_id, "configId": "mode", "value": "default"}, handle_incoming=True)
-        if option(result or {}, "mode").get("currentValue") != "default":
+        wanted = "default"
+        if getattr(ctx, "approval_mode", None) == "full_access":
+            mode_opt = option(session or {}, "mode")
+            choices = {
+                o.get("value")
+                for o in (mode_opt.get("options") or [])
+                if isinstance(o, dict) and isinstance(o.get("value"), str)
+            }
+            if "yolo" in choices:
+                wanted = "yolo"
+        result = await call("session/set_config_option", {"sessionId": session_id, "configId": "mode", "value": wanted}, handle_incoming=True)
+        if option(result or {}, "mode").get("currentValue") != wanted:
             raise InvalidConfig("Antigravity did not confirm tool approval mode.")
 
     async def select_model(self, call, session_id, session, model, effort=None):

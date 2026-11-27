@@ -340,3 +340,11 @@ def turn_instructions(agent) -> str | None:
     if agent.memory_enabled:
         parts.append(memory_prompt(agent.id))
     return "\n\n".join(parts) or None
+
+
+def plain_turn_instructions() -> str | None:
+    """Shared context loaded into plain chats without a named agent (`About me`, `Business profile`)."""
+    from app.services import about_me, business_profile
+
+    parts = [p for p in (about_me.prompt_block(), business_profile.prompt_block()) if p]
+    return "\n\n".join(parts) or None
