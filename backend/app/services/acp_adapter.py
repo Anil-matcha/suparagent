@@ -405,7 +405,7 @@ class _AcpTurn:
         except _Stopped:
             await self._cancel()
         except Exception:  # noqa: BLE001
-            logger.warning("ACP run crashed", thread_id=self.ctx.thread_id)
+            logger.exception("ACP run crashed", thread_id=self.ctx.thread_id)
             return self._outcome(crashed=True)
         finally:
             for task in list(self.answering):

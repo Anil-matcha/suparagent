@@ -347,3 +347,28 @@ async def test_install_publishes_only_after_validation(tmp_path, monkeypatch, re
         await runtime.install(validate)
     assert len(validated) == 1
     assert not list(runtime.runtime_dir().parent.glob(".install-*"))
+
+
+def test_catalog_no_unbound_local_for_hydrogen_or_flash():
+    from app.services.antigravity_adapter import catalog
+
+    session = {
+        "configOptions": [
+            {
+                "id": "model",
+                "currentValue": "gemini-4-hydrogen",
+                "options": [
+                    {"value": "gemini-4-hydrogen", "name": "Gemini 4 Hydrogen"},
+                    {"value": "gemini-3.8-flash", "name": "Gemini 3.8 Flash"},
+                    {"value": "claude-opus-4-6-thinking", "name": "Claude Opus 4.6 (Thinking)"},
+                ],
+            },
+        ]
+    }
+    models = catalog(session)
+    by_id = {m.id: m for m in models}
+    assert by_id["gemini-4-hydrogen"].default_reasoning_effort == "high"
+    assert by_id["gemini-4-hydrogen"].supported_reasoning_efforts == ("low", "medium", "high", "xhigh")
+    assert by_id["gemini-3.8-flash"].supported_reasoning_efforts == ("low", "medium", "high")
+    assert by_id["claude-opus-4-6-thinking"].supported_reasoning_efforts == ("high",)
+    assert by_id["claude-opus-4-6-thinking"].reasoning_effort_configurable is False
