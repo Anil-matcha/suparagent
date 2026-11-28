@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from app.core.config import settings
 from app.routers.templates import router as templates_router
 from app.schemas.agent import AgentCreateRequest
-from app.services import muapi_data_api
+from app.services import agent_skills, muapi_data_api
 from app.templates import catalog
 
 # The catalog is public text: it must not name any other product.
@@ -34,7 +34,7 @@ def test_ids_are_unique_and_stable_looking():
     ids = [t.id for t in catalog.TEMPLATES]
     assert len(ids) == len(set(ids))
     assert all(re.fullmatch(r"[a-z]+(-[a-z]+)+", i) for i in ids)
-    assert len(ids) == 8
+    assert len(ids) == 9
 
 
 def test_every_template_is_complete_and_bounded():
@@ -48,7 +48,8 @@ def test_every_template_is_complete_and_bounded():
         assert len(t.starter_notes or "") <= catalog.NOTES_MAX, t.id
         for skill in t.skills:
             assert SKILL_NAME.match(skill.name) and len(skill.name) <= 64, (t.id, skill.name)
-            assert 0 < len(skill.body) <= catalog.SKILL_BODY_MAX
+            # No catalog limit on a skill body; only the store's own limit applies.
+            assert 0 < len(skill.body.encode()) <= agent_skills.BODY_MAX_BYTES, (t.id, skill.name)
             assert skill.description
 
 
@@ -71,10 +72,9 @@ def test_a_missing_connection_makes_a_template_unavailable():
 
 # --- Worker templates: shared rules, starter routines, budgets and wording ---
 
-# Budgets in words: role text, each routine skill, a routine note, the shared rules,
-# and the setup text by depth.
+# Budgets in words: role text, a routine note, the shared rules and the setup text by depth.
+# A skill body has no word budget.
 ROLE_WORDS = 120
-SKILL_WORDS = 350
 NOTE_WORDS = 60
 RULES_WORDS = 550
 SETUP_WORDS = {"express": 80, "standard": 150, "guided": 250}
@@ -89,8 +89,17 @@ def words(text: str) -> int:
     return len(text.split())
 
 
+MOTION = "marketing-motion-graphics"
+
+
 def workers():
     return [t for t in catalog.TEMPLATES if t.routines or t.uses_run_rules]
+
+
+def paid_workers():
+    """The eight MuAPI workers: scheduled routines, paid data lookups, five to thirteen skills.
+    The motion-graphics worker is the one exception and has its own tests below."""
+    return [t for t in workers() if t.id != MOTION]
 
 
 def all_text(t):
@@ -99,33 +108,32 @@ def all_text(t):
     ] + [r.note for r in t.routines]
 
 
-def test_there_are_eight_worker_templates_with_plain_names():
+def test_there_are_nine_worker_templates_with_plain_names():
     assert [t.id for t in workers()] == [
         "operations-analyst", "growth-gtm-engineer", "sales-sales", "marketing-seo",
         "marketing-social-media", "marketing-ad-manager", "support-customer-satisfaction", "web-web-developer",
+        MOTION,
     ]
     assert [t.name for t in workers()] == [
         "Operations analyst", "GTM engineer", "Sales", "SEO",
-        "Social media", "Ad manager", "Customer support", "Web developer",
+        "Social media", "Ad manager", "Customer support", "Web developer", "Motion graphics",
     ]
-    assert [t.category for t in workers()] == ["operations", "growth", "sales", "marketing", "marketing", "marketing", "support", "web"]
-    assert catalog.CATALOG_VERSION == 24
+    assert [t.category for t in workers()] == ["operations", "growth", "sales", "marketing", "marketing", "marketing", "support", "web", "marketing"]
+    assert catalog.CATALOG_VERSION == 25
     assert "marketing" in catalog.CATEGORIES
 
 
 def test_every_worker_needs_muapi_and_only_suggests_its_tools():
-    paid = {t.id for t in workers()}
-    for t in workers():
-        if t.id in paid:
-            assert t.requires == ("muapi",), t.id
-            media = t.id in {"marketing-social-media", "marketing-ad-manager"}
-            assert t.suggested_tools == (catalog.MUAPI_TOOLS + catalog.MUAPI_MEDIA_TOOLS if media else catalog.MUAPI_TOOLS), t.id
+    for t in paid_workers():
+        assert t.requires == ("muapi",), t.id
+        media = t.id in {"marketing-social-media", "marketing-ad-manager"}
+        assert t.suggested_tools == (catalog.MUAPI_TOOLS + catalog.MUAPI_MEDIA_TOOLS if media else catalog.MUAPI_TOOLS), t.id
     assert set(catalog.MUAPI_TOOLS) == {"muapi_data_api_search", "muapi_data_api_inspect", "muapi_data_api_estimate", "muapi_data_api_call", "muapi_predict_result"}
 
 
 def test_paid_skills_name_real_tools_and_media_skills_are_capped():
     known = set(catalog.MUAPI_TOOLS) | set(catalog.MUAPI_MEDIA_TOOLS)
-    for t in workers():
+    for t in paid_workers():
         for skill in t.skills:
             for name in re.findall(r"`(muapi_[a-z_]+)`", skill.body):
                 assert name in known, (t.id, skill.name, name)
@@ -208,8 +216,8 @@ VETTED_ENDPOINTS = frozenset({
 
 
 def test_every_endpoint_a_skill_names_is_on_the_vetted_list_and_each_worker_has_five_to_thirteen_skills():
-    skill_names = {s.name for t in workers() for s in t.skills}
-    for t in workers():
+    skill_names = {s.name for t in paid_workers() for s in t.skills}
+    for t in paid_workers():
         assert 5 <= len(t.skills) <= 13, (t.id, len(t.skills))
         for skill in t.skills:
             for name in re.findall(r"`([a-z0-9]+(?:-[a-z0-9]+)+)`", skill.body):
@@ -232,7 +240,8 @@ def test_run_rules_are_written_once_and_composed_into_each_worker():
         assert "Profile first" not in t.instructions, t.id
         for skill in t.skills:
             assert "Profile first" not in skill.body and "[shared run rules]" not in skill.body, (t.id, skill.name)
-    assert all(t.run_rules == catalog.RUN_RULES for t in workers())
+    assert all(t.run_rules == catalog.RUN_RULES for t in paid_workers())
+    assert catalog.get(MOTION).run_rules == catalog.RUN_RULES_LOCAL
     ordinary = dataclasses.replace(catalog.get("web-web-developer"), uses_run_rules=False)
     assert ordinary.full_instructions == ordinary.instructions
 
@@ -245,15 +254,14 @@ def test_worker_text_stays_within_the_word_budgets():
         assert t.setup_depth in catalog.SETUP_DEPTHS, t.id
         assert t.setup_text and words(t.setup_text) <= SETUP_WORDS[t.setup_depth], t.id
         for skill in t.skills:
-            assert words(skill.body) <= SKILL_WORDS, (t.id, skill.name)
             assert len(re.findall(r"[.!?](?:\s|$)", skill.description)) == 1, (t.id, skill.name)
         for routine in t.routines:
             assert words(routine.note) <= NOTE_WORDS, (t.id, routine.id)
 
 
 def test_every_routine_is_paused_and_points_at_a_skill():
-    assert workers()
-    for t in workers():
+    assert paid_workers()
+    for t in paid_workers():
         names = {s.name for s in t.skills}
         assert t.routines, t.id
         for r in t.routines:
@@ -299,7 +307,8 @@ async def test_the_api_returns_the_composed_instructions_and_paused_routines():
     ]
     assert all(r["enabled_after_install"] is False for r in body["routines"])
     assert listing["version"] == catalog.CATALOG_VERSION and "marketing" in listing["categories"]
-    assert [x["id"] for x in listing["templates"]] == ["marketing-seo", "marketing-social-media", "marketing-ad-manager"]
+    # The motion-graphics worker needs a computer that is not qualified yet, so it is listed last.
+    assert [x["id"] for x in listing["templates"]] == ["marketing-seo", "marketing-social-media", "marketing-ad-manager", MOTION]
 
 
 def test_the_support_worker_sets_junk_aside_keeps_an_owner_only_list_and_replies_in_the_customers_language():
@@ -327,3 +336,72 @@ def test_the_support_setup_asks_who_the_owner_answers_and_how_fast():
     assert "Which senders or topics must you always answer yourself (legal, press, big customers)?" in text
     assert "How fast do you answer?" in text and "urgent threads within 4 hours" in text and "1 working day" in text
     assert "profile" in text.split("How fast do you answer?")[1].split("\n")[0]
+
+
+# --- The motion-graphics worker: no paid calls, no routines, available only once the render computer is qualified ---
+
+MOTION_SKILLS = ["title-card", "lower-third", "animated-chart", "caption-overlay", "short-explainer"]
+# What the skills must never tell the agent to run: accounts, uploads, telemetry and paid media.
+FORBIDDEN_COMMANDS = ("add", "auth", "cloud", "lambda", "cloudrun", "share", "publish", "events", "usage", "feedback", "media-use")
+
+
+def test_the_motion_worker_makes_no_paid_calls_and_schedules_nothing():
+    t = catalog.get(MOTION)
+    assert t.uses_run_rules and t.run_rules == catalog.RUN_RULES_LOCAL
+    assert "muapi" not in t.requires and t.suggested_tools == () and t.routines == ()
+    assert t.setup_depth == "standard" and t.available is False
+    assert [s.name for s in t.skills] == MOTION_SKILLS
+    assert not [x for x in all_text(t) if "muapi" in x.lower()]
+
+
+def test_the_motion_worker_is_unavailable_until_the_render_computer_is_qualified():
+    t = catalog.get(MOTION)
+    assert t.requires == (catalog.RENDER_COMPUTER,) == ("render",)
+    # Never connectable in the app and not ready anywhere yet, so it lists as unavailable and cannot be hired.
+    assert catalog.RENDER_COMPUTER not in catalog.AVAILABLE_CONNECTIONS | catalog.CONNECTABLE_CONNECTIONS
+    assert not t.is_available(frozenset()) and t.missing(frozenset()) == ("render",)
+    assert not t.is_available(frozenset({"muapi"}))
+    # Once the render capability is qualified and reported ready, the same template becomes available.
+    assert t.is_available(frozenset({"render"})) and t.missing(frozenset({"render"})) == ()
+    # Unavailable templates sort after every available one.
+    ids = [x.id for x in catalog.search(None, None, frozenset())]
+    assert ids[-1] == MOTION
+
+
+def test_the_motion_skills_render_only_through_the_bounded_script_and_stay_offline():
+    for skill in catalog.get(MOTION).skills:
+        body = skill.body
+        assert body.startswith("# "), skill.name
+        # Setup comes first: the playbook and the format file, before any file is written.
+        assert body.index("/opt/motion/SKILL.md") < body.index("hyperframes init"), skill.name
+        assert "/opt/motion/references/format.md" in body, skill.name
+        for needed in ("hyperframes init <dir> --skip-skills", "hyperframes check --json", "hyperframes snapshot",
+                       "/opt/motion/bin/render-project <dir>", "<dir>/.render.done", "/renders/"):
+            assert needed in body, (skill.name, needed)
+        assert "Never run `hyperframes render` yourself" in body, skill.name
+        # The forbidden commands appear only in the one prohibition line, each as `hyperframes <cmd>` or its bare name.
+        (ban,) = [line for line in body.splitlines() if "Never run `hyperframes add`" in line]
+        for cmd in FORBIDDEN_COMMANDS:
+            assert f"`{cmd}`" in ban or f"`hyperframes {cmd}`" in ban, (skill.name, cmd)
+        rest = body.replace(ban, "")
+        for cmd in FORBIDDEN_COMMANDS:
+            assert f"hyperframes {cmd}" not in rest, (skill.name, cmd)
+        assert re.search(r"no network request", body, re.I) and "assets/fonts/" in body, skill.name
+        assert "Never post or send" in body and "no paid calls" in body, skill.name
+        assert not re.search(r"(?i)curl|wget|rm\s+-rf|https?://", body), skill.name
+
+
+def test_the_animated_chart_skill_copies_the_vendored_block():
+    body = {s.name: s.body for s in catalog.get(MOTION).skills}["animated-chart"]
+    assert "/opt/motion/blocks/data-chart/data-chart.html" in body and "compositions/" in body
+
+
+def test_the_caption_skill_does_not_transcribe():
+    body = {s.name: s.body for s in catalog.get(MOTION).skills}["caption-overlay"]
+    assert "does not transcribe" in body
+
+
+def test_the_motion_skills_stay_clear_of_the_store_skill_warnings():
+    for skill in catalog.get(MOTION).skills:
+        for pattern, _message in agent_skills._WARNINGS:
+            assert not pattern.search(skill.body), (skill.name, pattern.pattern)

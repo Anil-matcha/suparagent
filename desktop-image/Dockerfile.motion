@@ -1,0 +1,51 @@
+# Render profile: HyperFrames motion-graphics rendering, offline once built.
+# Separate from the default desktop image (Dockerfile), which is unchanged.
+#
+#   docker build -f desktop-image/Dockerfile.motion -t suparagent-motion desktop-image
+#   docker run --rm --network none --user 1234:1234 --memory 4g --cpus 2 \
+#     -v "$PWD/project:/workspace:rw" suparagent-motion render-project /workspace renders/out.mp4
+#
+# Everything that needs the network happens at BUILD time: apt, the pinned npm package and the
+# headless browser download. Rendering needs none. Not yet built or run: see
+# docs/specs/templates-and-sharing/motion-graphics-implementation-guide.md (step 2) for what to record.
+# TODO before release: pin the base image by digest, as the default Dockerfile does.
+FROM docker.io/library/node:22-bookworm-slim
+
+# ffmpeg encodes; the libraries are what chrome-headless-shell needs on a slim image; coreutils has `timeout`.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ffmpeg ca-certificates fonts-liberation coreutils \
+      libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
+      libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 libxshmfence1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pinned release. The launcher floor upstream is 0.9.80; bump this deliberately and re-diff motion/PATCHES.md.
+RUN npm install -g --no-audit --no-fund hyperframes@0.9.104
+
+# No telemetry, ever.
+ENV HYPERFRAMES_NO_TELEMETRY=1 DO_NOT_TRACK=1
+
+# Download chrome-headless-shell now. NOTE: on a host with no GPU the engine probes software GL and forces the slower
+# screenshot capture whatever the browser is (seen on Boat), so this does not by itself give the fast BeginFrame path.
+# Chrome Headless Shell is not published for Linux ARM64: this step fails on an ARM64 build (an Apple-silicon Docker).
+# It is kept as the pinned, known browser. It goes into a shared cache, and the CLI is pointed at the binary so a
+# non-root user needs no cache of their own.
+ENV HYPERFRAMES_CACHE_DIR=/opt/hyperframes-cache
+RUN hyperframes browser ensure \
+    && chmod -R a+rX /opt/hyperframes-cache \
+    && bin="$(find /opt/hyperframes-cache -type f -name chrome-headless-shell | head -n 1)" \
+    && test -n "$bin" && ln -s "$bin" /usr/local/bin/chrome-headless-shell
+ENV HYPERFRAMES_BROWSER_PATH=/usr/local/bin/chrome-headless-shell
+
+# The trimmed playbook, the data-chart block and the render script.
+COPY motion/ /opt/motion/
+RUN chmod 755 /opt/motion/bin/render-project && ln -s /opt/motion/bin/render-project /usr/local/bin/render-project
+
+# Fail the build if the toolchain is not usable. `doctor --json` has a top-level `ok` that is false whenever an
+# OPTIONAL check fails (local speech, voice and music models are not installed here, on purpose), so gate on the
+# required checks by name instead. Seen on a Boat sandbox: the top-level `ok` was false with every required check true.
+RUN hyperframes doctor --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const list=j.checks||j.results||[];const need=["Node.js","FFmpeg","FFprobe","Chrome"];const bad=need.filter(n=>!list.some(c=>c.name===n&&c.ok));if(bad.length){console.error("doctor: required checks failed: "+bad.join(", "));console.error(s);process.exit(1)}})'
+
+RUN useradd --create-home --uid 1000 agent && mkdir -p /workspace && chown agent /workspace
+USER agent
+ENV HOME=/home/agent
+WORKDIR /workspace

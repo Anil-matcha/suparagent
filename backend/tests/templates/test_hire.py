@@ -154,6 +154,13 @@ async def test_a_worker_that_cannot_be_connected_is_refused(api, sessions, owner
     assert await agents_of(sessions, owner) == []
 
 
+async def test_the_motion_graphics_worker_is_refused_until_the_render_computer_is_qualified(api, sessions, owner):
+    response = await api.post(HIRE, json={"template_ids": ["marketing-motion-graphics"]})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "template_unavailable"
+    assert await agents_of(sessions, owner) == []
+
+
 async def test_a_muapi_worker_can_be_hired_before_muapi_is_connected(api, sessions, owner):
     assert "muapi" in catalog.get(SEO).requires
     assert (await api.post(HIRE, json={"template_ids": [SEO]})).status_code == 201

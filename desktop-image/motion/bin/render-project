@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# render-project <project-dir> <out.mp4> [max-seconds=600] [max-mb=200]
+#
+# Checks a HyperFrames project, then renders it DETACHED with a time limit and an output size cap.
+# Returns at once. Poll <project-dir>/.render.done (it appears when the render is over and holds the
+# exit code); the render's output is in <project-dir>/.render.log.
+#
+#   0   rendered, file kept          124  stopped at the time limit
+#   90  output over the size cap     91   render ended 0 but no output file
+#   other  the render failed (see .render.log)
+# Exit codes of this launcher itself: 0 started, 2 bad arguments, 3 check failed (see .check.json),
+# 4 a needed tool is missing, 5 a render is already running in that project (lock: <project-dir>/.render.lock).
+#
+# The render must not be a child of the caller's own timed command (Boat kills a command's children
+# when its timeout ends), so it starts in its own session (setsid; nohup where setsid is absent).
+set -u
+
+self=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
+die() { echo "render-project: $*" >&2; exit "$1"; }
+
+if [ "${1:-}" = "--worker" ]; then
+  shift
+  dir=$1 out=$2 limit=$3 cap_mb=$4 tmo=$5
+  cd "$dir" || exit 2
+  echo $$ > .render.lock/pid
+  HYPERFRAMES_RENDER_DETACHED=1 "$tmo" -k 10 "$limit" hyperframes render --quality looks -o "$out" > .render.log 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    if [ ! -s "$out" ]; then
+      rc=91
+    else
+      size=$(wc -c < "$out" | tr -d ' ')
+      if [ "$size" -gt $((cap_mb * 1024 * 1024)) ]; then rm -f "$out"; rc=90; fi
+    fi
+  fi
+  rm -rf .render.lock
+  echo "$rc" > .render.done.tmp && mv .render.done.tmp .render.done
+  exit 0
+fi
+
+[ $# -ge 2 ] && [ $# -le 4 ] || die 2 "usage: render-project <project-dir> <out.mp4> [max-seconds=600] [max-mb=200]"
+dir=$1 out=$2 limit=${3:-600} cap_mb=${4:-200}
+case $limit$cap_mb in *[!0-9]*|'') die 2 "max-seconds and max-mb must be whole numbers" ;; esac
+[ "$limit" -ge 1 ] && [ "$cap_mb" -ge 1 ] || die 2 "max-seconds and max-mb must be at least 1"
+[ -d "$dir" ] || die 2 "no such project folder: $dir"
+[ -f "$dir/index.html" ] || die 2 "no index.html in $dir"
+dir=$(cd "$dir" && pwd)
+case $out in /*) ;; *) out=$dir/$out ;; esac
+mkdir -p "$(dirname "$out")" || die 2 "cannot create the output folder"
+
+command -v hyperframes >/dev/null 2>&1 || die 4 "hyperframes is not installed"
+if command -v timeout >/dev/null 2>&1; then tmo=timeout
+elif command -v gtimeout >/dev/null 2>&1; then tmo=gtimeout
+else die 4 "timeout is not installed"; fi
+
+cd "$dir" || die 2 "cannot enter $dir"
+# One render per project. mkdir is atomic, so two launches close together cannot both pass. The lock
+# holds the pid of whoever owns it (this launcher during the check, then the worker); a lock whose
+# owner is gone is stale and is cleared once.
+if ! mkdir .render.lock 2>/dev/null; then
+  owner=$(cat .render.lock/pid 2>/dev/null || true)
+  if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+    die 5 "a render is already running here (pid $owner)"
+  fi
+  rm -rf .render.lock
+  mkdir .render.lock 2>/dev/null || die 5 "a render is already running here"
+fi
+echo $$ > .render.lock/pid
+rm -f .render.done .render.done.tmp .render.log .check.json .check.err "$out"
+
+hyperframes check --json > .check.json 2> .check.err || { rm -rf .render.lock; echo "check failed: see $dir/.check.json and $dir/.check.err"; exit 3; }
+
+if command -v setsid >/dev/null 2>&1; then detach=setsid; else detach=nohup; fi
+"$detach" "$self" --worker "$dir" "$out" "$limit" "$cap_mb" "$tmo" > /dev/null 2>&1 < /dev/null &
+echo $! > .render.lock/pid
+echo "started: poll $dir/.render.done (exit code inside); log $dir/.render.log; output $out"
