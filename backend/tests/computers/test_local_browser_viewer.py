@@ -470,6 +470,26 @@ async def test_taking_control_holds_the_browser_so_the_agent_is_refused_and_the_
     assert released["released"] and not screen.held(folder)
 
 
+async def test_non_ascii_lease_id_is_rejected_without_500(api, monkeypatch):
+    monkeypatch.setattr(settings, "LOCAL_BROWSER_ENABLED", True)
+    monkeypatch.setattr(live, "debug_port", lambda folder: 9555)
+    service = api.service
+    agent = await new_agent(api)
+    folder = live.state_folder(service.state_dir(), agent)
+    folder.mkdir(parents=True, exist_ok=True)
+    taken = (await api.post(f"/api/v1/agents/{agent}/browser/control", json={"action": "take"})).json()
+    assert taken["owned"] and len(taken["lease_id"]) == 64
+
+    bad_lease = "é" * 64
+    take_res = await api.post(f"/api/v1/agents/{agent}/browser/control", json={"action": "take", "lease_id": bad_lease})
+    assert take_res.status_code == 200 and take_res.json()["owned"] is False
+    beat_res = await api.post(f"/api/v1/agents/{agent}/browser/control/heartbeat", json={"lease_id": bad_lease})
+    assert beat_res.status_code == 409
+    rel_res = await api.post(f"/api/v1/agents/{agent}/browser/control", json={"action": "release", "lease_id": bad_lease})
+    assert rel_res.status_code == 200 and rel_res.json()["released"] is False
+    assert screen.held(folder)
+
+
 async def test_a_stale_browser_hold_file_is_removed_when_the_registry_lost_it(api, monkeypatch):
     service = api.service
     folder = service.state_dir() / "browser-4"

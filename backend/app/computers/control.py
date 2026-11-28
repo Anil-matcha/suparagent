@@ -14,6 +14,15 @@ class Hold:
     last_left: float | None = None
 
 
+def _same_lease(expected: str, given: object) -> bool:
+    if not isinstance(given, str):
+        return False
+    return secrets.compare_digest(
+        expected.encode("utf-8"),
+        given.encode("utf-8", "surrogatepass"),
+    )
+
+
 class ControlRegistry:
     def __init__(self, clock=time.time):
         self.clock = clock
@@ -27,7 +36,7 @@ class ControlRegistry:
         self.expire()
         h = self._holds.get(computer_id)
         if h:
-            return self.snapshot(computer_id), bool(lease and secrets.compare_digest(h.lease, lease)), False, None
+            return self.snapshot(computer_id), bool(lease and _same_lease(h.lease, lease)), False, None
         now = self.clock()
         token = secrets.token_hex(32)
         self._holds[computer_id] = Hold(token, now, now)
@@ -36,7 +45,7 @@ class ControlRegistry:
     def owns(self, computer_id, lease):
         self.expire()
         h = self._holds.get(computer_id)
-        return bool(h and isinstance(lease, str) and secrets.compare_digest(h.lease, lease))
+        return bool(h and _same_lease(h.lease, lease))
 
     def heartbeat(self, computer_id, lease):
         if not self.owns(computer_id, lease): return False
@@ -45,7 +54,7 @@ class ControlRegistry:
 
     def release(self, computer_id, lease=None):
         h = self._holds.get(computer_id)
-        if not h or (lease is not None and not secrets.compare_digest(h.lease, lease)):
+        if not h or (lease is not None and not _same_lease(h.lease, lease)):
             return False
         del self._holds[computer_id]
         return True

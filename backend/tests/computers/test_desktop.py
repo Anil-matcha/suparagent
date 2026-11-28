@@ -64,6 +64,19 @@ def test_control_lease_does_not_leak_and_recovers_after_disconnect():
     assert not c.owns(1, replacement)
 
 
+def test_control_lease_rejects_non_ascii_and_invalid_types_without_raising():
+    c = ControlRegistry(lambda: 100.0)
+    _, owned, acquired, lease = c.take(1)
+    assert owned and acquired and lease
+    for bad in ("é" * 64, "\ud800" * 64, 123):
+        assert c.take(1, bad)[1:3] == (False, False)
+        assert not c.owns(1, bad)
+        assert not c.heartbeat(1, bad)
+        assert not c.release(1, bad)
+    assert c.owns(1, lease)
+    assert c.release(1, lease)
+
+
 async def test_desktop_defaults_lifecycle_and_coalesced_picture(service, agent, workspace, docker):  # noqa: F811
     computer, _ = await service.create_for_agent(agent, workspace=workspace, kind="desktop")
     assert computer.kind == "desktop" and computer.cpu_millis == 2000
