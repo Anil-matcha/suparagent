@@ -284,6 +284,9 @@ class SlackService:
                 agents = await agent_store.list_agents(db, self._rt.owner_id)
             config.agent_id = agents[0].id if agents else None
         await self._save(config)
+        if self._conn_state[0] == "failed":
+            # A failed client has ended for good; the same tokens would otherwise keep it.
+            await self._stop_client()
         await self.apply()
         return await self.status()
 

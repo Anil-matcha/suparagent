@@ -240,7 +240,22 @@ Slack is a chat channel, not a tool: you send a direct message to a Slack app of
 
 **What has been checked.** About 160 automated tests cover the channel layer, the Slack connection against a local WebSocket server standing in for Slack, the rules above (five of the main owner checks were each broken on purpose to confirm a test catches them), and the routes; the Settings card has frontend tests. By hand on Windows in the development app, in the owner's own Slack workspace, single runs: connecting with real tokens (Slack accepted the manifest as written), linking, a message answered (including a turn that fell back from Claude, then at its usage limit, to Codex), a formatted reply, a 6,000-character answer in several messages, and an **Allow** pressed in Slack that let the agent write a file. **Not checked**: **Deny**, answering in the app instead, `new`, the busy message, the ignore rules in Slack itself, restarting while connected, Slack revoking the tokens, the lock when several backends share a PostgreSQL database, macOS, Linux, the packaged installers and a server install.
 
-**Not built.** Files and images in either direction, channels and mentions, other people in the workspace talking to an agent, slash commands, one conversation per Slack thread, typing indicators, a routine posting to Slack, and a way to choose the agent from Slack. Discord and WhatsApp are separate and not built (WhatsApp needs a public address).
+**Not built.** Files and images in either direction, channels and mentions, other people in the workspace talking to an agent, slash commands, one conversation per Slack thread, typing indicators, a routine posting to Slack, and a way to choose the agent from Slack. Discord is a separate channel; WhatsApp needs a public address and is not built.
+
+## Discord (Settings → Integrations)
+
+Discord is an owner-only chat channel. You send a direct message to a bot you create, one chosen agent answers, and approval requests have **Allow** and **Deny** buttons. The backend connects to Discord's Gateway over an outbound WebSocket. It works only while Suparagent is running and is not offered on a hosted workspace.
+
+1. Create an application in the [Discord Developer Portal](https://discord.com/developers/applications). On its **Bot** page, copy or reset the bot token. Keep it private.
+2. Under **Installation**, check **Guild Install**. In **Default Install Settings → Guild Install**, add the `bot` scope. Use the Discord Provided Link to add the bot to a server you belong to, then open a direct message with it. Do not set an Interactions Endpoint URL: button interactions arrive over the Gateway.
+3. In **Settings → Integrations → Discord**, paste the bot token and connect. The backend checks it with Discord and stores it encrypted and write-only. Disconnect deletes it.
+4. Choose the agent, select **Link my Discord account**, and DM the bot the shown `link 123456` code. It expires after 10 minutes, works once, and five wrong attempts cancel it. Send `new` in the DM to start a fresh conversation.
+
+Only the linked Discord user in that one-to-one DM can start turns or answer approvals. Guild messages, group DMs, other users, bots and message edits are ignored. A message sent with Discord's Reply feature counts like any other. Discord's [Gateway documentation](https://docs.discord.com/developers/events/gateway#message-content-intent) exempts DMs with the app from the privileged Message Content intent; the connection requests only the standard Direct Messages intent.
+
+The agent's final answer is split into Discord-sized messages; credentials are redacted before posting and mentions are disabled on every bot message. Tool output is not posted. Approval buttons appear only when the full request fits in one message; larger requests say to open the app. A decision answered in either place updates the button message. The agent's approval mode, spending limits, engine and tools remain in force.
+
+**Verification:** Automated tests cover the HTTP requests, Gateway identify and resume payloads, encrypted storage, token validation, owner checks and routes. The Settings logic has frontend tests and type checking. The message types, the Direct Messages intent, the button acknowledgement, the close codes and the size limits used here were checked against Discord's published documentation on 2026-11-27; the address pattern of the resume connection is not documented and is settled by the live test. **Not yet checked with a live Discord bot:** installation, linking, replies, buttons, reconnect and rate limits. Files, images, guild channels, mentions, group DMs, multiple people, per-thread conversations and routine posting are not built.
 
 ## Routine-specific app access
 

@@ -5,6 +5,7 @@ import { api, type Agent } from "@/lib/api";
 import { INTEGRATIONS } from "@/lib/integrations";
 import { IntegrationPanel } from "./integrations/IntegrationPanel";
 import { SlackPanel } from "./integrations/SlackPanel";
+import { DiscordPanel } from "./integrations/DiscordPanel";
 
 // The page title and its one-line summary come from the Settings frame (lib/settings-nav.ts), so this
 // component starts straight with the integrations.
@@ -28,7 +29,9 @@ export function IntegrationsSettings() {
   return (
     <div className="space-y-5">
       {error && <p role="alert" className="text-xs text-danger">{error}</p>}
-      {agents && INTEGRATIONS.map((manifest) => manifest.kind === "channel" ? (
+      {agents && INTEGRATIONS.map((manifest) => manifest.kind === "channel" && manifest.id === "discord" ? (
+        <DiscordPanel key={manifest.id} manifest={manifest} agents={agents} />
+      ) : manifest.kind === "channel" ? (
         <SlackPanel key={manifest.id} manifest={manifest} agents={agents} />
       ) : (
         <IntegrationPanel

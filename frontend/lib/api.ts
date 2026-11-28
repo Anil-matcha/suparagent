@@ -1,4 +1,5 @@
 import type { SlackLinkCode, SlackStatus } from "./slack";
+import type { DiscordLinkCode, DiscordStatus } from "./discord";
 import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview, SkillLearnSource } from "./skills";
 import type { SpendLimits, SpendLimitsChange, SpendOverview, WorkerSpend } from "./spend";
 import type { HireReceipt, LatestSuggestion, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
@@ -1365,6 +1366,13 @@ export const api = {
   setSlackAgent: (agentId: number) =>
     request<SlackStatus>("/integrations/slack/agent", { method: "PUT", body: JSON.stringify({ agent_id: agentId }) }),
   deleteSlackIntegration: () => request<void>("/integrations/slack", { method: "DELETE" }),
+  getDiscordIntegration: () => request<DiscordStatus>("/integrations/discord"),
+  saveDiscordIntegration: (botToken: string) =>
+    request<DiscordStatus>("/integrations/discord/credentials", { method: "PUT", body: JSON.stringify({ bot_token: botToken }) }),
+  createDiscordLinkCode: () => request<DiscordLinkCode>("/integrations/discord/link-code", { method: "POST" }),
+  setDiscordAgent: (agentId: number) =>
+    request<DiscordStatus>("/integrations/discord/agent", { method: "PUT", body: JSON.stringify({ agent_id: agentId }) }),
+  deleteDiscordIntegration: () => request<void>("/integrations/discord", { method: "DELETE" }),
   // Owner-added custom MCP servers. Secrets are write-only: no route ever returns one.
   listCustomMcp: () => request<CustomMcpConnection[]>("/integrations/custom-mcp/connections"),
   createCustomMcp: (draft: CustomMcpDraft) =>

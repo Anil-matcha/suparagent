@@ -56,8 +56,8 @@ test("the connection texts name the integration", () => {
   }
 });
 
-test("Slack is the one channel and the page draws it with its own panel", () => {
-  assert.deepEqual(CHANNELS.map((item) => item.id), ["slack"]);
+test("Slack and Discord have separate channel panels", () => {
+  assert.deepEqual(CHANNELS.map((item) => item.id), ["slack", "discord"]);
   assert.deepEqual(TOOLS.map((item) => item.id), ["muapi"]);
 });
 

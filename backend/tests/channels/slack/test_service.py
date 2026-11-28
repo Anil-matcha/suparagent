@@ -218,6 +218,14 @@ async def test_reconnecting_the_same_app_keeps_the_link_and_a_different_one_drop
     assert changed["linked"] is False and changed["team"] == "Other"
 
 
+async def test_connecting_again_after_a_failure_starts_a_new_connection_even_with_the_same_tokens(world):
+    await world.service.connect(BOT, APP)
+    world.clients[0].on_status("failed", "token_revoked")
+    status = await world.service.connect(BOT, APP)
+    assert len(world.clients) == 2 and world.clients[0].stopped and world.clients[1].started
+    assert status["state"] == "connecting"
+
+
 async def test_disconnect_forgets_everything_and_stops(world):
     await world.linked()
     await world.service.disconnect()
