@@ -196,6 +196,24 @@ async def test_export_has_no_secret_and_import_is_paused(api, agent):
     assert routine["paused"] is True and routine["webhook_enabled"] is False
 
 
+async def test_batch_import_is_atomic_on_invalid_document(api, agent):
+    created = await make(api, agent)
+    document = (await api.get(f"/api/v1/routines/{created['id']}/export")).json()
+    before = (await api.get("/api/v1/routines")).json()
+    response = await api.post("/api/v1/routines/import", json={
+        "agent_id": agent.id, "documents": [document, {"kind": "invalid"}],
+    })
+    assert response.status_code == 422
+    assert (await api.get("/api/v1/routines")).json() == before
+
+    response = await api.post("/api/v1/routines/import", json={
+        "agent_id": agent.id, "documents": [document, document],
+    })
+    assert response.status_code == 201
+    assert len(response.json()) == 2
+    assert all(r["paused"] for r in response.json())
+
+
 # --- webhooks ------------------------------------------------------------------------------------
 
 
